@@ -17,6 +17,8 @@ harness/work-logs/*.md
 # OS
 .DS_Store
 Thumbs.db
+# WSL: Windows から持ち込まれたファイルに付く NTFS 代替データストリーム
+*:Zone.Identifier
 
 # IDE
 .idea/
