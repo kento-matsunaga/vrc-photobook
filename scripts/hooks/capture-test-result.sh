@@ -1,10 +1,49 @@
 #!/bin/bash
 # capture-test-result.sh — テスト失敗を自動検知して failure-log に記録する
-# Usage: capture-test-result.sh "$EXIT_CODE" "$COMMAND" "$OUTPUT"
+# Input: Claude Code PostToolUse(Bash) hook JSON via stdin, or positional args for manual use
 
-EXIT_CODE="$1"
-COMMAND="$2"
-OUTPUT="$3"
+EXIT_CODE=""
+COMMAND=""
+OUTPUT=""
+
+# Claude Code フックは JSON を stdin 経由で渡す
+if [ ! -t 0 ]; then
+    INPUT=$(cat)
+    if [ -n "$INPUT" ]; then
+        PARSED=""
+        if command -v jq >/dev/null 2>&1; then
+            PARSED=$(echo "$INPUT" | jq -r '[.tool_input.command // "", .tool_response.stdout // "", .tool_response.stderr // "", (.tool_response.exit_code // "" | tostring)] | @tsv' 2>/dev/null)
+        elif command -v python3 >/dev/null 2>&1; then
+            PARSED=$(echo "$INPUT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ti = d.get("tool_input", {})
+tr = d.get("tool_response", {})
+ec = tr.get("exit_code", "")
+print("\t".join([ti.get("command",""), tr.get("stdout",""), tr.get("stderr",""), str(ec) if ec != "" else ""]))
+' 2>/dev/null)
+        fi
+        if [ -n "$PARSED" ]; then
+            IFS=$'\t' read -r COMMAND STDOUT STDERR EXIT_CODE <<< "$PARSED"
+            OUTPUT="${STDOUT}${STDERR:+
+${STDERR}}"
+            # exit_code が取れなければ stderr 有無で推定
+            if [ -z "$EXIT_CODE" ]; then
+                if [ -n "$STDERR" ]; then
+                    EXIT_CODE="1"
+                else
+                    EXIT_CODE="0"
+                fi
+            fi
+        fi
+    fi
+fi
+
+# 手動実行用フォールバック
+[ -z "$EXIT_CODE" ] && EXIT_CODE="$1"
+[ -z "$COMMAND" ] && COMMAND="$2"
+[ -z "$OUTPUT" ] && OUTPUT="$3"
+
 FAILURE_LOG_DIR="harness/failure-log"
 DATE=$(date +%Y-%m-%d_%H%M%S)
 
