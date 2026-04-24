@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>VRC PhotoBook — MVP Prototype</title>
+<link rel="stylesheet" href="styles.css?v=3"/>
+<link rel="stylesheet" href="pc-styles.css?v=1"/>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #F5F7FA; overflow: hidden; color: #0F172A; }
+  #root { width: 100vw; height: 100vh; }
+  /* Make the artboard background match our dark canvas */
+  body { font-family: "Hiragino Sans", "Noto Sans JP", -apple-system, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="ios-frame.jsx?v=3"></script>
+<script type="text/babel" src="design-canvas.jsx?v=3"></script>
+<script type="text/babel" src="shared.jsx?v=3"></script>
+<script type="text/babel" src="screens-a.jsx?v=3"></script>
+<script type="text/babel" src="screens-b.jsx?v=3"></script>
+<script type="text/babel" src="pc-shared.jsx?v=1"></script>
+<script type="text/babel" src="pc-screens-a.jsx?v=1"></script>
+<script type="text/babel" src="pc-screens-b.jsx?v=1"></script>
+
+<script type="text/babel">
+const W = 390, H = 844;
+
+function Device({ children, screenId }) {
+  return (
+    <div data-screen-label={screenId} style={{ padding: 6 }}>
+      <IOSDevice width={W} height={H}>
+        <div style={{ height: '100%', width: '100%' }}>{children}</div>
+      </IOSDevice>
+    </div>
+  );
+}
+
+function Screen({ Comp, screenId }) {
+  // Each artboard maintains its own internal nav stack so users can test flows in isolation
+  const [cur, setCur] = React.useState(screenId);
+  const go = (next) => setCur(next);
+  const screens = { lp: LP, create: CreateStart, edit: Edit, publish: PublishSettings, complete: Complete, viewer: Viewer, manage: Manage, report: Report };
+  const Current = screens[cur] || Comp;
+  return (
+    <Device screenId={cur}>
+      <Current go={go}/>
+    </Device>
+  );
+}
+
+// PC artboard — 1280x820 browser-sized
+const PW = 1280, PH = 820;
+function PCFrame({ Comp, screenId }) {
+  const [cur, setCur] = React.useState(screenId);
+  const screens = {
+    'pc-lp': PCLP, 'pc-create': PCCreateStart, 'pc-edit': PCEdit,
+    'pc-publish': PCPublishSettings, 'pc-complete': PCComplete,
+    'pc-viewer': PCViewer, 'pc-manage': PCManage, 'pc-report': PCReport,
+  };
+  const Current = screens[cur] || Comp;
+  return (
+    <div data-screen-label={cur} style={{ width: PW, height: PH, background:'#E2E8F0', overflow:'hidden' }}>
+      <Current go={setCur}/>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="pc-flow" title="PC版 — メイン作成フロー" subtitle="LP → 作成開始 → 編集 → 公開設定 → 公開完了(ブラウザ版)">
+        <DCArtboard id="pc-lp" label="PC01 · LP / トップ" width={PW} height={PH}>
+          <PCFrame Comp={PCLP} screenId="pc-lp"/>
+        </DCArtboard>
+        <DCArtboard id="pc-create" label="PC02 · 作成開始" width={PW} height={PH}>
+          <PCFrame Comp={PCCreateStart} screenId="pc-create"/>
+        </DCArtboard>
+        <DCArtboard id="pc-edit" label="PC03 · 編集" width={PW} height={PH}>
+          <PCFrame Comp={PCEdit} screenId="pc-edit"/>
+        </DCArtboard>
+        <DCArtboard id="pc-publish" label="PC04 · 公開設定" width={PW} height={PH}>
+          <PCFrame Comp={PCPublishSettings} screenId="pc-publish"/>
+        </DCArtboard>
+        <DCArtboard id="pc-complete" label="PC05 · 公開完了" width={PW} height={PH}>
+          <PCFrame Comp={PCComplete} screenId="pc-complete"/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="pc-view" title="PC版 — 閲覧・管理・通報" subtitle="フォトブック閲覧 / 管理 / 通報(ブラウザ版)">
+        <DCArtboard id="pc-viewer" label="PC06 · 閲覧ページ" width={PW} height={PH}>
+          <PCFrame Comp={PCViewer} screenId="pc-viewer"/>
+        </DCArtboard>
+        <DCArtboard id="pc-manage" label="PC07 · 管理ページ" width={PW} height={PH}>
+          <PCFrame Comp={PCManage} screenId="pc-manage"/>
+        </DCArtboard>
+        <DCArtboard id="pc-report" label="PC08 · 通報ページ" width={PW} height={PH}>
+          <PCFrame Comp={PCReport} screenId="pc-report"/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="flow-main" title="モバイル版 — メイン作成フロー" subtitle="LP → 作成開始 → 編集 → 公開設定 → 公開完了">
+        <DCArtboard id="lp" label="01 · LP / トップ" width={W+12} height={H+12}>
+          <Screen Comp={LP} screenId="lp"/>
+        </DCArtboard>
+        <DCArtboard id="create" label="02 · 作成開始" width={W+12} height={H+12}>
+          <Screen Comp={CreateStart} screenId="create"/>
+        </DCArtboard>
+        <DCArtboard id="edit" label="03 · 編集" width={W+12} height={H+12}>
+          <Screen Comp={Edit} screenId="edit"/>
+        </DCArtboard>
+        <DCArtboard id="publish" label="04 · 公開設定" width={W+12} height={H+12}>
+          <Screen Comp={PublishSettings} screenId="publish"/>
+        </DCArtboard>
+        <DCArtboard id="complete" label="05 · 公開完了" width={W+12} height={H+12}>
+          <Screen Comp={Complete} screenId="complete"/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="flow-view" title="モバイル版 — 閲覧・管理・通報" subtitle="フォトブック閲覧 / 管理URL / 通報">
+        <DCArtboard id="viewer" label="06 · 閲覧ページ" width={W+12} height={H+12}>
+          <Screen Comp={Viewer} screenId="viewer"/>
+        </DCArtboard>
+        <DCArtboard id="manage" label="07 · 管理ページ" width={W+12} height={H+12}>
+          <Screen Comp={Manage} screenId="manage"/>
+        </DCArtboard>
+        <DCArtboard id="report" label="08 · 通報ページ" width={W+12} height={H+12}>
+          <Screen Comp={Report} screenId="report"/>
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
