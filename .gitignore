@@ -1,0 +1,33 @@
+# ローカル専用ファイル
+/tmp/
+*.plan.md
+PLAN.md
+TASKS.md
+
+# ハーネスの一時ファイル（failure-logの中身はローカルで生成されるもの）
+harness/failure-log/*.md
+harness/work-logs/*.md
+!harness/failure-log/.gitkeep
+!harness/work-logs/.gitkeep
+
+# フック追跡用一時ファイル
+/tmp/ai-driven-edited-files.txt
+/tmp/ai-driven-quality-state/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code ローカル設定（settings.local.json はローカル固有）
+.claude/settings.local.json
+
+# failure-to-rule.sh で生成されるローカルルール（レビュー前）
+# ※ レビュー後にgit addする運用
+__pycache__/
+*.pyc

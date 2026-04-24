@@ -1,0 +1,119 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+  actions: read
+
+jobs:
+  review:
+    # トリガー条件:
+    # 1. PR open/ready_for_review（ドラフト除外）
+    # 2. PRコメントで @claude review / @claude deepreview / @claude レビュー
+    if: |
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude') &&
+       (contains(github.event.comment.body, 'review') ||
+        contains(github.event.comment.body, 'deepreview') ||
+        contains(github.event.comment.body, 'レビュー')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: PR情報の取得
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            PR_NUMBER="${{ github.event.issue.number }}"
+          fi
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+          # ベースブランチとHEADの取得
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefOid)
+          BASE_BRANCH=$(echo "$PR_DATA" | jq -r '.baseRefName')
+          HEAD_SHA=$(echo "$PR_DATA" | jq -r '.headRefOid')
+          echo "base_branch=${BASE_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Merge-base計算（GitHub API経由で正確に）
+          COMPARE=$(gh api "repos/${{ github.repository }}/compare/${BASE_BRANCH}...${HEAD_SHA}" --jq '.merge_base_commit.sha')
+          echo "merge_base=${COMPARE}" >> "$GITHUB_OUTPUT"
+
+      - name: レビュープロンプト選択
+        id: prompt
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          if echo "$COMMENT" | grep -qi "deepreview"; then
+            PROMPT_FILE=".github/workflows/claude-review/code-review-prompt-comprehensive.md"
+          else
+            PROMPT_FILE=".github/workflows/claude-review/code-review-prompt.md"
+          fi
+          echo "file=${PROMPT_FILE}" >> "$GITHUB_OUTPUT"
+
+          # プロンプト内容を読み込み
+          PROMPT=$(cat "$PROMPT_FILE")
+          # PR情報を埋め込み
+          PROMPT=$(echo "$PROMPT" | sed "s|\${PR_NUMBER}|${{ steps.pr-info.outputs.pr_number }}|g")
+          PROMPT=$(echo "$PROMPT" | sed "s|\${BASE_BRANCH}|${{ steps.pr-info.outputs.base_branch }}|g")
+          PROMPT=$(echo "$PROMPT" | sed "s|\${MERGE_BASE}|${{ steps.pr-info.outputs.merge_base }}|g")
+          PROMPT=$(echo "$PROMPT" | sed "s|\${HEAD_SHA}|${{ steps.pr-info.outputs.head_sha }}|g")
+
+          # マルチライン出力
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "content<<$EOF" >> "$GITHUB_OUTPUT"
+          echo "$PROMPT" >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+
+      # MCP設定（オプション: secrets.MCP_CONFIG が設定されている場合のみ）
+      - name: MCP設定の作成
+        if: ${{ secrets.MCP_CONFIG != '' }}
+        run: |
+          echo '${{ secrets.MCP_CONFIG }}' > /tmp/mcp-config.json
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: ${{ vars.CLAUDE_ACTION_MODEL_REVIEW || 'claude-sonnet-4-5-20250929' }}
+          direct_prompt: ${{ steps.prompt.outputs.content }}
+          allowed_tools: |
+            Read
+            Glob
+            Grep
+            WebFetch
+            WebSearch
+            Bash(cat:*)
+            Bash(find:*)
+            Bash(grep:*)
+            Bash(head:*)
+            Bash(ls:*)
+            Bash(rg:*)
+            Bash(tail:*)
+            Bash(wc:*)
+            Bash(git diff:*)
+            Bash(git log:*)
+            Bash(git show:*)
+            Bash(gh pr review:*)
+            Bash(gh pr comment:*)
+            Bash(gh pr diff:*)
+            Bash(gh pr view:*)
+          timeout_minutes: 25
+          # track_progress: true

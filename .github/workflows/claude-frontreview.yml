@@ -1,0 +1,99 @@
+name: Claude Frontend PR Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+    paths:
+      - 'frontend/**'
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+  actions: read
+
+jobs:
+  frontreview:
+    # トリガー条件:
+    # 1. frontend/** のみ変更のPR open/ready_for_review
+    # 2. PRコメントで @claude frontreview
+    if: |
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude') &&
+       contains(github.event.comment.body, 'frontreview'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: PR情報の取得
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            PR_NUMBER="${{ github.event.issue.number }}"
+          fi
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefOid)
+          BASE_BRANCH=$(echo "$PR_DATA" | jq -r '.baseRefName')
+          HEAD_SHA=$(echo "$PR_DATA" | jq -r '.headRefOid')
+          echo "base_branch=${BASE_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+          COMPARE=$(gh api "repos/${{ github.repository }}/compare/${BASE_BRANCH}...${HEAD_SHA}" --jq '.merge_base_commit.sha')
+          echo "merge_base=${COMPARE}" >> "$GITHUB_OUTPUT"
+
+      - name: レビュープロンプト読み込み
+        id: prompt
+        run: |
+          PROMPT=$(cat .github/workflows/claude-review/code-review-prompt-frontend-only.md)
+          PROMPT=$(echo "$PROMPT" | sed "s|\${PR_NUMBER}|${{ steps.pr-info.outputs.pr_number }}|g")
+          PROMPT=$(echo "$PROMPT" | sed "s|\${BASE_BRANCH}|${{ steps.pr-info.outputs.base_branch }}|g")
+          PROMPT=$(echo "$PROMPT" | sed "s|\${MERGE_BASE}|${{ steps.pr-info.outputs.merge_base }}|g")
+          PROMPT=$(echo "$PROMPT" | sed "s|\${HEAD_SHA}|${{ steps.pr-info.outputs.head_sha }}|g")
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "content<<$EOF" >> "$GITHUB_OUTPUT"
+          echo "$PROMPT" >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Claude Frontend Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: ${{ vars.CLAUDE_ACTION_MODEL_FRONTREVIEW || 'claude-sonnet-4-5-20250929' }}
+          direct_prompt: ${{ steps.prompt.outputs.content }}
+          allowed_tools: |
+            Read
+            Glob
+            Grep
+            WebFetch
+            WebSearch
+            Bash(cat:*)
+            Bash(find:*)
+            Bash(grep:*)
+            Bash(head:*)
+            Bash(ls:*)
+            Bash(rg:*)
+            Bash(tail:*)
+            Bash(wc:*)
+            Bash(git diff:*)
+            Bash(git log:*)
+            Bash(git show:*)
+            Bash(gh pr review:*)
+            Bash(gh pr comment:*)
+            Bash(gh pr diff:*)
+            Bash(gh pr view:*)
+          timeout_minutes: 25

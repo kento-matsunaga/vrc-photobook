@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "description": "変更ファイル追跡 — テスト未実行検知用",
+        "command": "bash scripts/hooks/track-edit.sh \"$FILEPATH\"",
+        "timeout": 5000
+      },
+      {
+        "description": "品質チェック — 変更ファイル追跡 (build/lint/test)",
+        "command": "python3 scripts/hooks/quality-check/track-quality-edits.py",
+        "timeout": 5000
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "description": "テスト失敗キャプチャ — failure-log自動記録",
+        "command": "bash scripts/hooks/capture-test-result.sh \"$EXIT_CODE\" \"$COMMAND\" \"$OUTPUT\"",
+        "timeout": 10000
+      },
+      {
+        "description": "品質チェック — ビルド/lint/テスト実行検知",
+        "command": "python3 scripts/hooks/quality-check/track-quality-execution.py",
+        "timeout": 10000
+      }
+    ],
+    "stop": [
+      {
+        "description": "テスト未実行リマインダー — 変更ファイルのテスト実行確認",
+        "command": "bash scripts/hooks/check-untested.sh",
+        "timeout": 5000
+      },
+      {
+        "description": "品質チェック — 未完了パイプラインリマインダー",
+        "command": "python3 scripts/hooks/quality-check/stop-quality-check.py",
+        "timeout": 5000
+      }
+    ]
+  }
+}
