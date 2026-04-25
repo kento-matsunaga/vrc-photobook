@@ -1,0 +1,22 @@
+# Build outputs
+/bin/
+*.exe
+
+# Test artefacts
+coverage.out
+*.test
+
+# Env（Secret を含む可能性があるため絶対にコミットしない）
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
