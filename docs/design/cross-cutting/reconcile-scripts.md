@@ -23,11 +23,26 @@ v4 では以下の不整合を許容しない運用とする。
 
 ## 2. 設計原則
 
-### 2.1 責務分割
+### 2.1 責務分割 <!-- 付録C P0-30, P0-31 -->
 
 - **巨大な1本にしない**。責務ごとに独立したスクリプトに分ける
 - スクリプト間の相互依存を最小化
 - 単独で `--dry-run` 実行できる
+
+#### 自動 reconciler と 手動 scripts/ops/reconcile の 2 系統
+
+付録C P0-30 / P0-31 に従い、Reconcile を 2 系統に分ける（v4 §6.16）:
+
+| 系統 | 起動方法 | 対象 | 責務 |
+|------|---------|------|------|
+| **自動 reconciler**（付録C P0-30） | cron 起動（Cloud Run Jobs スケジューラ等、U11） | `draft_expired` / `outbox_failed_retry` / `stale_ogp_enqueue` / `delivery_expired_to_permanent` | 期限切れ・失敗 retry・OGP stale 検出など、**ルーチン的な定期メンテナンス** |
+| **手動 `scripts/ops/reconcile/`**（付録C P0-31） | 運営判断で実行（cmd/ops 経由、ADR-0002） | `image_references.sh` / `photobook_image_integrity.sh` / `cdn_cache_force_purge.sh` / `outbox_failed.sh` / `ogp_stale.sh` / `draft_expired.sh` | アラート対応・整合性監査・CDN 強制パージなど、**判断を伴う対応** |
+
+**重要**:
+- **既存の `*.sh` スクリプトはすべて手動枠**（運営が判断して実行）
+- 自動 reconciler は **別レイヤー**（cron + バイナリ常駐 / Cloud Run Jobs）として実装し、本ファイル §3 の自動 reconciler 節で責務を定義
+- 同名（`draft_expired` 等）でも、自動 reconciler は無人実行向けの「期限切れ検出 → Outbox enqueue or 連鎖削除」、手動スクリプトは「運営による状態確認 + 必要時の手動 GC」と責務が異なる
+- 全手動スクリプトは `--dry-run` をデフォルトとする（ADR-0002）
 
 ### 2.2 共通オプション
 
@@ -61,6 +76,26 @@ MVP では shell スクリプトでラップし、内部でアプリケーショ
 ---
 
 ## 3. 各スクリプト
+
+> **§3.0〜§3.6 は手動 `scripts/ops/reconcile/` 系統**（付録C P0-31、運営判断で実行）。
+> **§3.7 は自動 reconciler 系統**（付録C P0-30、cron 起動、無人実行）。
+
+### 3.0 各スクリプトの系統一覧 <!-- 付録C P0-30, P0-31 -->
+
+| スクリプト / reconciler | 系統 | 起動 | 責務 |
+|-----------------------|------|------|------|
+| `image_references.sh` | 手動 | 運営判断 | 孤児 Image の検出と修復 |
+| `outbox_failed.sh` | 手動 | アラート対応 | failed Outbox の手動再投入 |
+| `ogp_stale.sh` | 手動 | 運営判断 | stale OGP の手動再生成 |
+| `draft_expired.sh` | 手動 | 運営判断 | 期限切れ draft の手動 GC |
+| `photobook_image_integrity.sh` | 手動 | 整合性監査 | Photobook と Image の参照整合性検査 |
+| `cdn_cache_force_purge.sh` | 手動 | 個別対応 | CDN キャッシュ強制パージ |
+| `draft_expired`（auto） | 自動 | cron | 期限切れ draft の Outbox enqueue（連鎖削除を起動） |
+| `outbox_failed_retry`（auto） | 自動 | cron | failed Outbox の retry 再投入 |
+| `stale_ogp_enqueue`（auto） | 自動 | cron | stale OGP の再生成キューイング |
+| `delivery_expired_to_permanent`（auto） | 自動 | cron | failed_retryable + expire_at 到達で failed_permanent 確定 |
+
+
 
 ### 3.1 `image_references.sh`
 
@@ -219,18 +254,70 @@ MVP では shell スクリプトでラップし、内部でアプリケーショ
 
 ---
 
-## 4. 実行スケジュール（推奨）
+### 3.7 自動 reconciler（cron 起動、付録C P0-30） <!-- 付録C P0-30 -->
+
+自動 reconciler は **cron で無人起動**される定期メンテナンス処理。実装は専用バイナリ（`cmd/reconciler` 想定）または Cloud Run Jobs スケジューラで構築する（U11、ADR-0001 の M1 スパイク結果に依存）。
+
+#### 3.7.1 `draft_expired`（auto）
+
+- **目的**: `draft_expires_at < now()` の draft Photobook を検出し、削除フローへ載せる
+- **動作**: `outbox_events` に `PhotobookSoftDeleted` 相当を enqueue（または直接 Photobook 集約の `softDelete()` を呼ぶ、実装判断）
+- **頻度**: 1 時間に 1 回 程度（運用調整）
+- **手動版との違い**: 手動 `draft_expired.sh` は運営が件数確認後に GC 実行、自動版は閾値以下の件数を黙々と処理する
+- **整合性**: 運営が手動でも自動でも同じ集約メソッドを呼ぶため、結果は一致 (参照: v4 §6.16)
+
+#### 3.7.2 `outbox_failed_retry`（auto）
+
+- **目的**: `outbox_events` の `failed` 件数のうち、`retry_count` がしきい値以下のものを `pending` に戻す
+- **動作**: `failed → pending` UPDATE、`next_retry_at = now()` セット、`retry_count` を維持
+- **頻度**: 5 分に 1 回 程度
+- **手動版との違い**: 手動 `outbox_failed.sh` は運営がアラート受信後に判断して特定イベントを再投入、自動版は無条件再投入（ただし retry_count しきい値で打ち切り） (参照: v4 §6.16)
+
+#### 3.7.3 `stale_ogp_enqueue`（auto）
+
+- **目的**: `photobook_ogp_images.status='stale'` の行を検出し、再生成キューを起動
+- **動作**: `outbox_events` に `PhotobookUpdated` 相当（または OGP 専用イベント）を enqueue
+- **頻度**: 30 分に 1 回 程度
+- **手動版との違い**: 手動 `ogp_stale.sh` は運営が個別に再生成、自動版は stale 検出 → 即時 enqueue (参照: OGP 設計書 §9 / v4 §6.16)
+
+#### 3.7.4 `delivery_expired_to_permanent`（auto）
+
+- **目的**: `manage_url_deliveries.status='failed_retryable'` で `expire_at` 到達したものを `failed_permanent` に確定
+- **動作**: status を `failed_permanent` に UPDATE、`failure_reason='expired_during_retry'` を記録（v4 P1-7）
+- **頻度**: 1 時間に 1 回 程度
+- **手動版**: なし（自動のみ） (参照: ManageUrlDelivery ドメイン §6.2 / 同 §13.3)
+
+#### 3.7.5 自動 reconciler の起動基盤（U11）
+
+- **MVP 基本案**: Cloud Run Jobs + Cloud Scheduler（ADR-0001 の Cloud Run 第一候補方針と整合）
+- **代替**: GitHub Actions cron / 専用 worker（VPS 常駐）
+- **M1 スパイクで確定**: Cloudflare Pages との Webhook 連携 / Cloud Scheduler の信頼性 / 多重起動防止（distributed lock の必要性）
+- 起動結果は `harness/work-logs/` に記録（§6 監査ログと同方針）
+
+#### 3.7.6 自動 reconciler の安全装置
+
+- 各 reconciler に `--max-batch-size`（1 回の実行で処理する最大件数）を持たせる
+- 実行間隔より処理時間が長くなる場合の多重起動防止（DB advisory lock or Job スケジューラ側の排他制御）
+- 例外発生時は監視アラート発火（§5 アラート連携）
+
+---
+
+## 4. 実行スケジュール（推奨） <!-- 付録C P0-30, P0-31 -->
 
 MVP 運用では以下の頻度で実行する想定。
 
-| スクリプト | 頻度 | 備考 |
-|-----------|------|------|
-| `image_references.sh` | 日次 | 孤児画像の蓄積を防ぐ |
-| `outbox_failed.sh` | 手動 | アラートが出たとき |
-| `ogp_stale.sh` | 日次 | 更新追従 |
-| `draft_expired.sh` | 日次 | ストレージ節約 |
-| `photobook_image_integrity.sh` | 週次 | 整合性監査 |
-| `cdn_cache_force_purge.sh` | 手動 | 個別対応 |
+| スクリプト / reconciler | 系統 | 頻度 | 備考 |
+|-----------------------|------|------|------|
+| `image_references.sh` | 手動 | 日次（運営判断） | 孤児画像の蓄積を防ぐ。重大時は手動で複数回 |
+| `outbox_failed.sh` | 手動 | 手動 | アラートが出たとき。特定イベントを再投入 |
+| `ogp_stale.sh` | 手動 | 日次（運営判断） | 更新追従。自動 `stale_ogp_enqueue` が拾わないものを補完 |
+| `draft_expired.sh` | 手動 | 日次（運営判断） | ストレージ節約。自動 reconciler が拾わないものを補完 |
+| `photobook_image_integrity.sh` | 手動 | 週次 | 整合性監査 |
+| `cdn_cache_force_purge.sh` | 手動 | 手動 | 個別対応 |
+| `draft_expired`（auto） | 自動 | 1 時間 / 回 | 期限切れ Photobook を Outbox 経由で連鎖削除 |
+| `outbox_failed_retry`（auto） | 自動 | 5 分 / 回 | failed → pending 再投入 |
+| `stale_ogp_enqueue`（auto） | 自動 | 30 分 / 回 | stale OGP 再生成キューイング |
+| `delivery_expired_to_permanent`（auto） | 自動 | 1 時間 / 回 | failed_retryable → failed_permanent 確定（v4 P1-7） |
 
 ---
 
@@ -305,13 +392,57 @@ scripts/ops/reconcile/
 
 ---
 
-## 9. v4 業務知識との対応
+## 9. v4 業務知識・ADR・付録C との対応
 
-| v4節 | 本書項目 |
-|------|---------|
-| §2.8 Reconcile 用語 | §1, §2 |
-| §5.4 運営対応の最低限手段 | §2.3, §7 |
-| §6.11 Outbox | §3.2 `outbox_failed.sh` |
-| §6.12 Reconcile で整合性保証 | 全体 |
-| §6.14 画像の所有と削除連鎖 | §3.1, §3.5 |
-| P1-8 CDNキャッシュパージと reconcile | §3.6 |
+| 項目 | 参照先 | 本書項目 |
+|------|-------|---------|
+| §2.9 Reconcile 用語 | v4 §2.9 | §1, §2 |
+| §5.4 運営対応の最低限手段 | v4 §5.4 / ADR-0002 | §2.3, §7 |
+| §6.11 Outbox | v4 §6.11 | §3.2, §3.7.2 |
+| §6.12 Reconcile で整合性保証 | v4 §6.12 | 全体 |
+| §6.14 画像の所有と削除連鎖 | v4 §6.14 | §3.1, §3.5 |
+| §6.16 自動 reconciler / 手動 reconcile の分類 | v4 §6.16 | §2.1, §3.7, §4 <!-- 付録C P0-30, P0-31 --> |
+| 付録C P0-29 failed Outbox は reconcile 対象 | 付録C | §3.2, §3.7.2 <!-- 付録C P0-29 --> |
+| 付録C P0-30 自動 reconciler 4 種 | 付録C | §3.7.1〜§3.7.4 <!-- 付録C P0-30 --> |
+| 付録C P0-31 手動 scripts/ops/reconcile 6 種 | 付録C | §3.1〜§3.6 <!-- 付録C P0-31 --> |
+| P1-8 CDNキャッシュパージと reconcile | v3→v4 改訂 | §3.6 |
+| ADR-0002 cmd/ops + scripts/ops 経由 | ADR-0002 | §2.3, §7 |
+| ADR-0001 Cloud Run Jobs + Scheduler（U11） | ADR-0001 | §3.7.5 |
+
+---
+
+## 10. 次工程への引き継ぎ事項
+
+### 10.1 M3 マイグレーション
+
+- 自動 reconciler が触るテーブル（`photobooks`, `outbox_events`, `photobook_ogp_images`, `manage_url_deliveries` 等）はすべて既存集約 / 横断設計で migration 定義済み
+- 自動 reconciler 自体は専用テーブルを持たない（実行ログは `harness/work-logs/` のファイル運用、§6）
+
+### 10.2 M6 実装
+
+- 自動 reconciler 4 種（§3.7.1〜§3.7.4）を `cmd/reconciler/` 配下に実装
+- 手動 reconcile 6 種（§3.1〜§3.6）を `cmd/ops/reconcile/` 配下に実装、`scripts/ops/reconcile/*.sh` でラップ（ADR-0002）
+- 自動 / 手動とも UseCase（Application 層）を共有し、同じドメインメソッドを呼ぶ
+
+### 10.3 起動基盤（U11）
+
+- MVP 基本案: Cloud Run Jobs + Cloud Scheduler
+- M1 スパイクで多重起動防止 / 信頼性を検証 (参照: ADR-0001)
+- 検証結果次第で GitHub Actions cron / 専用 worker に切替
+
+### 10.4 監視
+
+- §5 アラート連携と統合
+- 自動 reconciler の処理件数、失敗件数、実行時間をメトリクス化（M6 で構築）
+
+---
+
+## 11. 未解決事項
+
+### U11: 自動 reconciler の起動基盤
+
+- **MVP 基本案**: Cloud Run Jobs + Cloud Scheduler（ADR-0001 の Cloud Run 第一候補方針と整合）
+- **比較対象として残す**: GitHub Actions cron / 専用 worker（VPS 常駐）
+- **M1 スパイクおよび ADR-0001 の検証結果により最終決定**
+- 多重起動防止（distributed lock）の要否、Cloud Scheduler の信頼性、コストを評価
+- 確定後、本ファイル §3.7.5 を更新

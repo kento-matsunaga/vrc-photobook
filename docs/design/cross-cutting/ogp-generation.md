@@ -236,9 +236,23 @@ Reconcile 実行時、以下のいずれかで `fallback` に確定：
 
 ---
 
-## 9. Reconcile 連携
+## 9. Reconcile 連携 <!-- 付録C P0-30 -->
 
-`ogp_stale.sh`（[Reconcile設計書](./reconcile-scripts.md) §3 参照）で以下を検査・修復：
+OGP の Reconcile は **2 系統**で運用する（v4 §6.16、Reconcile 設計書 §2.1）。
+
+### 9.1 自動 reconciler `stale_ogp_enqueue`（付録C P0-30）
+
+cron 起動の自動 reconciler。`status='stale'` の `photobook_ogp_images` を検出し、`outbox_events` に `PhotobookUpdated` 相当（または OGP 専用イベント）を enqueue して再生成キューを起動する。
+
+- 頻度: 30 分に 1 回 程度（Reconcile 設計書 §3.7.3）
+- 起動基盤: U11（Cloud Run Jobs + Cloud Scheduler が MVP 基本案）
+- 詳細は Reconcile 設計書 §3.7.3 を参照
+
+### 9.2 手動 `ogp_stale.sh`（付録C P0-31）
+
+運営判断による手動再生成。自動 reconciler が拾わないケース（明示的な再生成、運営による品質確認後の再投入等）に対応する。
+
+検査・修復対象（手動・自動共通）:
 
 - `photobook.updated_at > photobook_ogp_images.generated_at` で stale 化漏れ
 - `status=failed` かつ retry 対象
@@ -284,11 +298,44 @@ backend/ogp/
 
 ---
 
-## 12. v4 業務知識との対応
+## 12. v4 業務知識・ADR・付録C との対応
 
-| v4節 | 本書項目 |
-|------|---------|
-| §3.2 OGP生成失敗でも公開は成功 | §8 |
-| §3.8 X共有支援（OGPプレビュー） | §7 |
-| P0-4 OGP状態を独立テーブル管理 | §3 |
-| 付録B「OGP生成管理：photobook_ogp_images で独立管理」 | 全体 |
+| 項目 | 参照先 | 本書項目 |
+|------|-------|---------|
+| §3.2 OGP生成失敗でも公開は成功 | v4 §3.2 | §8 |
+| §3.8 X共有支援（OGPプレビュー） | v4 §3.8 | §7 |
+| §6.17 OGP の独立管理 | v4 §6.17 | 全体（§3 / §6 / §9） |
+| §6.16 自動 / 手動 reconciler 分類 | v4 §6.16 | §9.1 / §9.2 |
+| ADR-0005 storage_key 命名規則 | ADR-0005 | §6 Image 集約との連携 |
+| Image 集約 `usage_kind = 'ogp'` | Image §3, §10.2 | §6 |
+| P0-4 OGP状態を独立テーブル管理 | v3→v4 改訂 | §3 |
+| 付録B「OGP生成管理：photobook_ogp_images で独立管理」 | v3→v4 改訂 | 全体 |
+| 付録C P0-30 `stale_ogp_enqueue` 自動 reconciler | 付録C | §9.1 <!-- 付録C P0-30 --> |
+| 付録C P0-31 `ogp_stale.sh` 手動 reconcile | 付録C | §9.2 <!-- 付録C P0-31 --> |
+| Image 集約 §7 責務分離（`failure_reason` vs `ogp_failure_reason`） | Image §7.2 | §3 / §8 |
+
+---
+
+## 13. 次工程への引き継ぎ事項
+
+### 13.1 M3 マイグレーション
+
+- `photobook_ogp_images` テーブル migration（既存 §3 定義）
+- `image_id` への FK は `images.id` ON DELETE SET NULL（生成失敗時の image_id 不整合に耐えるため）
+
+### 13.2 M6 ワーカー実装
+
+- OGP 生成ワーカー: `outbox_events` の `PhotobookPublished` / `PhotobookUpdated` ハンドラから起動
+- 自動 reconciler `stale_ogp_enqueue`: cron 起動（U11）、stale 検出 → Outbox enqueue
+- 失敗時: `status='failed'` 記録、30 日経過で `fallback` 確定（§10）
+
+### 13.3 Image 集約との責務境界（既存設計、コミット済み）
+
+- 実ファイルは Image 集約（`usage_kind='ogp'`、`storage_key` は ADR-0005 命名規則）
+- 状態管理は本集約（pending/generated/failed/fallback/stale）
+- 失敗理由カラムは別語彙（Image: `failure_reason` / OGP: `ogp_failure_reason`、Image データモデル §7.2 参照）
+
+### 13.4 Photobook 集約からの参照（既存設計、コミット済み）
+
+- Photobook publish / update 時の Outbox イベントが OGP 再生成のトリガ
+- Photobook 集約は OGP 状態を直接持たず、本集約の存在を意識するのみ（v4 §6.17）

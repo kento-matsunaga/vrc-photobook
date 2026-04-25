@@ -89,6 +89,14 @@ MVPでは以下の問題を防ぐことを目的とする。
 |-----------|---------|-------|
 | `ManageUrlDeliveryRequested` | 作成者が管理URL控えメール送信を要求 | メール送信ジョブ作成 |
 
+### 4.4 Image 関連 <!-- 付録C P0-27 -->
+
+| event_type | 発火条件 | 副作用 |
+|-----------|---------|-------|
+| `ImageIngestionRequested` | upload-intent + complete 完了時、Image 状態更新と同一 TX で INSERT。image-processor に本検証・変換・variant 生成・EXIF 除去を依頼 | image-processor ワーカーがマジックナンバー検証 / 実デコード / HEIC 変換 / EXIF/XMP/IPTC 除去 / display・thumbnail・OGP variant 生成を実行。成功で Image を `available`、失敗で `failed` + `failure_reason` 記録 |
+
+(参照: v4 §2.9 / ADR-0005 / Image 集約 §11)
+
 ---
 
 ## 5. 状態遷移
@@ -166,6 +174,7 @@ handlers = {
   "PhotobookPurged":    purge_images_and_cdn,
   "ReportSubmitted":    notify_operators,
   "ManageUrlDeliveryRequested": send_mail,
+  "ImageIngestionRequested": process_image_async,    // 付録C P0-27 / ADR-0005
   ...
 }
 ```
@@ -220,7 +229,7 @@ Outbox は**集約ではなく横断コンポーネント**。以下の関係を
 | Report | ReportSubmitted | Moderationハンドラ内でReport状態更新（ただしOutboxを経由しない、同一TX） |
 | Moderation | （Moderation実行時にPhotobook/Reportの上記イベントが発生） | - |
 | ManageUrlDelivery | ManageUrlDeliveryRequested | - |
-| Image | （Photobook経由で間接的に関与、PhotobookPurged ハンドラが Image 削除） | - |
+| Image | **`ImageIngestionRequested`**（complete API 完了時、Image 状態更新と同一 TX） + （Photobook経由で間接的に関与、PhotobookPurged ハンドラが Image 削除） | image-processor ハンドラが本検証・variant 生成を実行 <!-- 付録C P0-27 --> |
 
 ---
 
@@ -249,20 +258,53 @@ backend/outbox/
     │   ├── photobook_updated.go
     │   ├── photobook_purged.go
     │   ├── report_submitted.go
-    │   └── manage_url_delivery_requested.go
+    │   ├── manage_url_delivery_requested.go
+    │   └── image_ingestion_requested.go    # 付録C P0-27 / ADR-0005
     └── worker/
         └── outbox_worker.go           # ワーカー本体
 ```
 
 ---
 
-## 12. v4 業務知識との対応
+## 12. v4 業務知識・ADR・付録C との対応
 
-| v4節 | 本書項目 |
-|------|---------|
-| §2.8 Outbox / Reconcile 用語 | §1 目的, §11 |
-| §6.11 集約間イベントは Outbox で伝搬 | §2 基本ルール |
-| §6.12 整合性は Reconcile で保証 | §10 Reconcile連携 |
-| P0-13 outbox_events をMVPから追加 | 全体 |
-| P0-15 outbox イベント種別の列挙 | §4 |
-| P0-5 Moderation と Report と Outbox の同一トランザクション | §2 基本ルール, §10 |
+| 項目 | 参照先 | 本書項目 |
+|------|-------|---------|
+| §2.9 Outbox / Reconcile 用語 | v4 §2.9 | §1 目的, §11 |
+| §6.11 集約間イベントは Outbox で伝搬 | v4 §6.11 | §2 基本ルール |
+| §6.12 整合性は Reconcile で保証 | v4 §6.12 | §10 他集約境界 / Reconcile 連携 |
+| P0-13 outbox_events をMVPから追加 | v3→v4 改訂 | 全体 |
+| P0-15 outbox イベント種別の列挙 | v3→v4 改訂 | §4 |
+| P0-5 Moderation と Report と Outbox の同一トランザクション | v3→v4 改訂 | §2 基本ルール, §10 |
+| 付録C P0-27 `ImageIngestionRequested` を outbox_events に含める | 付録C | §4.4, §6.2, §10 <!-- 付録C P0-27 --> |
+| 付録C P0-28 状態変更と同一 TX で INSERT | 付録C | §2 基本ルール <!-- 付録C P0-28 --> |
+| 付録C P0-29 failed Outbox は reconcile 対象 | 付録C | §1, §5 状態遷移, §6.3, §9 監視 <!-- 付録C P0-29 --> |
+| ADR-0005 R2 presigned upload + 非同期処理 | ADR-0005 | §4.4 ImageIngestionRequested |
+
+---
+
+## 13. 次工程への引き継ぎ事項
+
+本横断設計の P0 反映を後続作業に渡すための申し送り。
+
+### 13.1 M3 マイグレーション
+
+- `outbox_events` テーブル migration（goose）
+- 索引（§3.2）、status CHECK 制約
+
+### 13.2 M4 各 UseCase の同一 TX INSERT 責務
+
+- Photobook 集約 8 種 / Report / ManageUrlDelivery / Image（complete API） すべての UseCase で同一 TX INSERT を担保 <!-- 付録C P0-28 -->
+- Repository インターフェイスに `EnqueueOutbox(tx, event)` を持たせる（実装は各集約 ApplicationService 経由）
+
+### 13.3 M6 ワーカー実装
+
+- `outbox-dispatcher` 常駐ワーカー
+- イベント別ハンドラ実装（§6.2 ルーティング表）
+- **`image_ingestion_requested.go` ハンドラ**: image-processor 連携（HEIC 変換 / EXIF 除去 / variant 生成）<!-- 付録C P0-27 -->
+- 失敗時のリトライ・`failed` 遷移
+- failed Outbox は `outbox_failed_retry` 自動 reconciler が拾う <!-- 付録C P0-29, P0-30 -->
+
+### 13.4 集約からの Outbox 連携 セクション
+
+各集約のドメイン設計内に Outbox 連携記述があり、本書はそれらの正本となる。集約からの参照先は本ファイル（`docs/design/cross-cutting/outbox.md`）に揃える。
