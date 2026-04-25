@@ -75,6 +75,12 @@ func main() {
 		logger.Info("CORS allowed origins configured", "count", len(cfg.AllowedOrigins))
 	}
 
+	// /health は Cloud Run / 本番監視 / startup probe / liveness probe 用の正式パス。
+	// /healthz は Cloud Run 上で Google Frontend が intercept して 404 を返す事象が
+	// 確認されたため、Cloud Run では /health を正式採用する
+	// （`harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md`）。
+	// /healthz はローカル PoC / 既存 README との互換のため残す。
+	r.Get("/health", health.Healthz)
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz(pool))
 	r.Get("/sandbox/db-ping", sandbox.DBPing(pool))

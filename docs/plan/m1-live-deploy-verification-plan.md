@@ -311,11 +311,14 @@ ALLOWED_ORIGINS=ALLOWED_ORIGINS:latest
 
 ### Step 6. Backend ヘルスチェック
 
-- `curl https://vrcpb-spike-api-xxx.run.app/healthz` → 200
-- `/readyz` → 200（DB 接続確認）
+> **重要（2026-04-26 実機検証で判明）**: Cloud Run 上では小文字 `/healthz` が **Google Frontend に intercept** され Backend に届かず HTML 404 を返す（`harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md`）。Cloud Run / 本番監視 / startup probe / liveness probe では **`/health` を正式採用**する。`/healthz` はローカル PoC / 既存 README 互換のため Backend に並存登録するが、Cloud Run 上では使わない。
+
+- `curl https://vrcpb-spike-api-xxx.run.app/health` → **200**（Cloud Run 公式ヘルスチェック）
+- `curl https://vrcpb-spike-api-xxx.run.app/healthz` → **Cloud Run 上では 404 (GFE intercept)**、ローカルでは 200（互換維持）
+- `/readyz` → DB 接続有無に応じ 200 / 503 `db_not_configured`
 - `/sandbox/r2-headbucket` → 200（R2 接続確認）
 - `/sandbox/r2-list` → 200
-- `/sandbox/turnstile/verify`（mock または always-pass で）→ 200
+- `/sandbox/turnstile/verify`（mock または always-pass で）→ 200（DB 必須のため Step B 以降）
 
 ### Step 7. Frontend PoC を Cloudflare Workers へデプロイ
 
@@ -567,7 +570,7 @@ ADR-0003 §13 未解決事項 U2「Frontend = `*.workers.dev` / Backend = `*.run
 
 | # | 条件 |
 |---|---|
-| 1 | Cloud Run `/healthz` が 200、`/readyz` が 200（DB 接続成立） |
+| 1 | Cloud Run **`/health`** が 200（Cloud Run 上での正式パス）、`/readyz` が 200（DB 接続成立、Step B 以降）。**`/healthz` は Cloud Run 上では 404 / GFE intercept でも許容**（ローカル互換目的の併存登録、`harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md`） |
 | 2 | Frontend Workers URL（`*.workers.dev`）でトップ / `/p/{slug}` / `/draft/*` / `/manage/token/*` の各ページが表示される |
 | 3 | OGP メタタグ / `noindex` / `Referrer-Policy` / `X-Robots-Tag` が期待値で出る（重複なし） |
 | 4 | `/draft/{token}` → `/edit/{photobook_id}` redirect が macOS Safari / iPhone Safari で成立 |
@@ -666,3 +669,4 @@ ADR-0003 §13 未解決事項 U2「Frontend = `*.workers.dev` / Backend = `*.run
 | 2026-04-26 | 初版作成。M1 実環境デプロイ検証計画として、Cloudflare Workers + Cloud Run + Cloud SQL + R2 + Cloud Run Jobs + Cloud Scheduler の検証手順 / Cookie U2 案 A/B/C / Safari チェックリスト / 後片付け手順を整理 |
 | 2026-04-26 | レビュー反映：(1) Cloud Run Jobs の outbox-worker 起動方式を「同一 Docker image に api/outbox-worker の 2 バイナリを含めて --command で切替」を M1 第一案として §2 / §6 Step 11.0 / §10.1 に明記。Dockerfile の最小修正が前提であることも追記。(2) Turnstile 本番 widget は M1 では原則作成しない方針を §2 / §3.1 / §5 / §14.1 で再強調。本番 widget は M2 早期タスクへ（節番号は本日 2 度目の修正で再採番済み） |
 | 2026-04-26 | 費用ガード追記：新セクション **§4 費用見積もりと課金ガードレール**を追加（基本方針 / 低リスク・高リスク分類 / Cloud SQL の段階化 Step A→B→C / Budget Alert 必須化 / 実行前チェックリスト / 公式料金ページ）。既存 §4〜§15 を §5〜§16 に再採番。§14 後片付け手順に費用観点の最優先項目（Cloud SQL 停止 / Scheduler 削除 / Cloud Run min-instances=0 確認 / Billing 目視確認）を追加 |
+| 2026-04-26 | A-5 Cloud Run 実機検証で **`/healthz` (lowercase) が GFE に intercept される事象**を確認。§6 Step 6 と §12 成功条件 #1 を「`/health` を Cloud Run 正式採用、`/healthz` はローカル互換並存」に修正。詳細は `harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md` |
