@@ -332,6 +332,33 @@ M1 優先順位 5 の PoC を `harness/spike/backend/` で完了（コミット 
 - mock モードは PoC 専用。本実装では **secret 未設定時は起動失敗**にする（PoC では起動継続）
 - 本番 Turnstile widget は Workers 実環境デプロイ後（hostname 確定後）に Dashboard で発行する。M1 PoC では公開サンドボックス secret のみで成立確認済み
 
+### R2 S3 互換 API 実接続検証（U7 部分解消、2026-04-25）
+
+M1 優先順位 4 の R2 接続 PoC を実 Cloudflare アカウントで成立確認。コード実装はコミット `a33be4c` で完了済み、本日（2026-04-25）ユーザーが Cloudflare Dashboard で発行した短期 R2 API Token と `vrcpb-spike` バケットを使い実接続検証を行った。
+
+**前提・進め方:**
+
+- Wrangler CLI 経由の疎通検証（M1 当初予定）は、Wrangler 4.82.2 / 4.85.0 の `wrangler login --scopes-list` に `r2:*` スコープが含まれず OAuth 経由で R2 操作トークンを取得できない仕様のため **中断**。本来の検証目的（Go backend → R2 経由の presigned URL 発行・PUT・Head）は本項で直接達成
+- ユーザーが Cloudflare Dashboard で `vrcpb-spike` バケット作成 + R2 → Manage R2 API Tokens で Object Read & Write の短期 API Token 発行（1〜2 週間 TTL、対象バケット限定）+ `harness/spike/backend/.env.local` に手入力
+- Claude Code は `.env.local` の値を一切表示せず（`cat` / `printenv` / 値を引数にした `grep` を行わない）
+
+**確認済みの設計事実:**
+
+- **HeadBucket / ListObjects**: `/sandbox/r2-headbucket` 200、`/sandbox/r2-list` 200（初回 `count=0`）。aws-sdk-go-v2 + R2 endpoint（`https://<account-id>.r2.cloudflarestorage.com`）+ 静的 credential + リージョン `auto` + virtual-hosted style で接続成立
+- **presigned PUT URL 発行**: 519 bytes の URL を取得。`X-Amz-Algorithm` / `X-Amz-Credential` / `X-Amz-Signature` / `X-Amz-Expires` を含み、`expires_in_seconds=900`（15 分、ADR-0005 の TTL 方針通り）
+- **R2 への実 PUT**: 1024 bytes 合致で `200 OK`。**aws-sdk-go-v2 の presign は `Content-Length` を SignedHeaders に含めるため、宣言サイズ（`PutObjectInput.ContentLength`）と実 PUT 時の body サイズが一致しないと R2 が `403 SignatureDoesNotMatch` を返す**ことを実機で確認（最初の検証で byte_size=1024 宣言に対し 34 bytes 送信して再現）
+- **HeadObject**: `content_length=1024 / content_type=image/png / etag` を取得。R2 が S3 互換のオブジェクトメタを返すことを確認
+- **バリデーション 8 ケース**: 10MB+ → 400 `file_too_large` / SVG → 400 `unsupported_format` / GIF → 400 `unsupported_format` / path traversal → 400 `key_traversal_forbidden` / prefix invalid → 400 `key_prefix_invalid` / 存在しない key（prefix valid） → 502 `r2_headobject_failed`（本 ADR §認可 の「分類キーのみ返す」方針通り）/ byte_size=0 → 400 `byte_size_invalid` / filename 空 → 400 `filename_required`、すべて期待通り
+- **漏洩防止**: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT` / `storage_key` の各値を `grep -F` で count、すべて 0 ヒット。`X-Amz-Signature` / `X-Amz-Credential` / `presigned` / `access_key` / `Authorization:` 等の一般パターンも 0 ヒット。サーバ slog 全体は 3 行のみ（起動ログ）
+
+**本実装 (M2〜) への引き継ぎ:**
+
+- **Content-Length は SignedHeaders に含まれる前提で client を作る**: M5 のフロント実装では `byte_size` を upload-intent の宣言値と完全一致させてから presigned PUT を発射する（File API の `file.size` をそのまま `byte_size` に渡す設計を必須化）
+- presigned URL は **15 分 TTL** を継続採用。短すぎず長すぎない値として実機で許容範囲を確認
+- **R2 endpoint の jurisdiction**: 通常 `https://<account-id>.r2.cloudflarestorage.com` を使う。jurisdiction-specific（EU / FedRAMP）の場合はドメインが変わる旨を本 ADR に明記
+- 本実装では別バケット・別 API Token を発行し、Secret Manager 経由で Cloud Run に注入。M1 検証用 Token は検証完了後に Cloudflare Dashboard で **Revoke**、テストオブジェクトは R2 → `vrcpb-spike` から手動削除する手順を運用ドキュメントに記録
+- 期限切れ presigned URL の挙動（15 分待機後の 403 確認）は実機で 15 分必要なため M1 では未検証。本実装の E2E テストで補強する
+
 
 ## 関連ドキュメント
 
