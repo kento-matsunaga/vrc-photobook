@@ -3,7 +3,8 @@
 # 本実装の Dockerfile はディレクトリ構造（domain-standard.md 準拠）に合わせて別途整備する。
 
 # === Build stage ===
-FROM golang:1.23-alpine AS build
+# Go 1.24+ 必須（aws-sdk-go-v2 v1.41 系で要求）。ADR-0001 の Go 1.24+ 方針と一致する。
+FROM golang:1.24-alpine AS build
 
 WORKDIR /src
 

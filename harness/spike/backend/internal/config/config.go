@@ -13,6 +13,29 @@ type Config struct {
 	DatabaseURL string
 	// Environment は "local" / "staging" / "production" 等。ログのタグに使う。
 	Environment string
+	// R2 は Cloudflare R2 接続設定。未設定でもサーバは起動するが
+	// /sandbox/r2-* エンドポイントは 503 を返す。
+	R2 R2Config
+}
+
+// R2Config は Cloudflare R2 接続用の設定。
+// 値はすべて環境変数から注入。秘密値（AccessKeyID / SecretAccessKey）は
+// ログ・レスポンスに出さない。
+type R2Config struct {
+	AccountID       string
+	AccessKeyID     string
+	SecretAccessKey string
+	BucketName      string
+	Endpoint        string
+}
+
+// IsConfigured は最低限の値が揃っているかを返す。
+// AccountID は Endpoint に含まれる場合があるため必須化しない。
+func (r *R2Config) IsConfigured() bool {
+	return r.AccessKeyID != "" &&
+		r.SecretAccessKey != "" &&
+		r.BucketName != "" &&
+		r.Endpoint != ""
 }
 
 // Load は環境変数から Config を組み立てる。
@@ -22,6 +45,13 @@ func Load() (*Config, error) {
 		Port:        getEnvOrDefault("PORT", "8080"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		Environment: getEnvOrDefault("APP_ENV", "local"),
+		R2: R2Config{
+			AccountID:       os.Getenv("R2_ACCOUNT_ID"),
+			AccessKeyID:     os.Getenv("R2_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
+			BucketName:      os.Getenv("R2_BUCKET_NAME"),
+			Endpoint:        os.Getenv("R2_ENDPOINT"),
+		},
 	}, nil
 }
 

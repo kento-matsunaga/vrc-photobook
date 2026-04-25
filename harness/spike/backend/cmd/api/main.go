@@ -18,6 +18,7 @@ import (
 	"vrcpb/spike-backend/internal/config"
 	"vrcpb/spike-backend/internal/db"
 	"vrcpb/spike-backend/internal/health"
+	r2pkg "vrcpb/spike-backend/internal/r2"
 	"vrcpb/spike-backend/internal/sandbox"
 )
 
@@ -44,6 +45,19 @@ func main() {
 		defer pool.Close()
 	}
 
+	// R2 クライアントは設定未注入なら nil。ハンドラ側で nil 判定して 503 を返す。
+	r2Client, err := r2pkg.NewClient(rootCtx, cfg.R2)
+	if err != nil && !errors.Is(err, r2pkg.ErrNotConfigured) {
+		// 認証情報は出さず、エラー種別だけ警告として出す
+		logger.Warn("r2 client init failed; r2 sandbox endpoints will fail",
+			"error", err.Error())
+		r2Client = nil
+	}
+	if errors.Is(err, r2pkg.ErrNotConfigured) {
+		logger.Info("r2 not configured; r2 sandbox endpoints will return 503")
+		r2Client = nil
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -53,6 +67,12 @@ func main() {
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz(pool))
 	r.Get("/sandbox/db-ping", sandbox.DBPing(pool))
+
+	// R2 接続検証用 sandbox エンドポイント（M1 priority 4）
+	r.Get("/sandbox/r2-headbucket", sandbox.R2HeadBucket(r2Client))
+	r.Get("/sandbox/r2-list", sandbox.R2List(r2Client))
+	r.Post("/sandbox/r2-presign-put", sandbox.R2PresignPut(r2Client))
+	r.Get("/sandbox/r2-headobject", sandbox.R2HeadObject(r2Client))
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
