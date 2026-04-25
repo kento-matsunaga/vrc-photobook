@@ -4,11 +4,12 @@
 PLAN.md
 TASKS.md
 
-# ハーネスの一時ファイル（failure-logの中身はローカルで生成されるもの）
-harness/failure-log/*.md
-harness/work-logs/*.md
-!harness/failure-log/.gitkeep
-!harness/work-logs/.gitkeep
+# ハーネスの記録は git で共有する。
+# - failure-log: feedback-loop.md の運用に従い、失敗→ルール化のために残す
+# - work-logs: reconcile-scripts.md §6 の監査ログ運用に従い、実行記録を残す
+# 個人情報・Secret を含む可能性のある記録は、別途下書き拡張子で除外する。
+harness/failure-log/*.draft.md
+harness/work-logs/*.draft.md
 
 # フック追跡用一時ファイル
 /tmp/ai-driven-edited-files.txt
