@@ -568,6 +568,8 @@ ADR-0003 §13 未解決事項 U2「Frontend = `*.workers.dev` / Backend = `*.run
 
 以下を**全て満たした時点で M1 実環境デプロイ検証は完了**とする。1 つでも満たさない場合は §13 失敗時の判断へ。
 
+> **2026-04-26: M1 完了承認済**。条件 #8（Cloud Run Jobs + Cloud Scheduler）は未実施だが、計画書 §4.4 段階化により Cloud SQL は M1 では起動しない方針のため、関連する条件 #1 後段（`/readyz` 200 = DB 接続成立）/ #6 末尾（p50 計測）/ #8 / #11 末尾の一部は M2 早期持ち越し合意。完了判定の詳細は `harness/work-logs/2026-04-26_m1-completion-judgment.md`。
+
 | # | 条件 | 2026-04-26 実機検証結果 |
 |---|---|---|
 | 1 | Cloud Run **`/health`** が 200（Cloud Run 上での正式パス）、`/readyz` が 200（DB 接続成立、Step B 以降）。**`/healthz` は Cloud Run 上では 404 / GFE intercept でも許容**（ローカル互換目的の併存登録、`harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md`） | **達成**: `/health` 200 / `/readyz` 503 `db_not_configured`（Step A 想定通り）|
@@ -671,3 +673,5 @@ ADR-0003 §13 未解決事項 U2「Frontend = `*.workers.dev` / Backend = `*.run
 | 2026-04-26 | 費用ガード追記：新セクション **§4 費用見積もりと課金ガードレール**を追加（基本方針 / 低リスク・高リスク分類 / Cloud SQL の段階化 Step A→B→C / Budget Alert 必須化 / 実行前チェックリスト / 公式料金ページ）。既存 §4〜§15 を §5〜§16 に再採番。§14 後片付け手順に費用観点の最優先項目（Cloud SQL 停止 / Scheduler 削除 / Cloud Run min-instances=0 確認 / Billing 目視確認）を追加 |
 | 2026-04-26 | A-5 Cloud Run 実機検証で **`/healthz` (lowercase) が GFE に intercept される事象**を確認。§6 Step 6 と §12 成功条件 #1 を「`/health` を Cloud Run 正式採用、`/healthz` はローカル互換並存」に修正。詳細は `harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md` |
 | 2026-04-26 | **Step 7〜10 完了**：Frontend Workers (`https://vrcpb-spike-frontend.k-matsunaga-biz.workers.dev`) と Backend Cloud Run (`https://vrcpb-spike-api-7eosr3jcfa-an.a.run.app`) の実環境デプロイ + 結合確認 + macOS Safari / iPhone Safari 実機確認すべて成立。session-check が別オリジン構成で false/false になる挙動を **U2 確定材料**として記録（M2 早期に独自ドメイン取得 → 案 A 採用が一次方針）。詳細ログは `harness/work-logs/2026-04-26_m1-live-deploy-verification.md`。残既知問題: og:image localhost / X-Robots-Tag 二重出力（次コミットで C+D 修正候補）/ 24h・7 日後 Safari ITP 継続観察（起点 2026-04-26）|
+| 2026-04-26 | **C+D 修正完了**（コミット `afa3c7b`）：`metadataBase` 設定で OGP `og:image` 絶対 URL 解決 + `next.config.mjs` の `headers()` 削除で `X-Robots-Tag` 二重出力解消。Workers 再 deploy 後 curl で `og:image=https://vrcpb-spike-frontend.../og-sample.png` / `X-Robots-Tag: noindex, nofollow`（重複なし）を確認 |
+| 2026-04-26 | **M1 完了承認**（ユーザー承認、コミット `256e3d1` 完了判定表 + 本コミット）：M1 は完了扱い。Cloud SQL / Cloud Run Jobs / Cloud Scheduler / SendGrid 実送信 / Turnstile 本番 widget / U2 独自ドメインは M2 早期持ち越し、24h / 7 日後 Safari ITP は継続観察（M1 完了をブロックしない）。詳細は `harness/work-logs/2026-04-26_m1-completion-judgment.md` §5 |
