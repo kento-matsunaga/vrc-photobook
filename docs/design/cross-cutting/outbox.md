@@ -308,3 +308,39 @@ backend/outbox/
 ### 13.4 集約からの Outbox 連携 セクション
 
 各集約のドメイン設計内に Outbox 連携記述があり、本書はそれらの正本となる。集約からの参照先は本ファイル（`docs/design/cross-cutting/outbox.md`）に揃える。
+
+---
+
+## 14. M1 スパイク検証結果（2026-04-25）
+
+優先順位 7 として `harness/spike/backend/` で本横断設計の最小 PoC を実施し、設計の中核がローカル環境で成立することを確認した。
+
+### 14.1 検証範囲（PoC でカバーした項目）
+
+- **§3 `outbox_events` テーブル**: PoC 用に最小カラム（`id / event_type / aggregate_type / aggregate_id / payload / status / attempts / next_attempt_at / last_error / created_at / processed_at / locked_at`）と CHECK 制約 + `(status, next_attempt_at) WHERE status='pending'` 部分インデックスを `migrations/00003_create_outbox_events.sql` に定義
+  - 本実装では §3.1 の正式命名（`retry_count` / `next_retry_at` / `failure_reason` / `processing_started_at` / `failed_at`）に揃えて再整備する
+- **§5 状態遷移**: `pending → processing → processed` と `pending → processing → failed` の両経路を sandbox API（`/sandbox/outbox/{enqueue, process-once, retry-failed, list}`）で検証。PoC では指数バックオフを導入せず terminal failed に集約
+- **§6.1 ピックの排他制御**: 単一 SQL（CTE 内 `FOR UPDATE SKIP LOCKED LIMIT $1` → 直後に `processing` へ UPDATE）で 30 件 + 2 並列 process-once を実機検証、event_ids の overlap=0、最終 processed=30 を確認
+- **§6.2 処理ハンドラ**: `event_type` ごとのルーティングは PoC では mock（`ForceFail` を含む → failed、それ以外 → processed）で代替。ルーティングテーブル自体の妥当性は §6.2 の通り維持
+- **§6.3 処理後の状態更新**: `MarkOutboxProcessed`（processed + processed_at）と `MarkOutboxFailed`（failed + last_error）を別関数として分離
+- **§4.4 `ImageIngestionRequested`**: PoC で扱える event_type として実機確認（ID 衝突なく claim → processed）
+- **§13.3 ワーカー基盤**: `cmd/outbox-worker --once` / `--retry-failed` の CLI を `harness/spike/backend/cmd/outbox-worker/main.go` に追加し、Cloud Run Jobs から起動できる前提の構造を整理。`scripts/outbox-process-once.sh` は Cloud Scheduler 経由の起動を想定したラッパー
+
+### 14.2 残課題（本実装 / Cloud Run 実環境で対応）
+
+- **§5 / §6.3 指数バックオフ**: PoC では未実装。本実装では `attempts` に応じて pending 戻し or failed を選ぶ
+- **§8 保持期間と削除**: `processed=30 日 / processing で 1 時間滞留 → pending 戻し`は PoC 範囲外
+- **§9 監視**: `pending` キュー深度 / `failed` 件数 / `processing` 滞留のメトリクスは M6 で構築
+- **多重起動防止（U11 / reconcile-scripts.md §3.7.6）**: PoC でプロセス並列の SKIP LOCKED は確認済みだが、Cloud Scheduler が 1 cron 起動で複数 Job を発火するケースに対する DB advisory lock or Job スケジューラ側排他制御は本実装で評価
+- **同一 TX INSERT の本実装側責務**: PoC では sandbox API の単独 INSERT で代替。本実装の各集約 ApplicationService が `Repository.EnqueueOutbox(tx, event)` を呼ぶ形で担保（§13.2）
+
+### 14.3 PoC 命名と本実装命名の対応表
+
+| PoC（spike/backend） | 本実装（cross-cutting/outbox.md §3.1） | 備考 |
+|--------------------|-----------------------------------|------|
+| `attempts` | `retry_count` | 本実装で揃える |
+| `next_attempt_at` | `next_retry_at` | 本実装で揃える |
+| `last_error` | `failure_reason` | 本実装で揃える |
+| `locked_at` | `processing_started_at` | 本実装で揃える |
+| （未使用） | `failed_at` | 本実装で追加 |
+| `payload` | `payload_json` | 本実装で揃える |

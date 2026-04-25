@@ -107,6 +107,13 @@ func main() {
 	r.Post("/sandbox/upload-intent/consume",
 		sandbox.UploadIntentConsume(queries))
 
+	// Outbox + 自動 reconciler 起動基盤 sandbox（M1 priority 7）
+	r.Post("/sandbox/outbox/enqueue", sandbox.OutboxEnqueue(queries))
+	r.Post("/sandbox/outbox/process-once", sandbox.OutboxProcessOnce(queries))
+	r.Post("/sandbox/outbox/retry-failed", sandbox.OutboxRetryFailed(queries))
+	r.Get("/sandbox/outbox/list", sandbox.OutboxList(queries))
+	r.Post("/sandbox/outbox/reset", sandbox.OutboxResetForTest(queries))
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           r,

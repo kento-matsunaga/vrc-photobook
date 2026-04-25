@@ -8,6 +8,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type OutboxEvent struct {
+	ID            pgtype.UUID
+	EventType     string
+	AggregateType string
+	AggregateID   pgtype.UUID
+	Payload       []byte
+	Status        string
+	Attempts      int32
+	NextAttemptAt pgtype.Timestamptz
+	LastError     *string
+	CreatedAt     pgtype.Timestamptz
+	ProcessedAt   pgtype.Timestamptz
+	LockedAt      pgtype.Timestamptz
+}
+
 type TestAlive struct {
 	ID        int64
 	Note      string

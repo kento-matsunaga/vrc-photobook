@@ -446,3 +446,29 @@ scripts/ops/reconcile/
 - **M1 スパイクおよび ADR-0001 の検証結果により最終決定**
 - 多重起動防止（distributed lock）の要否、Cloud Scheduler の信頼性、コストを評価
 - 確定後、本ファイル §3.7.5 を更新
+
+---
+
+## 12. M1 スパイク検証結果（2026-04-25）
+
+優先順位 7 として `harness/spike/backend/` で `outbox_failed_retry` の最小実装を行い、自動 reconciler 設計の中核が成立することをローカルで確認した（cross-cutting/outbox.md §14 と相互参照）。
+
+### 12.1 PoC でカバーした項目
+
+- **§3.7.2 `outbox_failed_retry`（auto）の最小実装**: `failed → pending` に一括戻す単一 UPDATE を `RetryFailedOutboxEvents`（sqlc）として実装。`POST /sandbox/outbox/retry-failed` と `cmd/outbox-worker --retry-failed` で動作確認、`requeued=N` を slog INFO で記録
+- **§3.7.5 起動基盤の構造**: CLI（`go run ./cmd/outbox-worker --once / --retry-failed`）+ shell ラッパー（`scripts/outbox-process-once.sh`、`OUTBOX_LIMIT` / `OUTBOX_RETRY_FAILED` を環境変数で切替）として整理。Cloud Run Jobs + Cloud Scheduler から呼べる構造（実 Cloud Run デプロイは未実施）
+- **§3.7.6 安全装置の前提**: 2 並列 process-once で `FOR UPDATE SKIP LOCKED` による重複処理の発生なしを確認。単一プロセス内では行ロックで充分、Cloud Scheduler 重複起動シナリオは本実装で advisory lock を評価
+
+### 12.2 PoC で扱わなかった項目（後続）
+
+- **§3.7.1 `draft_expired`（auto）**: M6 で実装（Photobook 集約の draft_expires_at 検査 + `PhotobookPurged` Outbox 投入）
+- **§3.7.3 `stale_ogp_enqueue`（auto）**: M6 で実装（OGP 集約整備後）
+- **§3.7.4 `delivery_expired_to_permanent`（auto）**: M6 で実装（ManageUrlDelivery 集約整備後）
+- **§3.1〜§3.6 手動 reconcile スクリプト 6 種**: M6 で実装（cmd/ops/reconcile/ + scripts/ops/reconcile/ ラッパー、ADR-0002 準拠）
+- **§5 アラート連携 / §6 監査ログ**: M6 で構築
+
+### 12.3 残る未確認事項（本実装 / Cloud Run 実環境で対応）
+
+- **多重起動防止**: §3.7.6 の advisory lock / Job スケジューラ排他制御の必要性は Cloud Run Jobs + Cloud Scheduler 実環境で評価
+- **`--max-batch-size` の運用値**: PoC では `OUTBOX_LIMIT=50` を既定にしているが、本実装では監視結果（処理時間 / バックログ深度）から確定
+- **指数バックオフ**: PoC では未実装。本実装で `attempts` に応じた pending 戻し or failed を選択（cross-cutting/outbox.md §6.3）
