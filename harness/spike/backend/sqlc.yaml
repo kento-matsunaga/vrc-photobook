@@ -1,0 +1,14 @@
+# M1 spike: sqlc 設定の最小サンプル。
+# 本実装では本ファイルではなく backend/sqlc.yaml を別途整備する。
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "internal/db/queries"
+    schema: "migrations"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/db/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false

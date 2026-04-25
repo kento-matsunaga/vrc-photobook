@@ -1,0 +1,23 @@
+# M1 spike backend: ローカル PostgreSQL 起動用。
+# .env.local（ignore 対象）または環境変数で値を上書き可能。
+# 本番では Cloud SQL を使う想定で、本ファイルは Cloud Run 用の本番構成ではない。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vrcpb_spike}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spike_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-vrcpb_spike}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vrcpb_spike}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

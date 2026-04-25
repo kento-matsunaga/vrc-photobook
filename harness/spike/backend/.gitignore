@@ -1,0 +1,24 @@
+# M1 spike backend PoC
+
+# Env / Secrets
+*.env
+.env.local
+.env.production
+
+# Go build artifacts
+/api
+*.test
+*.out
+coverage.out
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Note: go.sum はコミット対象（Go の慣習）
