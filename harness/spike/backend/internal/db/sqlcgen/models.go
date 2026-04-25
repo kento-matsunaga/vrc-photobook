@@ -13,3 +13,14 @@ type TestAlive struct {
 	Note      string
 	CreatedAt pgtype.Timestamptz
 }
+
+type UploadVerificationSession struct {
+	ID                 pgtype.UUID
+	SessionTokenHash   []byte
+	PhotobookID        pgtype.UUID
+	AllowedIntentCount int32
+	UsedIntentCount    int32
+	ExpiresAt          pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	RevokedAt          pgtype.Timestamptz
+}

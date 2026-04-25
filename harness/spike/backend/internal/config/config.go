@@ -4,7 +4,9 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Config は API サーバ起動に必要な設定値を保持する。
@@ -22,6 +24,22 @@ type Config struct {
 	// AllowedOrigins は CORS / Origin 検証で許可するオリジン。
 	// 未設定なら CORS ヘッダを付けず、Origin チェックも全拒否扱い。
 	AllowedOrigins []string
+	// TurnstileSecretKey は Cloudflare Turnstile siteverify の secret。
+	// 空のとき turnstile クライアントは mock モードで動く（PoC 用）。
+	// ログ・レスポンスに出さないこと。
+	TurnstileSecretKey string
+	// UploadVerification は upload_verification_session の発行ポリシー。
+	UploadVerification UploadVerificationConfig
+}
+
+// UploadVerificationConfig は M1 PoC 用の upload-verification 発行設定。
+// 本実装では auth/upload-verification 集約のドメインポリシーとして整備する。
+type UploadVerificationConfig struct {
+	// AllowedIntentCount は 1 セッションで許可する upload intent 消費上限。
+	// v4 §2-5 / ADR-0005: 30 分 / 20 回（M1 PoC では int 値で固定）。
+	AllowedIntentCount int32
+	// SessionTTL はセッションの有効期間。
+	SessionTTL time.Duration
 }
 
 // R2Config は Cloudflare R2 接続用の設定。
@@ -58,8 +76,37 @@ func Load() (*Config, error) {
 			BucketName:      os.Getenv("R2_BUCKET_NAME"),
 			Endpoint:        os.Getenv("R2_ENDPOINT"),
 		},
-		AllowedOrigins: parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		AllowedOrigins:     parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
+		UploadVerification: UploadVerificationConfig{
+			AllowedIntentCount: parseInt32OrDefault(os.Getenv("UPLOAD_VERIFICATION_INTENT_LIMIT"), 20),
+			SessionTTL:         parseDurationOrDefault(os.Getenv("UPLOAD_VERIFICATION_TTL"), 30*time.Minute),
+		},
 	}, nil
+}
+
+// parseInt32OrDefault は文字列を int32 に変換する。空文字やパース失敗時は default を返す。
+func parseInt32OrDefault(raw string, defaultValue int32) int32 {
+	if raw == "" {
+		return defaultValue
+	}
+	v, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil || v <= 0 {
+		return defaultValue
+	}
+	return int32(v)
+}
+
+// parseDurationOrDefault は文字列を time.Duration に変換する。空文字やパース失敗時は default を返す。
+func parseDurationOrDefault(raw string, defaultValue time.Duration) time.Duration {
+	if raw == "" {
+		return defaultValue
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return defaultValue
+	}
+	return d
 }
 
 // parseAllowedOrigins はカンマ区切りの origin 文字列をスライスに分割する。

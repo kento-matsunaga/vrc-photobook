@@ -17,10 +17,12 @@ import (
 
 	"vrcpb/spike-backend/internal/config"
 	"vrcpb/spike-backend/internal/db"
+	"vrcpb/spike-backend/internal/db/sqlcgen"
 	"vrcpb/spike-backend/internal/health"
 	"vrcpb/spike-backend/internal/httpx"
 	r2pkg "vrcpb/spike-backend/internal/r2"
 	"vrcpb/spike-backend/internal/sandbox"
+	"vrcpb/spike-backend/internal/turnstile"
 )
 
 func main() {
@@ -86,6 +88,24 @@ func main() {
 	// Frontend / Backend 結合検証用 sandbox エンドポイント
 	r.Get("/sandbox/session-check", sandbox.SessionCheck)
 	r.Post("/sandbox/origin-check", sandbox.OriginCheck(cfg.AllowedOrigins))
+
+	// Turnstile + upload_verification_session sandbox（M1 priority 5）
+	turnstileClient := turnstile.NewClient(cfg.TurnstileSecretKey)
+	if turnstileClient.IsMock() {
+		logger.Warn("turnstile secret not configured; running in MOCK mode (PoC only)")
+	} else {
+		logger.Info("turnstile secret configured; siteverify will be called")
+	}
+	var queries *sqlcgen.Queries
+	if pool != nil {
+		queries = sqlcgen.New(pool)
+	} else {
+		logger.Warn("db pool nil; turnstile/consume sandbox endpoints will return 503")
+	}
+	r.Post("/sandbox/turnstile/verify",
+		sandbox.TurnstileVerify(turnstileClient, queries, cfg.UploadVerification))
+	r.Post("/sandbox/upload-intent/consume",
+		sandbox.UploadIntentConsume(queries))
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
