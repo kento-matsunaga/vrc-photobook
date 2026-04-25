@@ -196,16 +196,70 @@ npx wrangler pages deploy .vercel/output/static --project-name=vrcpb-spike
 
 ---
 
-## OpenNext 比較メモ（検証中に追記）
+## OpenNext 比較メモ
 
-- 第一候補: `@cloudflare/next-on-pages`
-- 比較対象: OpenNext（M1 中の追加検証で必要に応じて評価）
-- 切替判断基準: M1 計画 §6.1（案A〜D）
+### 第一候補の再評価（2026-04-25 検証で判明）
 
-検証結果を以下に追記:
+- **当初 README 記載**: `@cloudflare/next-on-pages` を第一候補、OpenNext は比較対象
+- **2026-04-25 検証で判明**: `@cloudflare/next-on-pages@1.13.16` は **deprecated**。`npm install` 時に Cloudflare 公式が **OpenNext adapter (`@opennextjs/cloudflare`)** を推奨に切替済との警告が出る
+- **新しい第一候補**: **OpenNext adapter (`@opennextjs/cloudflare`)** を M2 本実装の第一候補とする
+- **next-on-pages PoC の扱い**: 検証目的（SSR/Cookie/redirect/ヘッダ）は完全達成済みのため、本 PoC コードは「動作確認できたベースライン」として保持。M1 中に OpenNext adapter 版 PoC を別途構築し、同等の検証を行う
+- **記録**: `harness/failure-log/2026-04-25_cloudflare-next-on-pages-deprecated.md`
+- **切替判断基準**: M1 計画 §6.1（案A〜D）— OpenNext で同様に成立すれば案A を維持、不成立なら案B/C/D を検討
+
+### 検証結果（2026-04-25 next-on-pages 版）
+
+#### 成功した項目（CLI 検証で確認済み）
+
+| 項目 | Next.js 標準 dev | wrangler pages dev (Cloudflare 互換) |
+|------|:---:|:---:|
+| `/p/[slug]` SSR | ✅ | ✅ |
+| OGP メタタグ動的出力（og:title / og:description / og:image / og:type / og:image:width / og:image:height） | ✅ | ✅ |
+| Twitter card メタタグ（summary_large_image / twitter:title / twitter:description / twitter:image） | ✅ | ✅ |
+| HTML 内 `<meta name="robots" content="noindex, nofollow">` | ✅ | ✅ |
+| `X-Robots-Tag: noindex, nofollow` ヘッダ | ✅ | ✅ |
+| `Referrer-Policy: strict-origin-when-cross-origin`（通常ページ） | ✅ | ✅ |
+| `Referrer-Policy: no-referrer`（draft / manage / edit） | ✅ | ✅ |
+| `/draft/[token]` → 302 + Set-Cookie + redirect to `/edit/{photobook_id}` | ✅ | ✅ |
+| `/manage/token/[token]` → 302 + Set-Cookie + redirect to `/manage/{photobook_id}` | ✅ | ✅ |
+| Cookie 属性: HttpOnly / Secure / SameSite=Strict / Path=/ | ✅ | ✅ |
+| Cookie Max-Age: draft 7日 / manage 1日 | ✅ | ✅ |
+| Server Component で Cookie 読取 → "session found" / "session missing" の分岐 | ✅ | ✅ |
+| Edge runtime 動作（`x-edge-runtime: 1`） | ✅ | ✅ |
+| Cloudflare Pages 互換ビルド（`@cloudflare/next-on-pages`） | — | ✅（5 Edge Function Routes / 1 Middleware / 2 Prerendered） |
+
+#### 検証で見つかった発見
+
+1. **`@cloudflare/next-on-pages` が deprecated**
+   - 上記「第一候補の再評価」参照
+   - M1 検証としては成立だが、M2 本実装は OpenNext へ切替必要
+2. **OGP の `og:image` が dev サーバ URL で焼き込まれる**
+   - 出力例: `<meta property="og:image" content="http://localhost:3000/og-sample.png"/>`
+   - wrangler preview（port 8788）でも `localhost:3000` のまま
+   - 原因: Next.js Metadata API が相対 URL を絶対 URL に展開する際、ベース URL を環境変数等から解決する必要がある
+   - **M2 対応**: `metadata.metadataBase = new URL(process.env.NEXT_PUBLIC_BASE_URL)` 指定を本実装に組み込む
+
+#### CLI 検証では未確認の項目（実機ブラウザでのみ確認可能）
+
+未確認 = 不成立ではなく、実機検証が必要なもの:
+
+- 実機 Chrome / Edge / Firefox での動作（HTTP プロトコル仕様準拠は curl 確認済み）
+- macOS Safari 実機検証
+- **iOS Safari 実機検証（最重要）**
+- redirect 後の Cookie 引き継ぎ実体験
+- ページ再読み込み後の session 維持
+- **24 時間後 / 7 日後の Cookie 残存（ITP 影響評価）**
+- DevTools / Web Inspector による Cookie 属性目視確認
+- 別オリジンからのリンク遷移で SameSite=Strict が効くことの実体験
+- Cloudflare Pages 実環境（`*.pages.dev` ドメイン）でのデプロイ検証
+- Backend と異なるホスト構成下での Cookie Domain 動作（U2、Backend PoC と統合）
+
+### 検証結果（OpenNext adapter 版）
+
+OpenNext adapter 版の PoC 検証は **M1 中の追加検証として別途実施**。結果はこのセクションに追記する。
 
 ```
-（検証担当者が記入）
+（OpenNext 検証担当者が記入）
 ```
 
 ---

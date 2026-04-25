@@ -135,6 +135,9 @@ ADR-0004 Proposed。M1 ではコード実装はせず、書類調査ベースで
 
 1. `harness/spike/frontend/` を新規作成、Next.js 15 App Router で初期化（本実装用 `frontend/` は M2 まで触らない）
 2. **2 系統を比較**: OpenNext と `@cloudflare/next-on-pages` の両方で最小ビルドを試す
+   - **2026-04-25 検証で判明**: `@cloudflare/next-on-pages` は **deprecated**（Cloudflare 公式が OpenNext adapter 推奨へ切替済）。`@opennextjs/cloudflare` を **第一候補に再評価**。next-on-pages 版 PoC では SSR / OGP / Cookie / redirect / ヘッダ制御がすべて成立することを CLI 検証で確認済み（PoC 結果は `harness/spike/frontend/README.md` §検証結果 参照）
+   - M2 本実装は OpenNext adapter で構築する想定。M1 中に OpenNext 版 PoC を別途構築して同等の動作を確認する
+   - 詳細経緯: `harness/failure-log/2026-04-25_cloudflare-next-on-pages-deprecated.md`
 3. **検証用ルートを作成**:
    - `/p/sample-slug`: 公開ページ風、`generateMetadata` で OGP メタタグ動的出力、`X-Robots-Tag: noindex, nofollow` を返す
    - `/draft/sample-token`: token 受け取り → ダミー検証 → Cookie 発行 → `/edit/sample-photobook-id` redirect
@@ -145,6 +148,7 @@ ADR-0004 Proposed。M1 ではコード実装はせず、書類調査ベースで
    - token 付き / `/edit/*` / `/manage/*`: `Referrer-Policy: no-referrer`
 5. Cloudflare Pages にデプロイし、各ルートで実機検証
 6. **計測**: TTFB、SSR レンダリング時間、OGP メタタグの実際の HTML 出力
+7. **OGP の絶対 URL 解決方針**（2026-04-25 検証で発見）: PoC では `og:image` が dev サーバ URL（`http://localhost:3000/...`）として焼き込まれた。Next.js Metadata API はベース URL を環境変数等から解決する設計であり、本実装では `metadata.metadataBase = new URL(process.env.NEXT_PUBLIC_BASE_URL)` を必ず設定する。M2 本実装の必須要件として記録
 
 ### 4.2 Cookie / Session 検証（最優先）
 

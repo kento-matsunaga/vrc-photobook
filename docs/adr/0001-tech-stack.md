@@ -95,6 +95,38 @@ Next.js on Cloudflare Pages は、以下を M1 で必ずスパイク検証する
 
 検証で致命的な制約が見つかった場合、Frontend Deploy は Cloud Run / VPS / Fly.io に切り替える余地を残す。スタイリング・フレームワーク（Next.js / Tailwind）は維持する。
 
+### M1 検証結果（2026-04-25 時点）
+
+`harness/spike/frontend/` での最小 PoC（`@cloudflare/next-on-pages` 版、Next.js 標準 dev + `wrangler pages dev`）で以下を **CLI 検証成功**として確認済み:
+
+- SSR 動作（`x-edge-runtime: 1`）
+- `generateMetadata` による OGP / Twitter card メタタグの動的出力
+- HTML 内 `<meta name="robots" content="noindex, nofollow">`
+- HTTP ヘッダ `X-Robots-Tag: noindex, nofollow`
+- ページ種別ごとの `Referrer-Policy` 出し分け（通常ページ `strict-origin-when-cross-origin` / token 付き URL `no-referrer`）
+- Route Handler から `Set-Cookie` (HttpOnly / Secure / SameSite=Strict / Path=/) + 302 redirect
+- redirect 後の Server Component で `cookies()` 読取が動作
+- Cloudflare Pages 互換ローカル環境（`wrangler pages dev`）でも同等に動作
+
+未確認（実機 / 実環境が必要、M1 残作業）:
+
+- macOS Safari / iPhone Safari 実機検証
+- 24 時間 / 7 日後の Cookie 残存（ITP 影響評価）
+- Cloudflare Pages 実環境（`*.pages.dev`）でのデプロイ動作
+- Backend（Cloud Run）と異なるホスト構成下での Cookie Domain 動作（U2、Backend PoC と統合）
+
+#### M1 検証で確定した方針変更
+
+- **Cloudflare Pages 用アダプタを `@cloudflare/next-on-pages` から OpenNext adapter (`@opennextjs/cloudflare`) に切替**
+  - `npm install` 時に `@cloudflare/next-on-pages` が deprecated になっており、Cloudflare 公式が OpenNext adapter を推奨に切替済との警告が出た
+  - next-on-pages 版 PoC では検証目的（SSR / Cookie / redirect / ヘッダ）はすべて達成しているため、本 PoC コードはベースラインとして保持
+  - **M2 本実装は OpenNext adapter で構築する第一候補**とし、M1 中に OpenNext 版 PoC を別途構築して同等動作を確認する
+  - 詳細経緯: `harness/failure-log/2026-04-25_cloudflare-next-on-pages-deprecated.md`
+- **OGP の絶対 URL 解決を本実装の必須要件として確定**
+  - 検証中、`og:image` が dev サーバ URL（`http://localhost:3000/...`）として焼き込まれる挙動を確認
+  - 原因は Next.js Metadata API のベース URL 解決仕様
+  - **M2 本実装では `metadata.metadataBase = new URL(process.env.NEXT_PUBLIC_BASE_URL)` を必ず設定する**
+
 ## 検討した代替案
 
 - **Echo**: 高速かつ軽量だが、独自の `echo.Context` を使う前提で middleware / handler が書かれており、ドメイン層に漏れやすい。バインディングの暗黙挙動も多く、`coding-rules.md` の「明示的 > 暗黙的」と相性が悪い。
