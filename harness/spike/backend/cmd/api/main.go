@@ -18,6 +18,7 @@ import (
 	"vrcpb/spike-backend/internal/config"
 	"vrcpb/spike-backend/internal/db"
 	"vrcpb/spike-backend/internal/health"
+	"vrcpb/spike-backend/internal/httpx"
 	r2pkg "vrcpb/spike-backend/internal/r2"
 	"vrcpb/spike-backend/internal/sandbox"
 )
@@ -63,6 +64,14 @@ func main() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	// CORS: 許可オリジンのみに credentials 付きクロスオリジンリクエストを許可
+	r.Use(httpx.CORS(cfg.AllowedOrigins))
+
+	if len(cfg.AllowedOrigins) == 0 {
+		logger.Info("ALLOWED_ORIGINS not set; cross-origin requests will not receive CORS headers")
+	} else {
+		logger.Info("CORS allowed origins configured", "count", len(cfg.AllowedOrigins))
+	}
 
 	r.Get("/healthz", health.Healthz)
 	r.Get("/readyz", health.Readyz(pool))
@@ -73,6 +82,10 @@ func main() {
 	r.Get("/sandbox/r2-list", sandbox.R2List(r2Client))
 	r.Post("/sandbox/r2-presign-put", sandbox.R2PresignPut(r2Client))
 	r.Get("/sandbox/r2-headobject", sandbox.R2HeadObject(r2Client))
+
+	// Frontend / Backend 結合検証用 sandbox エンドポイント
+	r.Get("/sandbox/session-check", sandbox.SessionCheck)
+	r.Post("/sandbox/origin-check", sandbox.OriginCheck(cfg.AllowedOrigins))
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

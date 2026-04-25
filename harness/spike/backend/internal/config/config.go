@@ -2,7 +2,10 @@
 // M1 PoC のため、ライブラリは使わず標準の os.Getenv のみ。
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 // Config は API サーバ起動に必要な設定値を保持する。
 type Config struct {
@@ -16,6 +19,9 @@ type Config struct {
 	// R2 は Cloudflare R2 接続設定。未設定でもサーバは起動するが
 	// /sandbox/r2-* エンドポイントは 503 を返す。
 	R2 R2Config
+	// AllowedOrigins は CORS / Origin 検証で許可するオリジン。
+	// 未設定なら CORS ヘッダを付けず、Origin チェックも全拒否扱い。
+	AllowedOrigins []string
 }
 
 // R2Config は Cloudflare R2 接続用の設定。
@@ -52,7 +58,24 @@ func Load() (*Config, error) {
 			BucketName:      os.Getenv("R2_BUCKET_NAME"),
 			Endpoint:        os.Getenv("R2_ENDPOINT"),
 		},
+		AllowedOrigins: parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 	}, nil
+}
+
+// parseAllowedOrigins はカンマ区切りの origin 文字列をスライスに分割する。
+// 空白・空要素は除去する。
+func parseAllowedOrigins(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

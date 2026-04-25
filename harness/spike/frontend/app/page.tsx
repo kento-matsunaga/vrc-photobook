@@ -37,6 +37,10 @@ export default function Home() {
           <a href="/manage/sample-photobook-id">/manage/sample-photobook-id</a>{" "}
           — manage session 検証（Cookie 読取）
         </li>
+        <li>
+          <a href="/integration/backend-check">/integration/backend-check</a> —
+          Backend API 結合検証（CORS / Cookie / Origin）
+        </li>
       </ul>
 
       <h2>注意</h2>
