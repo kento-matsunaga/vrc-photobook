@@ -166,6 +166,59 @@ Next.js on Cloudflare Pages は、以下を M1 で必ずスパイク検証する
 5. **`@cloudflare/next-on-pages` を採用しない**
    - 上記 1 と同根。M2 以降のフロント実装ガイド・Dockerfile / GitHub Actions / Wrangler 設定すべてに反映する
 
+### M1 検証結果（2026-04-25 時点、Backend / Cloud Run + Go chi + pgx + sqlc + goose）
+
+`harness/spike/backend/` で Cloud Run 向けの最小 Go API を構築し（コミット `c2a5919`）、ローカル CLI + Docker container 経由で以下を確認した。
+
+#### 採用ライブラリの最小構成成立を確認
+
+| 種別 | 採用 | バージョン |
+|------|------|-----------|
+| HTTP ルーター | `github.com/go-chi/chi/v5` | v5.1.0 |
+| chi middleware | RequestID / RealIP / Recoverer / Timeout（chi 標準） | — |
+| DB ドライバ・プール | `github.com/jackc/pgx/v5/pgxpool` | v5.7.1 |
+| Migration | `github.com/pressly/goose/v3`（`go run` 経由で実行） | v3.22.0 |
+| Code generation (SQL → Go) | `sqlc` CLI | v1.30.0（`pgx/v5` 出力） |
+| ロガー | 標準 `log/slog`（JSON ハンドラ） | Go 1.21+ 標準 |
+
+ADR-0001 §採用技術 表で確定済みの構成のまま、M1 PoC で動作成立。**変更なし**。
+
+#### 検証成立した項目
+
+- `go mod tidy` / `go vet` / `go test` / `go build` すべて成功
+- `docker compose` でローカル PostgreSQL 16-alpine を起動、`pg_isready` healthcheck 通過
+- `goose ... up` で migration 適用（5.9ms）
+- `sqlc generate` で `pgx/v5` 出力 3 ファイル生成
+- ローカル直起動で `/healthz` / `/readyz` / `/sandbox/db-ping` 全 200 応答
+- Graceful shutdown（SIGINT → `srv.Shutdown(ctx)` で 10 秒以内に終了）
+- `docker build` で multi-stage / distroless static-debian12:nonroot の **12.4MB イメージ**生成
+- container 経由でも同じエンドポイントが正常動作（compose ネットワーク経由で DB 接続）
+- slog JSON 出力に DSN・パスワード・token・cookie 値が含まれないことを目視確認
+
+#### Go バージョンの扱い
+
+- PoC ローカル環境: **Go 1.23.2**
+- ADR-0001 §採用技術 表の「Go 1.24+」方針は**変更なし**（M2 本実装着手時に 1.24 へ移行）
+- 1.24 必須機能を使っていないため、PoC は 1.23 で動作確認したことが「1.24 必須要件の否定」にはならない。chi / pgx / sqlc / goose の最小構成成立確認として扱う
+
+#### M1 検証で確定したサーバ構成のテンプレート
+
+- **Dockerfile**: multi-stage（`golang:1.23-alpine` ビルド → `gcr.io/distroless/static-debian12:nonroot` ランタイム）で 12.4MB に収まる。M2 本実装の Dockerfile はこのテンプレートを `domain-standard.md` 構造に合わせて整備
+- **Graceful shutdown**: `signal.NotifyContext(ctx, SIGINT, SIGTERM)` + `srv.Shutdown(shutdownCtx)` パターンを採用
+- **`/healthz` / `/readyz` 分離**: `/healthz` は process liveness のみ、`/readyz` は pgxpool.Ping ベース。Cloud Run の startup / liveness probe には `/healthz`、外部 LB やヘルスチェックには `/readyz` を使う
+- **DB エラー詳細をクライアントに返さない**: 漏洩抑止。サーバ側 slog で追跡
+
+#### Cloud Run へ向けた未確認事項（M1 残作業 / Cloud Run/R2 PoC で扱う）
+
+- 実 Cloud Run へのデプロイ動作（`gcloud run deploy`）
+- Cloud Run コールドスタート時間計測
+- Cloud SQL 接続方式（Cloud SQL Auth Proxy 経由 vs 直接 DSN）とレイテンシ
+- Cloud Logging で slog JSON が正しくパースされるか（severity マッピング）
+- Cloud Run の SIGTERM → graceful shutdown が 10 秒内に完了するか実機確認
+- Cloud Run 東京リージョン ↔ R2 のレイテンシ計測（クロスクラウド）
+
+これらは次の **R2 接続 PoC** および後続の Cloud Run 実環境デプロイ検証で解消する。
+
 ## 検討した代替案
 
 - **Echo**: 高速かつ軽量だが、独自の `echo.Context` を使う前提で middleware / handler が書かれており、ドメイン層に漏れやすい。バインディングの暗黙挙動も多く、`coding-rules.md` の「明示的 > 暗黙的」と相性が悪い。
@@ -207,7 +260,8 @@ Next.js on Cloudflare Pages は、以下を M1 で必ずスパイク検証する
 
 ## 未解決事項 / 検証TODO
 
-- **M1 Cloudflare スパイク（OpenNext adapter 版）**: 8 項目のうち CLI 検証で完結する項目は 2026-04-25 に検証完了、上記「M1 検証結果」§v2 に記録。残タスクは macOS Safari / iPhone Safari 実機検証、24h / 7 日後 Cookie 残存（ITP 影響）、Cloudflare Workers 実環境（`*.workers.dev`）デプロイ。致命的問題があれば Frontend Deploy を Cloud Run 等に切り替え、本 ADR を更新する。
+- **M1 Cloudflare スパイク（OpenNext adapter 版）**: 8 項目のうち CLI 検証で完結する項目は 2026-04-25 に検証完了、上記「M1 検証結果」§v2 に記録。Safari / iPhone Safari 実機検証も 2026-04-25 に成立確認済み。残タスクは 24h / 7 日後 Cookie 残存（ITP 長期影響）、Cloudflare Workers 実環境（`*.workers.dev`）デプロイ。致命的問題があれば Frontend Deploy を Cloud Run 等に切り替え、本 ADR を更新する。
+- **M1 Backend PoC**: ローカル CLI + Docker container 検証は 2026-04-25 に成立（コミット `c2a5919`）。残タスクは Cloud Run 実環境デプロイ、コールドスタート計測、Cloud SQL 接続方式、Cloud Logging 連携、SIGTERM 実機確認、Cloud Run ↔ R2 レイテンシ。R2 接続 PoC（次工程）で一部を扱う。
 - **HEIC デコード戦略**: libheif を含むコンテナイメージ構築方針を ADR-0005 実装時に確定する。Cloud Run サイドカー分離 or 単一イメージで libheif 同梱、のいずれか。
 - **Email プロバイダ確定**: ADR-0004 の Proposed → Accepted への移行結果を本 ADR に反映する。
 - **R2 レイテンシ実測**: Cloud Run 東京リージョンから R2 への presigned URL 発行 / 画像 GET のレイテンシを M1 / M3 で計測する。
