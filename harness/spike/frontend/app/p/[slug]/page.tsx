@@ -10,9 +10,10 @@ import type { Metadata } from "next";
  *  - X-Robots-Tag, Referrer-Policy: strict-origin-when-cross-origin が middleware から付与されるか
  */
 
-// Cloudflare Pages 互換のため Edge runtime を指定。
-// next-on-pages 利用時のデフォルト互換性確保（ローカル next dev でも動く）。
-export const runtime = "edge";
+// OpenNext for Cloudflare は Workers 上の Node.js 互換ランタイムで動作する。
+// `runtime = 'edge'` を指定すると別バンドルが必要になりビルドエラーになるため、
+// 明示指定はしない（Next.js デフォルト = nodejs ランタイム想定で OK）。
+// 参考: next-on-pages 版（コミット c7ba16b）では `runtime = 'edge'` 必須だった点が逆転している。
 
 type Params = Promise<{ slug: string }>;
 

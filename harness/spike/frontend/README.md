@@ -2,7 +2,16 @@
 
 > **目的**: M1 スパイク検証計画 [`docs/plan/m1-spike-plan.md`](../../../docs/plan/m1-spike-plan.md) の優先順位 1・2 に対応する最小 PoC。
 >
-> Next.js 15 App Router + Cloudflare Pages + Cookie / Session の成立確認のみを目的とし、本実装には流用しない。
+> Next.js 15 App Router + Cloudflare（OpenNext adapter）+ Cookie / Session の成立確認のみを目的とし、本実装には流用しない。
+
+## 検証履歴
+
+| 版 | 日付 | アダプタ | 状態 |
+|----|------|---------|------|
+| **v1: next-on-pages** | 2026-04-25 | `@cloudflare/next-on-pages@1.13.16` | **CLI 検証成功**（コミット `c7ba16b` 時点）。SSR / OGP / Cookie / redirect / ヘッダ制御すべて成立。**ただし `npm install` 時に Cloudflare 公式から deprecated 警告が出たため、本実装には採用しない**。詳細: §「OpenNext 比較メモ」/ `harness/failure-log/2026-04-25_cloudflare-next-on-pages-deprecated.md` |
+| **v2: OpenNext adapter（現在）** | 2026-04-25〜 | `@opennextjs/cloudflare` | M1 中に検証中。本実装の第一候補 |
+
+v1 のソースコード（`@cloudflare/next-on-pages` 用 package.json / scripts）は **コミット `c7ba16b` の Git 履歴で参照可能**。本ブランチは v2（OpenNext adapter）に切り替え済み。
 
 ---
 
@@ -86,45 +95,48 @@ npm run dev
 
 ただし Next.js 標準サーバは Cloudflare Pages の Edge runtime と完全には一致しないため、最終確認は次の手順で行う。
 
-### 3. Cloudflare Pages 互換ローカル実行
+### 3. Cloudflare 互換ローカル実行（OpenNext adapter 経由）
 
 ```sh
-npm run pages:build       # @cloudflare/next-on-pages でビルド
-npm run pages:preview     # wrangler pages dev で起動
+npm run cf:build          # @opennextjs/cloudflare build → .open-next/worker.js を生成
+npm run cf:preview        # wrangler dev で起動（Workers + Static Assets binding）
 ```
 
-→ `http://localhost:8788` 等でアクセス。Cloudflare Pages 環境に近い挙動で確認できる。
+→ wrangler の出力 URL（通常 `http://localhost:8787`）でアクセス。Cloudflare Workers ランタイム上で確認できる。
 
 `Set-Cookie` / `redirect` / Edge runtime の組み合わせが動くかをここで判定する。
 
+**注意**: OpenNext for Cloudflare は **Cloudflare Pages** ではなく **Cloudflare Workers + Static Assets binding** を想定する。`wrangler.jsonc` で設定済み。
+
 ---
 
-## Cloudflare Pages へのデプロイ手順（参考）
+## Cloudflare へのデプロイ手順（参考、OpenNext adapter）
 
 Cloudflare ダッシュボード or `wrangler` 経由でデプロイ可能。M1 PoC では「動くか」だけを確認するため、最小手順を記載する。
+
+OpenNext for Cloudflare は **Cloudflare Workers**（+ Static Assets binding）を主なターゲットとする。Cloudflare Pages からの切替に伴い、デプロイコマンドも変わる。
 
 ### A. Wrangler 経由
 
 ```sh
 # 1. ビルド
-npm run pages:build
+npm run cf:build
 
-# 2. プロジェクト作成（初回のみ、ダッシュボードで先に作るのが楽）
-npx wrangler pages project create vrcpb-spike --production-branch=main
-
-# 3. デプロイ
-npx wrangler pages deploy .vercel/output/static --project-name=vrcpb-spike
+# 2. デプロイ（初回は Workers 名と互換日付を確認）
+npm run cf:deploy
+# または
+npx wrangler deploy
 ```
 
-### B. Git 連携経由
+### B. Git 連携経由（Cloudflare Dashboard）
 
-1. Cloudflare Dashboard → Pages → Create a project → Connect to Git
+1. Cloudflare Dashboard → Workers & Pages → Create
 2. リポジトリと `harness/spike/frontend` を指定
-3. ビルドコマンド: `npx @cloudflare/next-on-pages`
-4. ビルド出力ディレクトリ: `.vercel/output/static`
+3. ビルドコマンド: `npm run cf:build`
+4. デプロイコマンド: `npx wrangler deploy`
 5. 環境変数: 不要（PoC は秘密情報を使わない）
 
-**注意**: `harness/spike/frontend` をルートにしたモノレポビルドが Cloudflare Pages で扱いにくい場合、PoC 専用のリポジトリにコピーして検証することも検討する。
+**注意**: `harness/spike/frontend` をルートにしたモノレポビルドが扱いにくい場合、PoC 専用のリポジトリにコピーして検証することも検討する。
 
 ---
 
@@ -254,13 +266,74 @@ npx wrangler pages deploy .vercel/output/static --project-name=vrcpb-spike
 - Cloudflare Pages 実環境（`*.pages.dev` ドメイン）でのデプロイ検証
 - Backend と異なるホスト構成下での Cookie Domain 動作（U2、Backend PoC と統合）
 
-### 検証結果（OpenNext adapter 版）
+### 検証結果（OpenNext adapter 版、2026-04-25）
 
-OpenNext adapter 版の PoC 検証は **M1 中の追加検証として別途実施**。結果はこのセクションに追記する。
+`@opennextjs/cloudflare` + `wrangler 4` での検証結果。next-on-pages 版（v1）と同じ検証ルートをそのまま流用し、CLI 検証で以下を確認した。
 
-```
-（OpenNext 検証担当者が記入）
-```
+#### ビルド / 起動
+
+| 項目 | 結果 |
+|------|:---:|
+| `npm install`（OpenNext + wrangler 4） | ✅ 610 packages, 18s, deprecated 警告は transitive dep のみ |
+| `npm run cf:build`（`opennextjs-cloudflare build`） | ✅ Next.js 15.5.15 で `Compiled successfully in 1770ms`、`.open-next/worker.js` 生成 |
+| `npm run cf:preview`（`opennextjs-cloudflare preview` → `wrangler dev`） | ✅ `http://localhost:8787` で `env.ASSETS` バインディング local mode 起動 |
+
+#### 各ルート（OpenNext preview 上）
+
+| 項目 | 結果 |
+|------|:---:|
+| `/p/[slug]` SSR + OGP / Twitter card / robots メタタグ動的出力 | ✅ |
+| `<meta name="robots" content="noindex, nofollow">` 出力 | ✅ |
+| `X-Robots-Tag: noindex, nofollow` ヘッダ | ✅（後述「重複」課題あり） |
+| `Referrer-Policy: strict-origin-when-cross-origin`（通常ページ） | ✅ |
+| `Referrer-Policy: no-referrer`（draft / manage / edit） | ✅ |
+| `/draft/[token]` → 302 + Set-Cookie + redirect to `/edit/{photobook_id}` | ✅ |
+| `/manage/token/[token]` → 302 + Set-Cookie + redirect to `/manage/{photobook_id}` | ✅ |
+| Cookie 属性: HttpOnly / Secure / SameSite=Strict / Path=/ | ✅ |
+| Cookie Max-Age: draft 7日 / manage 1日 | ✅ |
+| Server Component で Cookie 読取 → "session found" / "session missing" | ✅ |
+| OpenNext 動作マーカ `x-opennext: 1` レスポンスヘッダ | ✅ |
+
+#### v1 (next-on-pages) と v2 (OpenNext) の差分
+
+| 観点 | v1 next-on-pages | v2 OpenNext adapter |
+|------|------------------|----------------------|
+| Cloudflare 公式推奨 | ❌ deprecated（2026-04 時点） | ✅ 公式推奨 |
+| ターゲット | Cloudflare Pages | Cloudflare Workers + Static Assets binding |
+| ビルド出力 | `.vercel/output/static` | `.open-next/worker.js` + `.open-next/assets/` |
+| ローカル preview コマンド | `wrangler pages dev` | `opennextjs-cloudflare preview`（内部で `wrangler dev`） |
+| `export const runtime = 'edge'` | **必須**（指定しないと Edge Runtime にならない） | **禁止**（指定するとビルドエラー）。OpenNext は Workers 上 Node.js 互換ランタイムで動作 |
+| ランタイム識別ヘッダ | `x-edge-runtime: 1` | `x-opennext: 1` |
+| デプロイコマンド | `wrangler pages deploy` | `wrangler deploy`（Worker） |
+| 検証ルートのコード | 同一（layout / page / route 構造は変更不要） | 同一 |
+| SSR / OGP / Cookie / redirect / ヘッダ制御 | 全成立 | 全成立 |
+
+#### v2 切替で実施した変更
+
+- `package.json`: `@cloudflare/next-on-pages` / `vercel` を削除、`@opennextjs/cloudflare` を追加、`wrangler` を v3 → v4 に更新、scripts を `pages:*` から `cf:*` に変更
+- `wrangler.jsonc` 新規作成（Worker + Static Assets binding 設定）
+- `open-next.config.ts` 新規作成（最小設定）
+- 各 page / route ファイルから `export const runtime = "edge"` を削除（5 箇所）
+
+#### 検証で見つかった発見
+
+1. **`runtime = "edge"` 禁止**: 上記表参照。M2 本実装でもこの仕様を踏襲する。
+2. **`X-Robots-Tag` の重複出力**: OpenNext 版では `x-robots-tag: noindex, nofollow, noindex, nofollow` のように値が重複。原因は `middleware.ts` と `next.config.mjs` の `headers()` の両方で `X-Robots-Tag` をセットしているため、OpenNext のレスポンスマージ挙動でカンマ連結される（next-on-pages では片方のみ反映されていた）。実害はないが、M2 本実装では **片方に集約**する（推奨は middleware 一本化）。
+3. **OGP `og:image` 絶対 URL 解決の問題は変わらず**: v1 と同じく `http://localhost:3000/og-sample.png` のまま出力される。M2 で `metadataBase` を環境変数経由で設定する方針は変わらず（既に ADR-0001 に記録済み）。
+
+#### v2 で未確認の項目（v1 と共通、実機ブラウザ必要）
+
+- 実機 Chrome / Edge / Firefox での動作（HTTP プロトコル仕様準拠は curl 確認済み）
+- macOS Safari 実機検証
+- iOS Safari 実機検証（最重要）
+- redirect 後の Cookie 引き継ぎ実体験
+- 24 時間後 / 7 日後の Cookie 残存（ITP 影響評価）
+- Cloudflare Workers 実環境（`*.workers.dev` ドメイン）でのデプロイ検証
+- Backend と異なるホスト構成下での Cookie Domain 動作（U2、Backend PoC と統合）
+
+### v1 → v2 切替の結論
+
+OpenNext adapter（v2）は next-on-pages（v1）と**同じ検証項目をすべて満たす**ことを CLI 検証で確認。M2 本実装の **第一候補は OpenNext adapter で確定方向**。残るリスクは実機 Safari 検証（M1 残作業）と Cloudflare 実環境デプロイ（M1 残作業）のみ。
 
 ---
 

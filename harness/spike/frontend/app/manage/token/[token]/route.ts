@@ -13,7 +13,8 @@ import { NextResponse } from "next/server";
  *  - Cookie 値はダミー固定値
  */
 
-export const runtime = "edge";
+// OpenNext for Cloudflare では `runtime = 'edge'` を指定しない（v2 切替時の修正）。
+// 詳細は app/p/[slug]/page.tsx のコメント参照。
 
 const FIXED_PHOTOBOOK_ID = "sample-photobook-id";
 // PoC 用ダミー session 値。本実装では 32 バイトの暗号論的乱数を base64url 化する。

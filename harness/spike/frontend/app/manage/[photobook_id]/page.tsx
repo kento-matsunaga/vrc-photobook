@@ -8,7 +8,8 @@ import { cookies } from "next/headers";
  *  - draft session（vrcpb_draft_*）と manage session（vrcpb_manage_*）が混同なく動くか
  */
 
-export const runtime = "edge";
+// OpenNext for Cloudflare では `runtime = 'edge'` を指定しない（v2 切替時の修正）。
+// 詳細は app/p/[slug]/page.tsx のコメント参照。
 
 type Params = Promise<{ photobook_id: string }>;
 

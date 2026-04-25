@@ -1,0 +1,22 @@
+/**
+ * Wrangler 設定（OpenNext for Cloudflare 用）
+ *
+ * Cloudflare Workers + Static Assets binding 構成。
+ * Cloudflare Pages ではなく Workers ターゲットなので注意。
+ *
+ * 参考: https://opennext.js.org/cloudflare
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vrcpb-spike-frontend",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

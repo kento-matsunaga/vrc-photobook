@@ -6,6 +6,7 @@ out/
 # Cloudflare
 .wrangler/
 .open-next/
+# OpenNext build outputs (worker.js / assets / 全派生ファイル) は coomit 対象外
 
 # Node
 node_modules/
