@@ -1,7 +1,8 @@
 // Package http は HTTP ルーターを組み立てる。
 //
-// PR1: 最小ルートとして `/health` のみ。
-// PR2 以降で `/readyz` / middleware / 各集約のルートを追加する。
+// PR2: `/health` + `/readyz` を登録。
+// PR3 以降で middleware（CORS / Origin / RequestID / Recoverer / Timeout / Auth）と
+// 各集約のルートを追加する。
 package http
 
 import (
@@ -14,5 +15,6 @@ import (
 func NewRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Get("/health", health.Health)
+	r.Get("/readyz", health.Ready)
 	return r
 }
