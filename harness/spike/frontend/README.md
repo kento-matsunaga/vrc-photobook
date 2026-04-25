@@ -168,21 +168,35 @@ npx wrangler deploy
 - [ ] `/manage/sample-photobook-id` で `manage session found` 表示
 - [ ] `/edit/*` / `/manage/*` の Response Headers で `Referrer-Policy: no-referrer` が出る
 
-### Safari（macOS）
+### Safari（macOS） — 2026-04-25 実機検証完了
 
-- [ ] 上記 Chrome の全項目を Safari でも再確認
-- [ ] ページ再読み込み後も `draft session found` のまま
-- [ ] ページ再読み込み後も `manage session found` のまま
-- [ ] Web Inspector → Storage → Cookies で属性確認
+- [x] 上記 Chrome の全項目を Safari でも再確認
+- [x] `/draft/sample-draft-token` → `/edit/sample-photobook-id` redirect 成功、URL から token 消去
+- [x] `/manage/token/sample-manage-token` → `/manage/sample-photobook-id` redirect 成功
+- [x] redirect 後に `draft session found` 表示
+- [x] redirect 後に `manage session found` 表示
+- [x] ページ再読み込み後も `draft session found` のまま
+- [x] ページ再読み込み後も `manage session found` のまま
+- [x] Web Inspector → Storage → Cookies で属性（HttpOnly / Secure / SameSite=Strict / Path=/）目視確認
+- [x] **大きな問題なし**
 
-### iPhone Safari（iOS Safari）
+### iPhone Safari（iOS Safari） — 2026-04-25 実機検証完了
 
-- [ ] iOS Safari 最新で全項目再確認
-- [ ] iOS Safari 1 世代前で再確認
-- [ ] **redirect 後に Cookie が引き継がれる**（最重要）
-- [ ] **数分〜数時間後にアクセスし直しても session found のまま**
-- [ ] **24 時間後 / 7 日後の Cookie 残存確認**（ITP 影響）
-- [ ] プライベートブラウジングでの動作（参考）
+- [x] redirect 後に Cookie が引き継がれる（最重要）
+- [x] redirect 後の `/edit/{id}` で `draft session found` 表示
+- [x] redirect 後の `/manage/{id}` で `manage session found` 表示
+- [x] ページ再読み込み後も session found のまま
+- [x] **大きな問題なし**
+
+#### 継続観察項目（M1 では時間制約上未確認、運用開始後に追跡）
+
+- [ ] 数時間〜24 時間後にアクセスし直しても session found のまま
+- [ ] **24 時間後 / 7 日後の Cookie 残存確認**（ITP 影響評価）
+- [ ] プライベートブラウジングでの動作
+- [ ] iOS Safari 1 世代前での再確認
+- [ ] iPad Safari（推奨）
+
+これらは Cloudflare Workers 実環境デプロイ後に再確認する。M1 残作業として継続。
 
 ### CSRF / Origin 検証
 

@@ -260,13 +260,53 @@ Cookie 認可を採用するため、CSRF 対策を明示的に行う。
 - M7: Frontend 側で session 切れ時の案内画面、session 明示破棄 UI、X 共有時の公開 URL 限定。
 - ログ: 構造化ログのフィールドに `authorization`・`cookie`・`draft_edit_token`・`manage_url_token`・`session_token` を禁止フィールドとして登録し、マスク処理を中央化する。
 
+## M1 検証結果（2026-04-25）
+
+`harness/spike/frontend/`（OpenNext adapter 版、コミット `6e2840a`）でフロント PoC を構築し、**token → HttpOnly Cookie session → redirect** 方式の中核動作を以下の経路で検証した。
+
+### 検証成立を確認した項目
+
+| 検証経路 | 結果 |
+|---------|:---:|
+| CLI 検証（curl）: Next.js 標準 dev サーバ | ✅ |
+| CLI 検証（curl）: OpenNext + wrangler dev（Workers 互換ローカル） | ✅ |
+| **macOS Safari 実機検証**（2026-04-25） | ✅ 大きな問題なし |
+| **iPhone Safari 実機検証**（2026-04-25） | ✅ 大きな問題なし |
+
+#### Safari 実機検証で確認できたこと
+
+- `/draft/{token}` → 302 + `Set-Cookie` → `/edit/{photobook_id}` へ redirect、URL から token 消去
+- `/manage/token/{token}` → 同様に `/manage/{photobook_id}` へ redirect
+- redirect 後、Server Component で Cookie 読取 → `draft session found` / `manage session found` 表示
+- Cookie 属性（`HttpOnly` / `Secure` / `SameSite=Strict` / `Path=/`）を Web Inspector で目視確認
+- ページ再読込後も session 維持
+
+→ **token → session 交換方式（本 ADR の中核）は、macOS Safari / iPhone Safari の実機検証でも成立**することを確認した。本 ADR の方針は M2 本実装で採用する。
+
+### 継続観察項目（M1 では時間制約上未確認）
+
+下記は時間経過が必要な検証のため、M1 残作業 + Cloudflare Workers 実環境デプロイ後に再確認する:
+
+- 24 時間後 / 7 日後の Cookie 残存（**ITP 影響評価**）
+- iOS Safari 1 世代前での再確認
+- iPad Safari
+- プライベートブラウジング動作
+- 数時間〜24 時間スパンで再アクセス時の session 維持
+
+これらが「Cookie が想定外に消える」結果になった場合、§案E（Cookie 発行ホストの統一）/ §案F（token を URL に残す方式へ後退）/ §案G（独自親ドメイン共有）への切替を検討する。
+
+### 今後の運用ルール
+
+- **Cookie 発行 / redirect / OGP / レスポンスヘッダ / モバイル UI を変更した場合、macOS Safari と iPhone Safari の確認を必須にする**
+- ルール詳細: `.agents/rules/safari-verification.md`
+
 ## 未解決事項 / 検証TODO
 
 - **Middleware 全リクエスト検証 vs Server Component 単位検証**: M1 スパイクで、Edge Runtime で DB アクセスが可能か、レイテンシが許容範囲かを計測して決定する。
 - **session token の長さ**: 32 バイト（256bit）を base64url 化すると 43 文字。Cookie サイズ・可読性ともに問題ない想定だが、M3 で最終決定。
 - **別端末同時編集時の UX**: 楽観ロック（`photobook.version`）衝突時のモーダル文言と復旧フロー。
 - **破壊的操作のワンタイムトークン仕様**: スコープ（1操作1トークン）、有効期限（5〜10分）、保存先（`sessions` テーブル拡張 or 別テーブル）を M4 で確定。
-- **Safari ITP の影響評価**: M1 スパイクでブラウザマトリクス検証。
+- **Safari ITP の長期影響評価（24h / 7 日後）**: 上記「継続観察項目」のとおり。実環境デプロイ後に時間経過観察を行う。本 ADR の方針自体には現時点で問題なし。
 
 ## 関連ドキュメント
 

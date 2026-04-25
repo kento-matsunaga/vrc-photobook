@@ -126,12 +126,18 @@ Next.js on Cloudflare Pages は、以下を M1 で必ずスパイク検証する
 
 `@cloudflare/next-on-pages` + `wrangler pages dev` でも同等の検証が成立していたが、`npm install` 時に Cloudflare 公式から **deprecated 警告**が出たため、M2 本実装は OpenNext adapter 一本に絞る。`@cloudflare/next-on-pages` の検証ログは Git 履歴で参照可能。
 
+#### Safari 実機検証結果（2026-04-25）
+
+- **macOS Safari 実機検証 ✅ 成立**: `/draft/{token}` / `/manage/token/{token}` → redirect → session found 表示、再読込後も維持、Web Inspector で Cookie 属性目視確認
+- **iPhone Safari 実機検証 ✅ 成立**: 同上の経路で問題なし
+- 詳細: ADR-0003 §M1 検証結果 / `harness/spike/frontend/README.md` §検証チェックリスト
+
 #### 未確認（実機 / 実環境が必要、M1 残作業）
 
-- macOS Safari / iPhone Safari 実機検証
-- 24 時間 / 7 日後の Cookie 残存（ITP 影響評価）
+- 24 時間 / 7 日後の Cookie 残存（**ITP 長期影響評価**、継続観察）
 - **Cloudflare Workers 実環境（`*.workers.dev` ドメイン）でのデプロイ動作**
 - Backend（Cloud Run）と異なるホスト構成下での Cookie Domain 動作（U2、Backend PoC と統合）
+- iOS Safari 1 世代前 / iPad Safari / プライベートブラウジング
 
 #### M1 検証で確定した方針変更（M2 本実装の必須要件）
 
