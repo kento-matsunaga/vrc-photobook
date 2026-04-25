@@ -335,6 +335,16 @@ npx wrangler deploy
 
 OpenNext adapter（v2）は next-on-pages（v1）と**同じ検証項目をすべて満たす**ことを CLI 検証で確認。M2 本実装の **第一候補は OpenNext adapter で確定方向**。残るリスクは実機 Safari 検証（M1 残作業）と Cloudflare 実環境デプロイ（M1 残作業）のみ。
 
+### 次工程（M1 残作業）
+
+`docs/plan/m1-spike-plan.md` §13.0 に従い、以下の順で進める:
+
+1. **macOS Safari 実機検証**（PoC をローカル `cf:preview` で動かして DevTools 確認）
+2. **iPhone Safari 実機検証**（最重要、ITP 影響評価含む）
+3. **Cloudflare Workers 実環境（`*.workers.dev`）デプロイ検証**
+4. 結果を ADR-0001 / ADR-0003 / M1 計画 §12 に反映
+5. Backend / R2 / Turnstile / Outbox / Email Provider PoC（優先順位 3〜8）に着手
+
 ---
 
 ## ADR / 設計書へのフィードバック候補

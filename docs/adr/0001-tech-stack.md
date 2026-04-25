@@ -48,7 +48,7 @@ v3 は破棄済みであり、以後は `docs/spec/vrc_photobook_business_knowle
 | Email | **Resend or AWS SES**（ADR-0004 で確定） | 管理URL本文ログの扱いで最終判断 |
 | Backend Deploy 第一候補 | **Cloud Run** | Go + コンテナとの相性、Cloud SQL / Secret Manager / Cloud Logging 接続が自然 |
 | Backend Deploy 代替候補 | **VPS** / **Fly.io** | VPS はコスト読みやすさ、Fly.io は代替として保持 |
-| Frontend Deploy 第一候補 | **Cloudflare Pages** | M1 スパイク次第で変更余地を残す |
+| Frontend Deploy 第一候補 | **Cloudflare Workers + Static Assets binding（OpenNext adapter）** | M1 検証結果（2026-04-25）で `@cloudflare/next-on-pages` が deprecated と確認、`@opennextjs/cloudflare` に切替済み。M1 スパイク次第でさらに変更余地を残す |
 | Testing | Go 標準 `testing` + **testcontainers-postgres** + **table-driven test** | `.agents/rules/testing.md` 準拠 |
 | ID | **UUIDv7** | DB 主キー・内部ID。公開URL slug は別途 `public_url_slug` を生成 |
 
@@ -108,24 +108,57 @@ Next.js on Cloudflare Pages は、以下を M1 で必ずスパイク検証する
 - redirect 後の Server Component で `cookies()` 読取が動作
 - Cloudflare Pages 互換ローカル環境（`wrangler pages dev`）でも同等に動作
 
-未確認（実機 / 実環境が必要、M1 残作業）:
+### M1 検証結果（2026-04-25 時点、OpenNext adapter 版で再確認済み）
+
+#### v2 OpenNext adapter 版（コミット `6e2840a` 時点、本実装第一候補）
+
+`harness/spike/frontend/` を `@opennextjs/cloudflare` + `wrangler 4` に切り替えて再検証。`opennextjs-cloudflare build` → `opennextjs-cloudflare preview` 経由で **Cloudflare Workers + Static Assets binding** ローカル環境（`http://localhost:8787`）にて以下を CLI 検証成功:
+
+- SSR 動作（OpenNext 識別ヘッダ `x-opennext: 1`）
+- `generateMetadata` による OGP / Twitter card メタタグの動的出力
+- HTML 内 `<meta name="robots" content="noindex, nofollow">`
+- HTTP ヘッダ `X-Robots-Tag: noindex, nofollow`
+- ページ種別ごとの `Referrer-Policy` 出し分け（通常ページ `strict-origin-when-cross-origin` / token 付き URL `no-referrer`）
+- Route Handler から `Set-Cookie` (HttpOnly / Secure / SameSite=Strict / Path=/) + 302 redirect
+- redirect 後の Server Component で `cookies()` 読取が動作
+
+#### v1 next-on-pages 版（コミット `c7ba16b` 時点、ベースライン参照のみ）
+
+`@cloudflare/next-on-pages` + `wrangler pages dev` でも同等の検証が成立していたが、`npm install` 時に Cloudflare 公式から **deprecated 警告**が出たため、M2 本実装は OpenNext adapter 一本に絞る。`@cloudflare/next-on-pages` の検証ログは Git 履歴で参照可能。
+
+#### 未確認（実機 / 実環境が必要、M1 残作業）
 
 - macOS Safari / iPhone Safari 実機検証
 - 24 時間 / 7 日後の Cookie 残存（ITP 影響評価）
-- Cloudflare Pages 実環境（`*.pages.dev`）でのデプロイ動作
+- **Cloudflare Workers 実環境（`*.workers.dev` ドメイン）でのデプロイ動作**
 - Backend（Cloud Run）と異なるホスト構成下での Cookie Domain 動作（U2、Backend PoC と統合）
 
-#### M1 検証で確定した方針変更
+#### M1 検証で確定した方針変更（M2 本実装の必須要件）
 
-- **Cloudflare Pages 用アダプタを `@cloudflare/next-on-pages` から OpenNext adapter (`@opennextjs/cloudflare`) に切替**
-  - `npm install` 時に `@cloudflare/next-on-pages` が deprecated になっており、Cloudflare 公式が OpenNext adapter を推奨に切替済との警告が出た
-  - next-on-pages 版 PoC では検証目的（SSR / Cookie / redirect / ヘッダ）はすべて達成しているため、本 PoC コードはベースラインとして保持
-  - **M2 本実装は OpenNext adapter で構築する第一候補**とし、M1 中に OpenNext 版 PoC を別途構築して同等動作を確認する
-  - 詳細経緯: `harness/failure-log/2026-04-25_cloudflare-next-on-pages-deprecated.md`
-- **OGP の絶対 URL 解決を本実装の必須要件として確定**
-  - 検証中、`og:image` が dev サーバ URL（`http://localhost:3000/...`）として焼き込まれる挙動を確認
-  - 原因は Next.js Metadata API のベース URL 解決仕様
-  - **M2 本実装では `metadata.metadataBase = new URL(process.env.NEXT_PUBLIC_BASE_URL)` を必ず設定する**
+1. **Frontend Deploy 第一候補を OpenNext adapter での Cloudflare Workers + Static Assets binding に確定**
+   - 旧: Cloudflare Pages（`@cloudflare/next-on-pages`）
+   - 新: Cloudflare Workers + `assets` バインディング（`@opennextjs/cloudflare`）
+   - URL: `*.pages.dev` → `*.workers.dev`（カスタムドメインは独立に設定）
+   - デプロイコマンド: `wrangler pages deploy` → `wrangler deploy`
+   - 詳細経緯: `harness/failure-log/2026-04-25_cloudflare-next-on-pages-deprecated.md`
+
+2. **`export const runtime = "edge"` を指定しない**
+   - OpenNext for Cloudflare は Workers 上の **Node.js 互換ランタイム**で動作する
+   - App Router のページ・Route Handler・Server Component で `runtime = "edge"` を指定するとビルドエラー（`OpenNext requires edge runtime function to be defined in a separate function.`）
+   - M2 本実装では「`runtime = "edge"` を指定しない」を必須ルールとする
+
+3. **レスポンスヘッダ制御を middleware に一本化する**
+   - 検証で `next.config.mjs` の `headers()` と `middleware.ts` の両方で `X-Robots-Tag` を付与すると、OpenNext 上で `noindex, nofollow, noindex, nofollow` のように **値が重複**することを確認
+   - M2 本実装では `next.config.mjs` の `headers()` でのヘッダ付与を行わず、**`middleware.ts` でページ種別ごとに集中管理**する
+   - 業務知識 v4 §7.6 / §6.13 のヘッダ要件はそのまま維持し、実装手段だけを middleware 一本化に確定
+
+4. **OGP の絶対 URL 解決を必ず `metadataBase` で行う**
+   - PoC 検証中、`og:image` が `http://localhost:3000/og-sample.png` のように dev サーバ URL のまま焼き込まれる挙動を確認
+   - 原因は Next.js Metadata API が相対 URL を絶対 URL に展開するときに `metadataBase` を参照する仕様
+   - M2 本実装では `app/layout.tsx`（または該当ページ）の `Metadata` に **`metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL)` を必ず設定**する。`NEXT_PUBLIC_BASE_URL` は環境ごとに切替（本番 / プレビュー / dev）
+
+5. **`@cloudflare/next-on-pages` を採用しない**
+   - 上記 1 と同根。M2 以降のフロント実装ガイド・Dockerfile / GitHub Actions / Wrangler 設定すべてに反映する
 
 ## 検討した代替案
 
@@ -168,7 +201,7 @@ Next.js on Cloudflare Pages は、以下を M1 で必ずスパイク検証する
 
 ## 未解決事項 / 検証TODO
 
-- **M1 Cloudflare Pages スパイク**: 上記の 8 項目を 1 週以内に検証し、結果を本 ADR「検証結果」セクション（新設）に追記する。致命的問題があれば Frontend Deploy を Cloud Run 等に切り替え、本 ADR を更新する。
+- **M1 Cloudflare スパイク（OpenNext adapter 版）**: 8 項目のうち CLI 検証で完結する項目は 2026-04-25 に検証完了、上記「M1 検証結果」§v2 に記録。残タスクは macOS Safari / iPhone Safari 実機検証、24h / 7 日後 Cookie 残存（ITP 影響）、Cloudflare Workers 実環境（`*.workers.dev`）デプロイ。致命的問題があれば Frontend Deploy を Cloud Run 等に切り替え、本 ADR を更新する。
 - **HEIC デコード戦略**: libheif を含むコンテナイメージ構築方針を ADR-0005 実装時に確定する。Cloud Run サイドカー分離 or 単一イメージで libheif 同梱、のいずれか。
 - **Email プロバイダ確定**: ADR-0004 の Proposed → Accepted への移行結果を本 ADR に反映する。
 - **R2 レイテンシ実測**: Cloud Run 東京リージョンから R2 への presigned URL 発行 / 画像 GET のレイテンシを M1 / M3 で計測する。
