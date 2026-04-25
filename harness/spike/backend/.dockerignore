@@ -1,0 +1,35 @@
+# M1 spike backend: Docker build context exclusion list.
+#
+# 目的:
+#   - Secret 値（R2 / Turnstile / DB 認証情報など）を含む .env.local をビルドコンテキストへ
+#     送らない。最終 image には COPY されないが、build cache / 中間レイヤーへの混入を防ぐ。
+#   - git / 一時ファイル / 各種ビルド成果物を除外して context size を最小化する。
+#
+# ルート:
+#   このファイルは `docker build harness/spike/backend` の build context（つまり
+#   harness/spike/backend/）から見た相対パスで解釈される。
+
+# === Secret 系（最重要） ===
+.env
+.env.*
+!.env.example
+*.env
+.env.local
+
+# === Git ===
+.git
+.gitignore
+
+# === 一時ファイル / ログ ===
+tmp/
+*.log
+*.tmp
+
+# === ビルド成果物 / カバレッジ ===
+coverage/
+dist/
+build/
+
+# === Node / OS ===
+node_modules/
+.DS_Store
