@@ -70,10 +70,11 @@ export default function BackendCheckPage() {
     note?: string;
   }> = [
     {
-      name: "healthz",
-      label: "GET /healthz (no credentials)",
-      run: () => call("healthz", `${apiBase}/healthz`, { credentials: "omit" }),
-      note: "Backend 単純疎通確認。CORS 不要（Cookie 送らない）",
+      name: "health",
+      label: "GET /health (no credentials)",
+      run: () => call("health", `${apiBase}/health`, { credentials: "omit" }),
+      note:
+        "Backend 単純疎通確認。CORS 不要（Cookie 送らない）。Cloud Run 上では /healthz が GFE で 404 になるため、Workers 結合確認では /health を使う（harness/failure-log/2026-04-26_cloud-run-healthz-intercepted.md）",
     },
     {
       name: "session_include",
