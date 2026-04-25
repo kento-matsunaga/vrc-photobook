@@ -1,90 +1,68 @@
 # vrc_photobook
 
-## プロジェクト概要
-
-VRChat向けフォトブックサービス（詳細仕様は `docs/spec/` に記述予定）。
-
-本リポジトリは [ai-driven-template](../ai-driven-template/) をベースに、
+VRChat 向けフォトブックサービス。**スマホファースト / ログイン不要 / 管理 URL 方式**。
 ハーネスエンジニアリング（Spec → Implement → Verify → Feedback）で開発する。
 
-## ディレクトリ構造
+## 現在地（2026-04-26）
+
+**M1 完了 → M2 早期入口**。次の 1 サイクルは独自ドメイン取得 + U2 Cookie Domain 解消の計画書作成。
+
+→ 全体ロードマップ・現在地マーカー・次のサイクル・落とし穴: [`harness/work-logs/2026-04-26_project-roadmap-overview.md`](./harness/work-logs/2026-04-26_project-roadmap-overview.md)
+
+## 一目で見るリンクハブ
+
+| 何を知りたいか | 参照先 |
+|---|---|
+| 業務知識（最上位の正典、矛盾時はこれが正） | [`docs/spec/vrc_photobook_business_knowledge_v4.md`](./docs/spec/vrc_photobook_business_knowledge_v4.md) |
+| 技術スタック / 認可 / 画像 / メールの確定事項 | [`docs/adr/`](./docs/adr/) (ADR-0001〜0005) |
+| 集約一覧（Photobook / Image / Report / UsageLimit / ManageUrlDelivery / Moderation） | [`docs/design/aggregates/README.md`](./docs/design/aggregates/README.md) |
+| 横断設計（Outbox / Reconcile / OGP） | [`docs/design/cross-cutting/`](./docs/design/cross-cutting/) |
+| 認可機構（Cookie session / upload-verification） | [`docs/design/auth/README.md`](./docs/design/auth/README.md) |
+| v3→v4 変更点と P0/P1 達成チェック | [`docs/design/v4-change-summary.md`](./docs/design/v4-change-summary.md) |
+| M1 計画 / 実環境デプロイ計画 / 費用ガード | [`docs/plan/`](./docs/plan/) |
+| M1 完了判定 / 検証ログ | [`harness/work-logs/`](./harness/work-logs/) |
+| 過去の失敗事例（再発させない）| [`harness/failure-log/`](./harness/failure-log/) |
+| 品質スコア | [`harness/QUALITY_SCORE.md`](./harness/QUALITY_SCORE.md) |
+| コード ↔ docs 対応 | [`docs/ディレクトリマッピング.md`](./docs/ディレクトリマッピング.md) |
+
+## 守るべきルール（必読、`.agents/rules/`）
+
+- [`coding-rules.md`](./.agents/rules/coding-rules.md) — 明示的 > 暗黙的、`any` / `interface{}` 禁止
+- [`domain-standard.md`](./.agents/rules/domain-standard.md) — 集約 / VO / Repository のディレクトリ構造
+- [`testing.md`](./.agents/rules/testing.md) — テーブル駆動 + Builder + `description` 必須
+- [`security-guard.md`](./.agents/rules/security-guard.md) — Secret / Cookie / 認可
+- [`safari-verification.md`](./.agents/rules/safari-verification.md) — Cookie / redirect / OGP / ヘッダ変更時の Safari 必須確認
+- [`feedback-loop.md`](./.agents/rules/feedback-loop.md) — すべての失敗を `harness/failure-log/` に記録
+- [`wsl-shell-rules.md`](./.agents/rules/wsl-shell-rules.md) — `cd` 不使用 / `-C` / `-f` / 絶対パス、sudo は対話シェルで
+
+## コアコンセプト
 
 ```
-vrc_photobook/
-├── .agents/              # AIエージェント正規ソース（rules/skills/hooks）
-├── .claude/              # Claude Code用アダプター（.agentsへのシンボリックリンク）
-├── .github/workflows/    # AIレビュー + CI
-├── frontend/             # フロントエンドアプリケーション
-├── design/               # デザイン資産
-│   ├── mockups/          # 画面モックアップ
-│   ├── design-system/    # デザインシステム定義（カラー/タイポ/UI）
-│   ├── figma-exports/    # Figma原本・SVGエクスポート
-│   └── assets/           # ロゴ・アイコン・画像素材
-├── docs/                 # ドキュメント（コードの外にある"なぜ"）
-│   ├── spec/             # 仕様書（What）
-│   ├── design/           # 設計書（How）
-│   ├── business/         # 業務知識（Why / Domain）
-│   └── adr/              # アーキテクチャ決定記録
-├── harness/              # 品質管理（QUALITY_SCORE / failure-log / work-logs）
-├── scripts/              # セットアップ・フック・ユーティリティ
-└── tests/                # テスト（実装開始後に追加）
+Spec → Implement → Verify → Feedback
 ```
 
-詳細な使い分けは各ディレクトリの `README.md` を参照。
+> **すべての失敗は再発を防止するルールまたはスキルになる。**
 
-## コアコンセプト: Spec → Implement → Verify → Feedback
+詳細手順: [`.agents/rules/feedback-loop.md`](./.agents/rules/feedback-loop.md)
 
-```
-Human: Spec（仕様策定）       ← docs/spec/ に記述。AIはドラフト支援
-  ↓
-AI Agent: Implement（実装）    ← .agents/rules に従い自律実行
-  ↓
-Automated + Human: Verify      ← テスト + AIレビュー + 自動承認
-  ↓
-失敗 → ルール化 / スキル化      ← harness/failure-log → .agents/rules
-```
+## ディレクトリ概略
 
-## 開発フロー
+| 場所 | 内容 |
+|---|---|
+| `docs/` | 業務知識 v4 / ADR / 集約設計 / 横断設計 / M1 計画 |
+| `.agents/` | AI ルール / スキル / フック（`.claude/` はシンボリックリンク）|
+| `harness/` | 品質スコア / failure-log / work-logs / `spike/`（M1 PoC、**本実装に流用しない**）|
+| `frontend/`, `backend/` | 本実装。**M2 以降に着手**（`backend/` は未作成）|
+| `design/` | Figma / デザインシステム / モックアップ |
+| `scripts/` | hooks / セットアップ |
 
-1. **仕様作成**: `docs/spec/` に機能仕様を記述
-2. **デザイン**: Figma で作成 → `design/` にエクスポート
-3. **設計**: 重要な技術決定は `docs/adr/` に記録
-4. **実装**: `frontend/` で開発。`design/design-system/` を Single Source of Truth とする
-5. **レビュー**: PR作成時に `@claude frontreview` でフロントエンド専用レビュー
-6. **失敗の学習**: 失敗は `harness/failure-log/` → `./scripts/failure-to-rule.sh` でルール化
-
-## AIレビュー
+## AI レビュー
 
 | コマンド | モード | 用途 |
-|---------|-------|------|
-| PR作成時に自動 | Standard | コードレビュー |
-| `@claude deepreview` | Comprehensive | 最大9サブエージェント並列の深層レビュー |
-| `@claude frontreview` | Frontend | フロントエンド4観点 + 自動承認判定 |
+|---|---|---|
+| PR 自動 | Standard | コードレビュー |
+| `@claude deepreview` | Comprehensive | 最大 9 サブエージェント並列 |
+| `@claude frontreview` | Frontend | フロントエンド 4 観点 + 自動承認判定 |
 | `@claude {質問}` | Assist | 調査・修正・質問回答 |
 
-## 技術スタック（未確定）
-
-- Frontend: TBD（Next.js / Astro / Vite + React の中から選定）
-- デプロイ: Cloudflare Pages 想定
-- Figma: デザイン原本管理
-
-技術選定が決まり次第、`docs/adr/0001-tech-stack.md` に記録する。
-
-## クイックリファレンス
-
-- ルール一覧 → `.agents/rules/`
-- スキル一覧 → `.agents/skills/`
-- サブエージェント → `.claude/agents/review/`
-- フック設定 → `.claude/settings.json`
-- 品質スコア → `harness/QUALITY_SCORE.md`
-- ディレクトリ対応 → `docs/ディレクトリマッピング.md`
-
-## ハーネス原則
-
-> **すべてのエージェントの失敗は、再発を防止するルールまたはスキルになる。**
-
-1. 失敗を記録（`harness/failure-log/`）
-2. 原因分析
-3. ルール/スキル化（`.agents/rules/` or `.agents/skills/`）
-4. テストで検証可能に（`tests/`）
-5. 品質スコア更新（`harness/QUALITY_SCORE.md`）
+サブエージェント定義: `.claude/agents/review/`
