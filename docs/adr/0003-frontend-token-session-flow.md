@@ -295,7 +295,39 @@ Cookie 認可を採用するため、CSRF 対策を明示的に行う。
 
 これらが「Cookie が想定外に消える」結果になった場合、§案E（Cookie 発行ホストの統一）/ §案F（token を URL に残す方式へ後退）/ §案G（独自親ドメイン共有）への切替を検討する。
 
-### 今後の運用ルール
+### M1 実環境デプロイ後の追加検証結果（2026-04-26）
+
+Workers 実環境（`https://vrcpb-spike-frontend.k-matsunaga-biz.workers.dev`）と Cloud Run 実環境（`https://vrcpb-spike-api-7eosr3jcfa-an.a.run.app`）の両方をデプロイし、以下を確認した（詳細ログ: `harness/work-logs/2026-04-26_m1-live-deploy-verification.md`）。
+
+#### 確認できた事実
+
+- macOS Safari / iPhone Safari の両方で **Workers 実環境**でも token → session 交換 + redirect + Cookie 引き継ぎが成立
+- Cookie 属性（HttpOnly / Secure / SameSite=Strict / Path=/、draft 7 日 / manage 24 時間）はブラウザ DevTools で目視確認済
+- Workers `*.workers.dev` 上で発行された Cookie は Workers ホスト上で正しく保持・再読込後も維持
+
+#### U2 Cookie Domain の確定材料（重要）
+
+`harness/spike/frontend/integration/backend-check` 経由で実機検証したところ、`GET /sandbox/session-check (credentials: include)` が **`{"draft_cookie_present":false,"manage_cookie_present":false}`** を返した。
+
+これは **設計失敗ではなく**、ブラウザ仕様 + 構成上の想定通りの挙動である:
+
+- Frontend `*.workers.dev` で発行された Cookie は、Cookie の Domain が **発行ホスト**に閉じる
+- Backend `*.run.app` への `credentials: include` fetch では、Backend ホストに該当 Cookie が **付かない**
+- CORS / preflight / Origin 反射 / `Access-Control-Allow-Credentials: true` は別途すべて成立しているため、ブラウザ仕様としての別オリジン Cookie 不通だけがブロッカー
+
+これにより `docs/plan/m1-live-deploy-verification-plan.md` §7 Cookie Domain U2 検証案の評価が確定:
+
+| 案 | M1 確認結果 | M2 推奨度 |
+|---|---|---|
+| **案A（共通親ドメイン + Cookie Domain `.example.com`）** | M1 では未実施（独自ドメイン未取得）| **第一候補**：M2 早期に独自ドメイン取得 → 案 A を採用 |
+| 案B（Workers `/api/*` プロキシで同一オリジン化）| M1 では未実施 | 第二候補（独自ドメイン取得が遅延した場合）|
+| 案C（Cookie 共有しない、Backend 認可方式を再設計）| 不採用 | 採用しない（本 ADR の根本変更を避ける）|
+
+**M2 早期の必須タスクとして「独自ドメイン取得 → 案 A 採用」を本 ADR §未解決事項 U2 で確定**する。これにより M1 計画書 §13 失敗時の判断 §「Cookie Domain が期待通り動かない」は **想定通り発生 → 案 A 一次方針で吸収**として整理済となる。
+
+### 今後の運用ルール（再確認）
+
+### 今後の運用ルール（再々確認）
 
 - **Cookie 発行 / redirect / OGP / レスポンスヘッダ / モバイル UI を変更した場合、macOS Safari と iPhone Safari の確認を必須にする**
 - ルール詳細: `.agents/rules/safari-verification.md`
@@ -306,7 +338,8 @@ Cookie 認可を採用するため、CSRF 対策を明示的に行う。
 - **session token の長さ**: 32 バイト（256bit）を base64url 化すると 43 文字。Cookie サイズ・可読性ともに問題ない想定だが、M3 で最終決定。
 - **別端末同時編集時の UX**: 楽観ロック（`photobook.version`）衝突時のモーダル文言と復旧フロー。
 - **破壊的操作のワンタイムトークン仕様**: スコープ（1操作1トークン）、有効期限（5〜10分）、保存先（`sessions` テーブル拡張 or 別テーブル）を M4 で確定。
-- **Safari ITP の長期影響評価（24h / 7 日後）**: 上記「継続観察項目」のとおり。実環境デプロイ後に時間経過観察を行う。本 ADR の方針自体には現時点で問題なし。
+- **Safari ITP の長期影響評価（24h / 7 日後）**: 上記「継続観察項目」のとおり。実環境デプロイ後に時間経過観察を行う。本 ADR の方針自体には現時点で問題なし。**Workers 実環境デプロイ完了済（2026-04-26、起点）**、24h / 7 日後の再アクセス確認はユーザー側で継続観察。
+- **U2 Cookie Domain（Frontend と Backend が異なるホスト）**: 2026-04-26 の Workers + Cloud Run 実環境で「別オリジン下では Cookie が Backend に渡らない」挙動を確認済。**M2 早期に独自ドメインを取得し、案 A（共通親ドメイン + Cookie Domain `.example.com`）を採用する**を一次方針として確定（上記 §M1 実環境デプロイ後の追加検証結果）。
 
 ## 関連ドキュメント
 
