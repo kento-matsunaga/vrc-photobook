@@ -25,8 +25,16 @@ import (
 	"vrcpb/backend/internal/config"
 	"vrcpb/backend/internal/database"
 	internalhttp "vrcpb/backend/internal/http"
+	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
+	"vrcpb/backend/internal/photobook/wireup"
 	"vrcpb/backend/internal/shared"
 )
+
+// manageSessionTTL は manage session の有効期限。
+//
+// 業務知識 v4 §6.15 / 計画 m2-photobook-session-integration-plan.md §14.3 で 7 日確定。
+// 将来 env 化したくなった場合は config.Config に追加する。
+const manageSessionTTL = 7 * 24 * time.Hour
 
 const (
 	// shutdownTimeout は SIGINT / SIGTERM 受信後の graceful shutdown 上限。
@@ -60,7 +68,14 @@ func main() {
 		logger.Info("db not configured; /readyz will return 503 db_not_configured")
 	}
 
-	router := internalhttp.NewRouter(pool)
+	// PR9c: pool が利用可能なときだけ Photobook の token 交換 endpoint を組み立てる。
+	// pool 未設定（DATABASE_URL 空）時は handler nil で渡して endpoint 自体を作らない。
+	var photobookHandlers *photobookhttp.Handlers
+	if pool != nil {
+		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
+	}
+
+	router := internalhttp.NewRouter(pool, photobookHandlers)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
