@@ -152,7 +152,7 @@ func TestRepository_ConsumeOne(t *testing.T) {
 		}
 		hash := verification_session_token_hash.Of(tok)
 		for i := 1; i <= 20; i++ {
-			out, err := repo.ConsumeOne(ctx, hash, pid)
+			out, err := repo.ConsumeOne(ctx, hash, pid, time.Now().UTC())
 			if err != nil {
 				t.Fatalf("Consume[%d]: %v", i, err)
 			}
@@ -160,7 +160,7 @@ func TestRepository_ConsumeOne(t *testing.T) {
 				t.Errorf("used = %d want %d", out.UsedIntentCount, i)
 			}
 		}
-		_, err := repo.ConsumeOne(ctx, hash, pid)
+		_, err := repo.ConsumeOne(ctx, hash, pid, time.Now().UTC())
 		if !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
 			t.Errorf("21st consume: err = %v want ErrUploadVerificationFailed", err)
 		}
@@ -177,7 +177,7 @@ func TestRepository_ConsumeOne(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 		other, _ := verification_session_token.Generate()
-		_, err := repo.ConsumeOne(ctx, verification_session_token_hash.Of(other), pid)
+		_, err := repo.ConsumeOne(ctx, verification_session_token_hash.Of(other), pid, time.Now().UTC())
 		if !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
 			t.Errorf("err = %v want ErrUploadVerificationFailed", err)
 		}
@@ -195,7 +195,7 @@ func TestRepository_ConsumeOne(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 		hash := verification_session_token_hash.Of(tok)
-		_, err := repo.ConsumeOne(ctx, hash, other)
+		_, err := repo.ConsumeOne(ctx, hash, other, time.Now().UTC())
 		if !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
 			t.Errorf("err = %v want ErrUploadVerificationFailed", err)
 		}
@@ -213,7 +213,7 @@ func TestRepository_ConsumeOne(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 		hash := verification_session_token_hash.Of(tok)
-		_, err := repo.ConsumeOne(ctx, hash, pid)
+		_, err := repo.ConsumeOne(ctx, hash, pid, time.Now().UTC())
 		if !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
 			t.Errorf("err = %v want ErrUploadVerificationFailed", err)
 		}
@@ -233,9 +233,48 @@ func TestRepository_ConsumeOne(t *testing.T) {
 			t.Fatalf("Revoke: %v", err)
 		}
 		hash := verification_session_token_hash.Of(tok)
-		_, err := repo.ConsumeOne(ctx, hash, pid)
+		_, err := repo.ConsumeOne(ctx, hash, pid, time.Now().UTC())
 		if !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
 			t.Errorf("err = %v want ErrUploadVerificationFailed", err)
+		}
+	})
+}
+
+func TestRepository_ConsumeOne_ExpirationBoundary(t *testing.T) {
+	pool := dbPool(t)
+	ctx := context.Background()
+	repo := uploadrdb.NewUploadVerificationSessionRepository(pool)
+
+	t.Run("固定時刻_expires_atちょうどはconsume不可_前後1秒は成功と失敗", func(t *testing.T) {
+		// Given: now=固定 + ttl=10min の session を作成。expires_at = now+10min。
+		// When:  consume の now パラメータを以下で試す:
+		//   (a) now+9m59s（expires_at の手前 1 秒前） → 成功
+		//   (b) now+10m00s（expires_at と同時刻）   → 失敗（SQL は `expires_at > $now`、=は不可）
+		//   (c) now+10m01s（expires_at を 1 秒過ぎ） → 失敗
+		// Then: SQL 側の `expires_at > $now` 条件が固定時刻で正しく効くことを検証。
+		if _, err := pool.Exec(ctx, "TRUNCATE TABLE upload_verification_sessions, photobook_page_metas, photobook_photos, photobook_pages, image_variants, images, sessions, photobooks CASCADE"); err != nil {
+			t.Fatalf("TRUNCATE: %v", err)
+		}
+		pid := seedPhotobook(t, pool)
+		baseNow := time.Date(2026, 4, 27, 0, 0, 0, 0, time.UTC)
+		s, tok := makeSession(t, pid, baseNow, intent_count.Default(), 10*time.Minute)
+		if err := repo.Create(ctx, s); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		hash := verification_session_token_hash.Of(tok)
+		expiresAt := baseNow.Add(10 * time.Minute)
+
+		// (a) 1 秒前
+		if _, err := repo.ConsumeOne(ctx, hash, pid, expiresAt.Add(-time.Second)); err != nil {
+			t.Errorf("a: just-before-expiry must succeed, err=%v", err)
+		}
+		// (b) ちょうど expires_at（SQL は > $now なので不可）
+		if _, err := repo.ConsumeOne(ctx, hash, pid, expiresAt); !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
+			t.Errorf("b: at-expiry must fail, err=%v", err)
+		}
+		// (c) 1 秒後
+		if _, err := repo.ConsumeOne(ctx, hash, pid, expiresAt.Add(time.Second)); !errors.Is(err, uploadrdb.ErrUploadVerificationFailed) {
+			t.Errorf("c: after-expiry must fail, err=%v", err)
 		}
 	})
 }
@@ -264,7 +303,7 @@ func TestRepository_ConsumeOne_Concurrent(t *testing.T) {
 		for i := 0; i < total; i++ {
 			go func(idx int) {
 				defer wg.Done()
-				_, err := repo.ConsumeOne(ctx, hash, pid)
+				_, err := repo.ConsumeOne(ctx, hash, pid, time.Now().UTC())
 				results[idx] = err
 			}(i)
 		}

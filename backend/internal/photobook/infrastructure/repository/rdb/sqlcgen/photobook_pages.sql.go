@@ -406,6 +406,14 @@ type UpdatePhotobookPhotoOrderParams struct {
 	DisplayOrder int32
 }
 
+// 注意: 単純な単一行 UPDATE。UNIQUE (page_id, display_order) と衝突する
+// new_order が既に他 photo に取られていると 23505 を返す。
+// MVP の Reorder は「新規 order が空いている」前提で運用する。
+// 二者間 swap や complex reorder は呼び出し側で：
+//  1. 一時退避（例: 大きな offset 値 1000+ に一旦逃がす、CHECK display_order >= 0 のため）
+//  2. 順次 UPDATE
+//
+// のパターンを実装する。DEFERRABLE UNIQUE は MVP では採用しない（PR19 計画 / Audit）。
 func (q *Queries) UpdatePhotobookPhotoOrder(ctx context.Context, arg UpdatePhotobookPhotoOrderParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updatePhotobookPhotoOrder, arg.ID, arg.DisplayOrder)
 	if err != nil {

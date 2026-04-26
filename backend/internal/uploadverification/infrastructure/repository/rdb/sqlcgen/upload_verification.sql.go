@@ -17,7 +17,7 @@ UPDATE upload_verification_sessions
  WHERE session_token_hash = $1
    AND photobook_id       = $2
    AND used_intent_count  < allowed_intent_count
-   AND expires_at         > now()
+   AND expires_at         > $3
    AND revoked_at         IS NULL
 RETURNING id, used_intent_count, allowed_intent_count
 `
@@ -25,6 +25,7 @@ RETURNING id, used_intent_count, allowed_intent_count
 type ConsumeUploadVerificationSessionParams struct {
 	SessionTokenHash []byte
 	PhotobookID      pgtype.UUID
+	ExpiresAt        pgtype.Timestamptz
 }
 
 type ConsumeUploadVerificationSessionRow struct {
@@ -36,8 +37,11 @@ type ConsumeUploadVerificationSessionRow struct {
 // atomic consume: 単一 UPDATE で row-level lock を取り、
 // used_intent_count < allowed_intent_count かつ未期限切れ・未 revoke のみ +1。
 // 0 行影響は呼び出し側で ErrUploadVerificationFailed として扱う。
+//
+// 期限境界は呼び出し側 ($now) で渡す（test の Clock 固定 / 監査時刻整合のため、
+// DB の now() ではなく Application 層が時刻を渡す方針）。
 func (q *Queries) ConsumeUploadVerificationSession(ctx context.Context, arg ConsumeUploadVerificationSessionParams) (ConsumeUploadVerificationSessionRow, error) {
-	row := q.db.QueryRow(ctx, consumeUploadVerificationSession, arg.SessionTokenHash, arg.PhotobookID)
+	row := q.db.QueryRow(ctx, consumeUploadVerificationSession, arg.SessionTokenHash, arg.PhotobookID, arg.ExpiresAt)
 	var i ConsumeUploadVerificationSessionRow
 	err := row.Scan(&i.ID, &i.UsedIntentCount, &i.AllowedIntentCount)
 	return i, err
@@ -47,12 +51,18 @@ const countActiveUploadVerificationSessionsByPhotobookID = `-- name: CountActive
 SELECT COUNT(*)::int AS cnt
 FROM upload_verification_sessions
 WHERE photobook_id = $1
-  AND expires_at   > now()
+  AND expires_at   > $2
   AND revoked_at   IS NULL
 `
 
-func (q *Queries) CountActiveUploadVerificationSessionsByPhotobookID(ctx context.Context, photobookID pgtype.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, countActiveUploadVerificationSessionsByPhotobookID, photobookID)
+type CountActiveUploadVerificationSessionsByPhotobookIDParams struct {
+	PhotobookID pgtype.UUID
+	ExpiresAt   pgtype.Timestamptz
+}
+
+// 期限境界は呼び出し側 ($now) で渡す（test の Clock 固定 / 監査時刻整合のため）。
+func (q *Queries) CountActiveUploadVerificationSessionsByPhotobookID(ctx context.Context, arg CountActiveUploadVerificationSessionsByPhotobookIDParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countActiveUploadVerificationSessionsByPhotobookID, arg.PhotobookID, arg.ExpiresAt)
 	var cnt int32
 	err := row.Scan(&cnt)
 	return cnt, err

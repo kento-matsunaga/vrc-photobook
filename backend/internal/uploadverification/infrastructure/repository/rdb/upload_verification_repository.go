@@ -12,6 +12,7 @@ package rdb
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -73,15 +74,18 @@ func (r *UploadVerificationSessionRepository) FindByID(
 
 // ConsumeOne は token_hash + photobook_id でセッションを atomic に 1 回 consume する。
 //
+// 期限境界は呼び出し側 (now) で渡す。SQL の `expires_at > $now` で判定。
 // 0 行影響時は ErrUploadVerificationFailed（理由を区別しない）。
 func (r *UploadVerificationSessionRepository) ConsumeOne(
 	ctx context.Context,
 	tokenHash verification_session_token_hash.VerificationSessionTokenHash,
 	pid photobook_id.PhotobookID,
+	now time.Time,
 ) (ConsumeOutput, error) {
 	row, err := r.q.ConsumeUploadVerificationSession(ctx, sqlcgen.ConsumeUploadVerificationSessionParams{
 		SessionTokenHash: tokenHash.Bytes(),
 		PhotobookID:      pgtype.UUID{Bytes: pid.UUID(), Valid: true},
+		ExpiresAt:        pgtype.Timestamptz{Time: now, Valid: true},
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

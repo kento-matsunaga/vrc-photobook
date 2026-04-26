@@ -25,6 +25,7 @@ import (
 	imagerdb "vrcpb/backend/internal/image/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/domain"
 	photobooktests "vrcpb/backend/internal/photobook/domain/tests"
+	"vrcpb/backend/internal/photobook/domain/vo/display_order"
 	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/internal/usecase"
@@ -395,6 +396,66 @@ func TestRemovePage(t *testing.T) {
 			t.Errorf("photos must be cascaded: got %d", len(photos))
 		}
 		_ = photoOut // unused warning suppression
+	})
+}
+
+func TestReorderPhoto_UniqueViolation(t *testing.T) {
+	pool := dbPool(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+
+	t.Run("MVP制約_既存order占有先への単純Reorderは23505で失敗する", func(t *testing.T) {
+		// Given: 同一 page に photo A (order=0) と photo B (order=1) がある
+		// When:  photo A を order=1 に移そうとする（B が占有中）
+		// Then:  UNIQUE (page_id, display_order) 違反で 23505 が表面化
+		// 設計判断: MVP では UpdatePhotobookPhotoOrder が単純 UPDATE であり、
+		//   DEFERRABLE UNIQUE / 一時退避は採用しない（domain-standard.md / SQL コメント参照）
+		//   将来「2 photo swap」「複数 reorder」を扱う場合は UseCase 側で
+		//   一時退避 prefix（display_order>=1000）に逃がしてから順次 UPDATE する実装が必要
+		if _, err := pool.Exec(ctx, "TRUNCATE TABLE photobook_page_metas, photobook_photos, photobook_pages, image_variants, images, sessions, photobooks CASCADE"); err != nil {
+			t.Fatalf("TRUNCATE: %v", err)
+		}
+		pb := seedPhotobook(t, pool)
+		imgA := seedAvailableImage(t, pool, pb.ID())
+		imgB := seedAvailableImage(t, pool, pb.ID())
+		pageOut, _ := usecase.NewAddPage(pool).Execute(ctx, usecase.AddPageInput{
+			PhotobookID:     pb.ID(),
+			ExpectedVersion: pb.Version(),
+			Now:             now,
+		})
+		photoAOut, err := usecase.NewAddPhoto(pool).Execute(ctx, usecase.AddPhotoInput{
+			PhotobookID:     pb.ID(),
+			PageID:          pageOut.Page.ID(),
+			ImageID:         imgA.ID(),
+			ExpectedVersion: pb.Version() + 1,
+			Now:             now.Add(time.Second),
+		})
+		if err != nil {
+			t.Fatalf("AddPhoto A: %v", err)
+		}
+		_, err = usecase.NewAddPhoto(pool).Execute(ctx, usecase.AddPhotoInput{
+			PhotobookID:     pb.ID(),
+			PageID:          pageOut.Page.ID(),
+			ImageID:         imgB.ID(),
+			ExpectedVersion: pb.Version() + 2,
+			Now:             now.Add(2 * time.Second),
+		})
+		if err != nil {
+			t.Fatalf("AddPhoto B: %v", err)
+		}
+		// photo A を order=1 に動かそうとする → B が占有中
+		newOrder, _ := display_order.New(1)
+		err = usecase.NewReorderPhoto(pool).Execute(ctx, usecase.ReorderPhotoInput{
+			PhotobookID:     pb.ID(),
+			PhotoID:         photoAOut.Photo.ID(),
+			NewOrder:        newOrder,
+			ExpectedVersion: pb.Version() + 3,
+			Now:             now.Add(3 * time.Second),
+		})
+		if err == nil {
+			t.Fatalf("expected UNIQUE violation on order conflict, got nil")
+		}
+		// pgconn の SQLState 23505 が原因。UseCase 経由では Wrap されるが、err != nil で十分。
 	})
 }
 
