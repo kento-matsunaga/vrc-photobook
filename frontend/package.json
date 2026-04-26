@@ -1,0 +1,26 @@
+{
+  "name": "vrcpb-frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "VRC PhotoBook frontend (M2 production implementation, Next.js 15 + Tailwind + OpenNext for Cloudflare Workers).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.6.0"
+  }
+}
