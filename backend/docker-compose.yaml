@@ -1,15 +1,20 @@
-# PR3: ローカル開発用 docker-compose
+# ローカル開発用 docker-compose（PR3 で初版、PR6 で動作確証 + frontend を含めない方針を確定）。
 #
 # 含まれるサービス:
 #   - postgres: PostgreSQL 16
 #   - api:      Backend API（cmd/api、Dockerfile multi-stage build）
 #
-# 含まれないもの（後続 PR で追加予定）:
-#   - mailpit (SendGrid 実送信 PoC のローカル代替、§F-3 タイミング)
-#   - cmd/outbox-worker（Cloud Run Jobs 想定、ローカルでは不要）
+# 含まれないもの（意図的に分離。後続 PR / 別経路で扱う）:
+#   - frontend  : Next.js dev server / OpenNext / Workers preview の切替が頻繁なため
+#                 npm --prefix frontend run dev で別起動する（backend/README.md §E）
+#   - mailpit   : SendGrid 実送信 PoC のローカル代替、§F-3 タイミング
+#   - cmd/outbox-worker / cmd/ops : Cloud Run Jobs 想定、ローカルでは不要
+#   - R2 / Turnstile / SendGrid : 各集約の実装 PR で個別接続
+#   - 自動 migration entrypoint : goose は go run 経由で手動適用（README §C）
 #
 # 注意:
 #   - 値はすべてローカル開発用の弱い既定値。本番には絶対に流用しない
+#   - 本番 DSN は Secret Manager から Cloud Run env vars 経由で注入する（M2 早期 §F-2）
 #   - .env / .env.local は git ignore 対象。本ファイルにも実 Secret は書かない
 
 services:

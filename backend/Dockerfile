@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# M2 本実装 Backend Dockerfile（PR3 最小版）。
+# M2 本実装 Backend Dockerfile（PR3 で初版、PR6 でローカル開発用に動作確証）。
 # multi-stage / distroless static / nonroot で 12〜25MB 程度の image を作る。
 # 後続 PR で cmd/outbox-worker / cmd/ops の 2 バイナリを追加する想定（同一 image に同梱、--command で切替）。
 

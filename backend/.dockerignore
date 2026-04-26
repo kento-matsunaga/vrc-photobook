@@ -16,7 +16,14 @@ tmp/
 
 # ビルド成果物 / カバレッジ
 coverage.out
+coverage/
 *.test
+dist/
+build/
+out/
+
+# README は image に必須ではないため除外（ビルドコンテキスト圧縮）
+README.md
 
 # OS
 .DS_Store
