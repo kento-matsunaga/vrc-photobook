@@ -162,6 +162,42 @@ token exchange 200 経路を実環境で確認した。
 5. 削除する場合のコマンド
 6. 推奨判断
 
+### ユーザー判断: 残す（2026-04-26 後段）
+
+ユーザー判断により、**Cloud SQL `vrcpb-api-verify` / DATABASE_URL Secret / DB あり Cloud Run revision `vrcpb-api-00002-pdn` をすべて残す**。
+
+- **判断**: 削除しない、現状維持
+- **理由**: `/readyz` 200 と token exchange 200 が実環境で確認済みのため、
+  次の Domain Mapping / Workers deploy / Safari 実機確認まで **連続検証**で進める。
+  再作成・migration 再適用・Secret 再登録の手戻りを避ける
+- **rollback 先**: DB なし revision `vrcpb-api-00001-q9h` を traffic 0% で残置（緊急切戻し時に `gcloud run services update-traffic --to-revisions=vrcpb-api-00001-q9h=100` で復帰可能）
+
+#### 費用見込み（残置時）
+
+| 期間 | 課金 |
+|---|---|
+| 1 日（24h） | 約 ¥55 |
+| 1 週間 | 約 ¥390 |
+| 1 ヶ月 | 約 ¥1,650（Budget Alert ¥1,000/月 と同等、超過注意） |
+
+#### 注意点
+
+- **2 週間以内を目安**に独自ドメイン購入後の DNS / Workers Custom Domain / Cloud Run Domain Mapping / Frontend deploy / Safari / iPhone Safari 実機確認までを進める
+- 毎日 1 回程度 `gcloud sql instances list` + `gcloud billing` で課金状況を確認するのが安全
+- Domain Mapping / Workers deploy が長引く見込みになったら、本書 §18.5（次節）の手順で **一度削除 → 必要時に再作成** に切替判断
+- DB 内のデータは検証用ダミーのみ（GC / TRUNCATE して構わない）
+- Public IP は authorized networks 空のため外部直接接続不可（Cloud SQL Auth 経由のみ）。新規 authorized network の追加は禁止（運用ルール）
+
+#### 削除が必要になった場合
+
+削除コマンドは §18.5 を参照（**本節下の §関連 にある「削除する場合のコマンド」**）。実施時は次の順序を厳守:
+
+1. Cloud Run revision を `vrcpb-api-00001-q9h` に rollback
+2. `/readyz` が 503 db_not_configured に戻ることを curl 確認
+3. `DATABASE_URL` Secret 削除
+4. Cloud SQL instance 削除
+5. シェル変数 `unset` / 一時ファイル / `_tokengen` の残骸が無いか再確認
+
 ## 関連
 
 - [`docs/plan/m2-cloud-sql-short-verification-plan.md`](../../docs/plan/m2-cloud-sql-short-verification-plan.md)
