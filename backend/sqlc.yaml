@@ -4,8 +4,10 @@
 # 共通 schema（migrations/）を全 query セットで参照する。
 #
 # 現在のセット:
-#   - PR3: 基盤確認用 (internal/database)
-#   - PR7: session 認可機構 (internal/auth/session)
+#   - PR3:  基盤確認用 (internal/database)
+#   - PR7:  session 認可機構 (internal/auth/session)
+#   - PR9a: Photobook 集約 (internal/photobook)
+#   - PR18: Image 集約 (internal/image)
 
 version: "2"
 sql:
@@ -51,6 +53,23 @@ sql:
       go:
         package: "sqlcgen"
         out: "internal/photobook/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
+
+  # PR18: Image 集約。schema は health + photobooks (FK 先) + images + image_variants の 4 本。
+  # photobooks の query は本 set には含めない（型混入を避ける、PR9a と同方針）。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00003_create_photobooks.sql"
+      - "migrations/00005_create_images.sql"
+      - "migrations/00006_create_image_variants.sql"
+    queries: "internal/image/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/image/infrastructure/repository/rdb/sqlcgen"
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
