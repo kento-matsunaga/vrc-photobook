@@ -1,0 +1,47 @@
+# PR3: ローカル開発用 docker-compose
+#
+# 含まれるサービス:
+#   - postgres: PostgreSQL 16
+#   - api:      Backend API（cmd/api、Dockerfile multi-stage build）
+#
+# 含まれないもの（後続 PR で追加予定）:
+#   - mailpit (SendGrid 実送信 PoC のローカル代替、§F-3 タイミング)
+#   - cmd/outbox-worker（Cloud Run Jobs 想定、ローカルでは不要）
+#
+# 注意:
+#   - 値はすべてローカル開発用の弱い既定値。本番には絶対に流用しない
+#   - .env / .env.local は git ignore 対象。本ファイルにも実 Secret は書かない
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vrcpb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vrcpb_local}
+      POSTGRES_DB: vrcpb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vrcpb -d vrcpb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: local
+      PORT: "8080"
+      DATABASE_URL: postgres://vrcpb:${POSTGRES_PASSWORD:-vrcpb_local}@postgres:5432/vrcpb?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

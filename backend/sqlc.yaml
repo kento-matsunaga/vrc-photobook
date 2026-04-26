@@ -1,0 +1,22 @@
+# sqlc 設定（PR3、最小基盤）
+#
+# - schema: backend/migrations 配下の DDL を解析
+# - queries: backend/internal/database/queries の SQL から Go コードを生成
+# - 生成先: backend/internal/database/sqlcgen
+#
+# 後続 PR で各集約（photobook / image / report 等）の query は
+# それぞれの infrastructure/repository/rdb/queries 配下に置き、sqlc を分割する想定。
+# 本ファイルは PR3 の基盤確認用で、後続 PR で再構成する可能性がある。
+
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/database/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/database/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false

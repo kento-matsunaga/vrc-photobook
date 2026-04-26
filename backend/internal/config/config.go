@@ -1,10 +1,17 @@
 // Package config はアプリの環境変数を読む最小実装。
 //
-// PR2: APP_ENV / PORT のみ。外部 config ライブラリは使わず、標準 os.Getenv のみで実装する
+// PR2: APP_ENV / PORT。
+// PR3: DATABASE_URL を追加（DB 接続用 DSN、未設定時は空文字、pool nil で起動継続）。
+//
+// 外部 config ライブラリは使わず、標準 os.Getenv のみで実装する
 // （明示的 > 暗黙的、.agents/rules/coding-rules.md）。
 //
-// PR3 以降で DATABASE_URL / R2_* / TURNSTILE_SECRET_KEY / ALLOWED_ORIGINS 等を
+// PR4 以降で R2_* / TURNSTILE_SECRET_KEY / ALLOWED_ORIGINS / SENDGRID_API_KEY 等を
 // 順次追加する。Secret は Cloud Run の Secret Manager 経由で注入する前提。
+//
+// セキュリティ:
+//   - DATABASE_URL の値はログに出さない（DSN 全体に password が含まれる）
+//   - 「設定されている / されていない」の真偽だけログ出力する
 package config
 
 import "os"
@@ -15,13 +22,17 @@ type Config struct {
 	AppEnv string
 	// Port は HTTP サーバの listen ポート。Cloud Run では PORT が自動注入される。
 	Port string
+	// DatabaseURL は PostgreSQL 接続 DSN。空のままでもサーバは起動するが /readyz は 503 を返す。
+	// 値そのものはログ・レスポンスに出さない。
+	DatabaseURL string
 }
 
 // Load は環境変数から Config を組み立てる。値の有無はここでは厳密に検査しない。
 func Load() *Config {
 	return &Config{
-		AppEnv: getOrDefault("APP_ENV", "local"),
-		Port:   getOrDefault("PORT", "8080"),
+		AppEnv:      getOrDefault("APP_ENV", "local"),
+		Port:        getOrDefault("PORT", "8080"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
 	}
 }
 

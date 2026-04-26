@@ -1,15 +1,15 @@
 // Package main は M2 本実装 Backend API の起動エントリ。
 //
 // PR1: 最小骨格として `/health` のみ。
-// PR2: config / slog JSON logger / graceful shutdown / `/readyz` を追加。
-// PR3 以降で DB 接続 / migration / sqlc / 認証 middleware / 各集約のルートを順次追加する。
+// PR2: config / slog JSON logger / graceful shutdown / `/readyz`（DB 未実装時 503 固定）。
+// PR3: pgx pool 接続を追加。DATABASE_URL 空時は pool nil で起動継続、`/readyz` で 503。
+// PR4 以降で middleware / 認証 / 各集約のルートを順次追加する。
 //
 // 起動:   `go run ./cmd/api`（PORT 環境変数を優先、未設定時 8080）
 // 終了:   SIGINT / SIGTERM を受け取り、10 秒以内に graceful shutdown する
 //
 // PoC との関係:
 //   - `harness/spike/backend/cmd/api/main.go` は M1 PoC であり、本実装には流用しない
-//   - 本ファイルは `docs/plan/m2-implementation-bootstrap-plan.md` §3 / §4 に基づく新規作成
 package main
 
 import (
@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"vrcpb/backend/internal/config"
+	"vrcpb/backend/internal/database"
 	internalhttp "vrcpb/backend/internal/http"
 	"vrcpb/backend/internal/shared"
 )
@@ -45,7 +46,21 @@ func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	router := internalhttp.NewRouter()
+	// DB pool 初期化。DATABASE_URL 空のときは pool nil（/readyz で 503 db_not_configured）。
+	// DSN の値そのものはログに出さず、設定の有無だけ出す。
+	pool, err := database.NewPool(rootCtx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Warn("db pool init failed; server still starts and /readyz will return 503",
+			slog.String("error", err.Error()))
+	}
+	if pool != nil {
+		defer pool.Close()
+		logger.Info("db pool configured")
+	} else {
+		logger.Info("db not configured; /readyz will return 503 db_not_configured")
+	}
+
+	router := internalhttp.NewRouter(pool)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,

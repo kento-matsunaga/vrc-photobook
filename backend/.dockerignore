@@ -1,0 +1,22 @@
+# Secret を含む可能性が高いファイルは絶対にビルドコンテキストへ送らない
+.env
+.env.*
+!.env.example
+*.env
+.env.local
+
+# Git
+.git
+.gitignore
+
+# 一時ファイル / ログ
+tmp/
+*.log
+*.tmp
+
+# ビルド成果物 / カバレッジ
+coverage.out
+*.test
+
+# OS
+.DS_Store
