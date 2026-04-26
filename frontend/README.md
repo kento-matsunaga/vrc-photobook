@@ -8,7 +8,7 @@ VRC PhotoBook の **本実装 Frontend**。M2 以降の段階的 PR で機能を
 - `harness/spike/frontend/` は M1 PoC、**コードを直接コピペしない**方針（同 §11）。
 - 本実装は ADR-0001 / ADR-0003 / 業務知識 v4 / [`.agents/rules/safari-verification.md`](../.agents/rules/safari-verification.md) 準拠。
 
-## 現在のスコープ（PR10）
+## 現在のスコープ（〜 PR10.5）
 
 PR4 で導入したもの:
 
@@ -77,6 +77,17 @@ PR10 で **未実装**（後続 PR で追加）:
 `/draft/<raw token>` のようなパスにアクセスすると raw token が dev server のターミナルに表示される。
 これは **本番（OpenNext / Workers）では発生しない**が、ローカル開発時の運用注意点として明記する。
 詳細: [`harness/failure-log/2026-04-26_nextjs-dev-server-url-path-log.md`](../harness/failure-log/2026-04-26_nextjs-dev-server-url-path-log.md)
+
+**手動で /draft/&lt;token&gt; や /manage/token/&lt;token&gt; を dev server に叩く確認は避ける**。
+成功経路の Set-Cookie / redirect / Cache-Control / token 非露出の検証は、PR10.5 で追加した
+Vitest の Route Handler 単体テスト（`global.fetch` を mock）で行う:
+
+```sh
+npm --prefix frontend run test
+```
+
+テスト内では raw token を console / log に出さず、`fakeToken43(seed)` で seed 由来の動的な
+ダミー文字列を生成する（固定 43 文字 token を repo に書かない）。
 
 ### Safari / iPhone Safari 実機確認
 
