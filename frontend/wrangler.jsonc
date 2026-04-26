@@ -1,0 +1,30 @@
+/**
+ * Wrangler 設定（OpenNext for Cloudflare Workers + Static Assets binding）
+ *
+ * PR5 では `cf:build` と `cf:preview`（ローカル wrangler dev）の動作のみ確認する。
+ * Workers 実デプロイは行わない（独自ドメイン取得後に PR で別途進める、
+ * docs/plan/m2-early-domain-and-cookie-plan.md §8）。
+ *
+ * 値の方針:
+ *   - name は本実装名 `vrcpb-frontend`（M1 PoC の `vrcpb-spike-frontend` とは別）
+ *   - compatibility_flags は OpenNext の推奨に揃える
+ *     - nodejs_compat: OpenNext は Node.js 互換ランタイムで動く
+ *     - global_fetch_strictly_public: SSR fetch を Cloudflare の internal hostname に解決させない
+ *   - assets binding は OpenNext の build 出力先（.open-next/assets）に揃える
+ *   - env vars にはプレースホルダも書かない（NEXT_PUBLIC_* は build 時 inline、
+ *     Secret は Workers Secrets で個別注入する想定）
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vrcpb-frontend",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
