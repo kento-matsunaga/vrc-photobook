@@ -8,6 +8,7 @@
 #   - PR7:  session 認可機構 (internal/auth/session)
 #   - PR9a: Photobook 集約 (internal/photobook)
 #   - PR18: Image 集約 (internal/image)
+#   - PR20: Upload Verification (internal/uploadverification)
 
 version: "2"
 sql:
@@ -78,6 +79,22 @@ sql:
       go:
         package: "sqlcgen"
         out: "internal/image/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
+
+  # PR20: Upload Verification Session。photobooks (FK 先) + upload_verification_sessions
+  # の 3 本 schema。Photobook の query は本 set に含めない。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00003_create_photobooks.sql"
+      - "migrations/00011_create_upload_verification_sessions.sql"
+    queries: "internal/uploadverification/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/uploadverification/infrastructure/repository/rdb/sqlcgen"
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
