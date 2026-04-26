@@ -151,6 +151,58 @@ PR17 完了後に必ず判断する。
 - 「**3 日以上空くなら一時削除して PR18 着手時に再作成**」
 - 中間ケース（1〜2 日）: 残置のまま PR18 計画策定を進めるのが心理的負担が低い
 
+## Cloud SQL 残置/一時削除 — 決定（PR17 完了直後、2026-04-27）
+
+ユーザー判断により **残置** に決定。
+
+### 決定内容
+
+- Cloud SQL `vrcpb-api-verify`: **残置**
+- Secret Manager `DATABASE_URL`: **残置**
+- Cloud Run `vrcpb-api` の DB あり revision (`vrcpb-api-00002-pdn`): **維持**
+- DB なし revision (`vrcpb-api-00001-q9h`): rollback 先として **残置**
+- 削除コマンドは現時点では **実行しない**
+
+### 残置理由
+
+- 次の PR18 (Image / Upload) に連続して進む予定
+- `/readyz 200` + 実 token E2E + Safari 実機確認まで通った状態を維持したい
+- 再作成・migration・Secret 更新・revision 切替の手戻りを避ける
+- 費用は当面許容
+
+### 費用目安
+
+- db-f1-micro + 10GB SSD で **約 ¥55/日**
+- 30 日放置は予算 ¥1,000 を超えるので避ける
+- 累計（2026-04-26 作成〜本判断時点）: ~6 時間 / ~¥14
+
+### 期間ガード（無期限残置を防ぐ）
+
+- まず **2 日以内** に PR18 計画へ着手する
+- 次回判断タイミング: **PR18 計画書完了時** または **2 日後**（早い方）
+- 3 日以上作業が空く見込みになった時点で **一時削除を再検討**
+- 検証用 DB を本番相当としてなし崩しに使い続けない
+
+### 削除手順（参考、今回は実行しない）
+
+PR12 計画書 / 既存の cloud-sql-deploy 系計画書を参照。最低限:
+
+```sh
+# Cloud Run revision を DB なし版に切戻し（必要なら）
+gcloud run services update-traffic vrcpb-api \
+  --region=asia-northeast1 --to-revisions=vrcpb-api-00001-q9h=100
+
+# Cloud SQL instance 削除
+gcloud sql instances delete vrcpb-api-verify --quiet
+
+# Secret Manager DATABASE_URL は残しても課金はかからないが、
+# 値がスタブとして残ると誤解を招くため、必要に応じて destroy
+gcloud secrets versions destroy <version> --secret=DATABASE_URL
+```
+
+再作成は migration `goose up` + `gcloud sql users create` + Secret 更新 +
+Cloud Run revision 切替で ~10 分。
+
 ## 関連
 
 - [`.agents/rules/safari-verification.md`](../../.agents/rules/safari-verification.md)
