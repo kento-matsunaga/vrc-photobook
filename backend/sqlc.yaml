@@ -24,6 +24,9 @@ sql:
         emit_json_tags: false
 
   # PR7: Session 認可機構。schema は health + sessions の 2 本のみを指定。
+  # PR9a で sessions に FK が追加されるが、本セットの query は photobooks を触らないため、
+  # 00004 (FK 追加) は schema 解析対象には含めない（PR3 / PR7 同様、当該 set が触る
+  # テーブルだけ schema に絞る方針）。
   - engine: "postgresql"
     schema:
       - "migrations/00001_create_health_check.sql"
@@ -33,6 +36,21 @@ sql:
       go:
         package: "sqlcgen"
         out: "internal/auth/session/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
+
+  # PR9a: Photobook 集約。schema は health (前段で必要) + photobooks の 2 本に絞り、
+  # sessions / FK は含めない（型混入を避ける、PR7 と同方針）。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00003_create_photobooks.sql"
+    queries: "internal/photobook/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/photobook/infrastructure/repository/rdb/sqlcgen"
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
