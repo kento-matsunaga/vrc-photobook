@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"vrcpb/backend/internal/image/domain/vo/image_id"
 	"vrcpb/backend/internal/photobook/domain"
 	"vrcpb/backend/internal/photobook/domain/vo/draft_edit_token_hash"
 	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_hash"
@@ -96,9 +97,9 @@ func FromRow(row sqlcgen.Photobook) (domain.Photobook, error) {
 		return domain.Photobook{}, err
 	}
 
-	var coverImageID *photobook_id.PhotobookID
+	var coverImageID *image_id.ImageID
 	if row.CoverImageID.Valid {
-		c, err := photobook_id.FromUUID(row.CoverImageID.Bytes)
+		c, err := image_id.FromUUID(row.CoverImageID.Bytes)
 		if err == nil {
 			coverImageID = &c
 		}
@@ -164,7 +165,7 @@ func uuidToPg(u uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: u, Valid: true}
 }
 
-func coverImageIDToPg(p *photobook_id.PhotobookID) pgtype.UUID {
+func coverImageIDToPg(p *image_id.ImageID) pgtype.UUID {
 	if p == nil {
 		return pgtype.UUID{Valid: false}
 	}

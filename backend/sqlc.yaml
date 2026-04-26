@@ -44,10 +44,18 @@ sql:
 
   # PR9a: Photobook 集約。schema は health (前段で必要) + photobooks の 2 本に絞り、
   # sessions / FK は含めない（型混入を避ける、PR7 と同方針）。
+  # PR19 で images / image_variants / photobook_pages / photobook_photos /
+  # photobook_page_metas / cover_image_id FK を追加。
   - engine: "postgresql"
     schema:
       - "migrations/00001_create_health_check.sql"
       - "migrations/00003_create_photobooks.sql"
+      - "migrations/00005_create_images.sql"
+      - "migrations/00006_create_image_variants.sql"
+      - "migrations/00007_create_photobook_pages.sql"
+      - "migrations/00008_create_photobook_photos.sql"
+      - "migrations/00009_create_photobook_page_metas.sql"
+      - "migrations/00010_add_photobooks_cover_image_fk.sql"
     queries: "internal/photobook/infrastructure/repository/rdb/queries"
     gen:
       go:

@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"time"
 
+	"vrcpb/backend/internal/image/domain/vo/image_id"
 	"vrcpb/backend/internal/photobook/domain/vo/draft_edit_token_hash"
 	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_hash"
 	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_version"
@@ -58,6 +59,14 @@ var (
 	ErrRightsNotAgreed        = errors.New("rights_agreed must be true to publish")
 	ErrInvalidStateForRestore = errors.New("invalid state combination for restore")
 	ErrPublishedAtMissing     = errors.New("published_at must be set when status is published or deleted")
+	ErrPageLimitExceeded      = errors.New("photobook page limit exceeded (max 30)")
+	ErrPhotoLimitExceeded     = errors.New("page photo limit exceeded (max 20)")
+)
+
+// MaxPagesPerPhotobook / MaxPhotosPerPage は MVP の上限（PR19 計画 Q6 / Q7）。
+const (
+	MaxPagesPerPhotobook = 30
+	MaxPhotosPerPage     = 20
 )
 
 const (
@@ -81,7 +90,7 @@ type Photobook struct {
 	creatorDisplayName    string
 	creatorXID            *string
 	coverTitle            *string
-	coverImageID          *photobook_id.PhotobookID // 仮: 本来は ImageID。PR11 で置換
+	coverImageID          *image_id.ImageID
 	publicUrlSlug         *slug.Slug
 	manageUrlTokenHash    *manage_url_token_hash.ManageUrlTokenHash
 	manageUrlTokenVersion manage_url_token_version.ManageUrlTokenVersion
@@ -181,7 +190,7 @@ type RestorePhotobookParams struct {
 	CreatorDisplayName    string
 	CreatorXID            *string
 	CoverTitle            *string
-	CoverImageID          *photobook_id.PhotobookID
+	CoverImageID          *image_id.ImageID
 	PublicUrlSlug         *slug.Slug
 	ManageUrlTokenHash    *manage_url_token_hash.ManageUrlTokenHash
 	ManageUrlTokenVersion manage_url_token_version.ManageUrlTokenVersion
@@ -326,6 +335,58 @@ func (p Photobook) ReissueManageUrl(
 	return out, oldVersion, nil
 }
 
+// CanEdit は draft 状態で編集系操作（page/photo 追加削除、cover 変更）を許可するかを返す。
+//
+// I-D6 / 業務知識 v4 §3.2 に従い、published / deleted / purged は不可。
+func (p Photobook) CanEdit() error {
+	if !p.status.IsDraft() {
+		return ErrNotDraft
+	}
+	return nil
+}
+
+// BumpVersion は version+1 + updated_at = now の新インスタンスを返す（不変）。
+//
+// page/photo/cover 系の編集操作で UseCase 側が SQL を実行する前に取得する想定。
+// Repository 側 UPDATE は WHERE version=$expected を持ち、整合は実 DB で再保証される。
+func (p Photobook) BumpVersion(now time.Time) Photobook {
+	out := p
+	out.version = p.version + 1
+	out.updatedAt = now
+	return out
+}
+
+// SetCoverImage は cover_image_id を設定した新インスタンスを返す。
+//
+// 状態は draft 必須（CanEdit を呼ぶこと）。version+1 / updated_at 更新は呼び出し側で
+// BumpVersion を経由する。
+//
+// 注意: image の owner_photobook_id 整合 / status==available の検証は Repository / UseCase
+// 層で実施する。本メソッドは domain 不変条件のみ。
+func (p Photobook) SetCoverImage(id image_id.ImageID, now time.Time) (Photobook, error) {
+	if err := p.CanEdit(); err != nil {
+		return Photobook{}, err
+	}
+	out := p
+	cp := id
+	out.coverImageID = &cp
+	out.version = p.version + 1
+	out.updatedAt = now
+	return out, nil
+}
+
+// ClearCoverImage は cover_image_id を nil にした新インスタンスを返す。
+func (p Photobook) ClearCoverImage(now time.Time) (Photobook, error) {
+	if err := p.CanEdit(); err != nil {
+		return Photobook{}, err
+	}
+	out := p
+	out.coverImageID = nil
+	out.version = p.version + 1
+	out.updatedAt = now
+	return out, nil
+}
+
 // TouchDraft は draft_expires_at を now + ttl に延長する状態遷移。
 //
 // 編集系 API 成功時のみ呼ぶ前提（GET / プレビューでは呼ばない、I-D4）。
@@ -363,7 +424,7 @@ func (p Photobook) RightsAgreedAt() *time.Time                            { retu
 func (p Photobook) CreatorDisplayName() string                            { return p.creatorDisplayName }
 func (p Photobook) CreatorXID() *string                                   { return clonePtrString(p.creatorXID) }
 func (p Photobook) CoverTitle() *string                                   { return clonePtrString(p.coverTitle) }
-func (p Photobook) CoverImageID() *photobook_id.PhotobookID               { return p.coverImageID }
+func (p Photobook) CoverImageID() *image_id.ImageID                       { return p.coverImageID }
 func (p Photobook) PublicUrlSlug() *slug.Slug                             { return p.publicUrlSlug }
 func (p Photobook) ManageUrlTokenHash() *manage_url_token_hash.ManageUrlTokenHash {
 	return p.manageUrlTokenHash

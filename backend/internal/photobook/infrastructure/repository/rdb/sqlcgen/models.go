@@ -13,6 +13,38 @@ type HealthCheck struct {
 	CheckedAt pgtype.Timestamptz
 }
 
+type Image struct {
+	ID                 pgtype.UUID
+	OwnerPhotobookID   pgtype.UUID
+	UsageKind          string
+	SourceFormat       string
+	NormalizedFormat   *string
+	OriginalWidth      *int32
+	OriginalHeight     *int32
+	OriginalByteSize   *int64
+	MetadataStrippedAt pgtype.Timestamptz
+	Status             string
+	UploadedAt         pgtype.Timestamptz
+	AvailableAt        pgtype.Timestamptz
+	FailedAt           pgtype.Timestamptz
+	FailureReason      *string
+	DeletedAt          pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type ImageVariant struct {
+	ID         pgtype.UUID
+	ImageID    pgtype.UUID
+	Kind       string
+	StorageKey string
+	Width      int32
+	Height     int32
+	ByteSize   int64
+	MimeType   string
+	CreatedAt  pgtype.Timestamptz
+}
+
 type Photobook struct {
 	ID                    pgtype.UUID
 	Type                  string
@@ -40,4 +72,33 @@ type Photobook struct {
 	CreatedAt             pgtype.Timestamptz
 	UpdatedAt             pgtype.Timestamptz
 	DeletedAt             pgtype.Timestamptz
+}
+
+type PhotobookPage struct {
+	ID           pgtype.UUID
+	PhotobookID  pgtype.UUID
+	DisplayOrder int32
+	Caption      *string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type PhotobookPageMeta struct {
+	PageID       pgtype.UUID
+	World        *string
+	CastList     []string
+	Photographer *string
+	Note         *string
+	EventDate    pgtype.Date
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type PhotobookPhoto struct {
+	ID           pgtype.UUID
+	PageID       pgtype.UUID
+	ImageID      pgtype.UUID
+	DisplayOrder int32
+	Caption      *string
+	CreatedAt    pgtype.Timestamptz
 }
