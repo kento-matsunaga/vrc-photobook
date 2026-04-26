@@ -1,22 +1,38 @@
-# sqlc 設定（PR3、最小基盤）
+# sqlc 設定。
 #
-# - schema: backend/migrations 配下の DDL を解析
-# - queries: backend/internal/database/queries の SQL から Go コードを生成
-# - 生成先: backend/internal/database/sqlcgen
+# 集約別に sqlc を分割する方針（docs/plan/m2-implementation-bootstrap-plan.md §3）。
+# 共通 schema（migrations/）を全 query セットで参照する。
 #
-# 後続 PR で各集約（photobook / image / report 等）の query は
-# それぞれの infrastructure/repository/rdb/queries 配下に置き、sqlc を分割する想定。
-# 本ファイルは PR3 の基盤確認用で、後続 PR で再構成する可能性がある。
+# 現在のセット:
+#   - PR3: 基盤確認用 (internal/database)
+#   - PR7: session 認可機構 (internal/auth/session)
 
 version: "2"
 sql:
+  # PR3: 基盤確認用（health のみ）。
+  # schema は 00001 のみを指定し、他テーブル（sessions 等）の Model 型が混入しないようにする。
   - engine: "postgresql"
-    schema: "migrations"
+    schema:
+      - "migrations/00001_create_health_check.sql"
     queries: "internal/database/queries"
     gen:
       go:
         package: "sqlcgen"
         out: "internal/database/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
+
+  # PR7: Session 認可機構。schema は health + sessions の 2 本のみを指定。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00002_create_sessions.sql"
+    queries: "internal/auth/session/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/auth/session/infrastructure/repository/rdb/sqlcgen"
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
