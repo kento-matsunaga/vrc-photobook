@@ -38,7 +38,7 @@
 
 - M1 で **token → session 交換 + Cookie 受領 + redirect 後の Server Component で session 検証** が macOS Safari / iPhone Safari の実機 PoC で成立済み（ADR-0003 §M1 検証結果）。
 - M1 実環境デプロイ（Cloud Run + Workers、別オリジン）で **Cookie が Backend に渡らない（U2 確定）**。M2 早期に独自ドメイン取得 + 案 A（`app.<domain>` / `api.<domain>` / Cookie Domain `.<domain>`）で解消（[`m2-early-domain-and-cookie-plan.md`](./m2-early-domain-and-cookie-plan.md) §7）。
-- `vrcphotobook.com` を第一候補として確定済み、ただし **未購入**。本 Session auth PR の最初のステップ（PR7）はドメインに依存させない。
+- ドメインは `vrc-photobook.com` で確定・購入済（2026-04-26 後段、`m2-domain-candidate-research.md` §9.5）。本書執筆時点では未購入だったが、PR9c / PR10 / PR10.5 完了後にハイフン入りで購入確定。本 Session auth PR の最初のステップ（PR7）はドメインに依存させない設計のままで、Cookie Domain は `.vrc-photobook.com` を本番設定値とする。
 - backend の足場（PR1〜PR3 / PR6）は完了済み。`/health`、`/readyz`、pgx pool、goose migration 1 本（`_health_check`）、sqlc base が動作する状態。
 - frontend の足場（PR4 / PR5）は完了済み。`middleware.ts` で `X-Robots-Tag` / `Referrer-Policy` 一本化、OpenNext / wrangler 設定済み。
 - Cloud SQL は使わず、ローカル PostgreSQL（`docker-compose.yaml`）で進める。Cloud Run 実 deploy / Workers 実 deploy は本 Session auth 範囲では行わない。
@@ -240,7 +240,7 @@ session_type != 'draft' OR token_version_at_issue = 0
 | フェーズ | 状態 | Cookie Domain | 備考 |
 |---|---|---|---|
 | 現在（PR7 着手時） | ドメイン未取得、ローカル開発のみ | **未設定**（host-only Cookie）| `localhost` で動作確認 |
-| ドメイン取得後（M2 早期 §F-1） | `vrcphotobook.com`、`app.<domain>` / `api.<domain>` 構成 | `.<domain>` | [`m2-early-domain-and-cookie-plan.md`](./m2-early-domain-and-cookie-plan.md) §8 切替手順に従う |
+| ドメイン取得後（2026-04-26 後段、`m2-domain-candidate-research.md` §9.5） | `vrc-photobook.com`、`app.vrc-photobook.com` / `api.vrc-photobook.com` 構成 | `.vrc-photobook.com` | [`m2-early-domain-and-cookie-plan.md`](./m2-early-domain-and-cookie-plan.md) §8 切替手順に従う |
 
 切替を **環境変数 `COOKIE_DOMAIN`**（空なら未設定、値があればその値）で吸収する。コード本体は分岐しない。
 

@@ -533,11 +533,11 @@ curl -i -X OPTIONS -H "Origin: https://app.<domain>" \
 
 | # | 判断項目 | 推奨 / 提案 | 状態 |
 |---|---|---|---|
-| 1 | **ドメイン名** | §3 候補から 1 つ選定 | ✅ **`vrcphotobook.com` で合意**（2026-04-26、`m2-domain-candidate-research.md` §9.1）。第二候補 `vrcphotobook.app` はバックアップ |
-| 2 | **取得元** | **Cloudflare Registrar**（§4.1 推奨）| ✅ 合意済 |
-| 3 | **app / api のサブドメイン構成** | §5 案 A（`app.<domain>` / `api.<domain>` / Cookie Domain `.<domain>`）| ✅ 推奨採用 |
+| 1 | **ドメイン名** | §3 候補から 1 つ選定 | ✅ **`vrc-photobook.com` で確定・購入済**（2026-04-26 後段、`m2-domain-candidate-research.md` §9.5）。当初の第一候補 `vrcphotobook.com`（ハイフン無し）ではなく、ハイフン入りで購入が確定 |
+| 2 | **取得元** | **Cloudflare Registrar**（§4.1 推奨）| ✅ 合意済（Cloudflare Registrar で購入） |
+| 3 | **app / api のサブドメイン構成** | §5 案 A（`app.vrc-photobook.com` / `api.vrc-photobook.com` / Cookie Domain `.vrc-photobook.com`）| ✅ 推奨採用 |
 | 4 | **Backend を `api.<domain>` 直結 vs Workers `/api/*` プロキシ** | §6 案 P1（Cloud Run Domain Mapping）| ✅ 推奨採用 |
-| 5 | **購入のタイミング** | M2 本実装骨格が固まり、Cookie Domain / URL 設計 / SendGrid / Turnstile 本番 widget の利用タイミングが近づいた段階 | ⏸ **購入延期**（2026-04-26、ユーザー判断、`m2-domain-candidate-research.md` §9.2）|
+| 5 | **購入のタイミング** | M2 本実装骨格が固まり、Cookie Domain / URL 設計 / SendGrid / Turnstile 本番 widget の利用タイミングが近づいた段階 | ✅ **購入完了**（2026-04-26 後段、PR9〜PR10.5 完了後に実購入）|
 | 6 | **M2 早期で Cloud SQL より先に U2 を解消する方針で OK か** | ✅ 推奨（roadmap §F-1 優先度 A）| ✅ 合意済 |
 | 7 | **旧 Workers / 旧 Cloud Run の併存期間** | M2 中盤までを推奨（§10.3）| 合意済 |
 | 8 | **失敗時に案 A → 案 C へフォールバックする判断基準** | §12 通り、致命的問題が 1〜2 日で改善しなければ切替 | 合意済 |
@@ -560,3 +560,4 @@ curl -i -X OPTIONS -H "Origin: https://app.<domain>" \
 |---|---|
 | 2026-04-26 | 初版作成。M2 早期 §F-1 優先度 A の計画書として、独自ドメイン取得 + U2 Cookie Domain 解消の手順を整理。推奨は 案 A（`app.<domain>` / `api.<domain>` / Cookie Domain `.<domain>`）+ 案 P1（Cloud Run Domain Mapping）。本書の段階ではドメインは購入しない。ユーザー判断事項 8 項目を §13 に整理 |
 | 2026-04-26 | ドメイン候補調査結果を [`m2-domain-candidate-research.md`](./m2-domain-candidate-research.md) として独立記録。**第一候補 `vrcphotobook.com` で合意**（ユーザー判断）。**購入は M2 本実装骨格確定後に延期**（実リソース操作を増やさず、Cookie Domain / SendGrid / Turnstile 本番 widget の利用タイミングが近づいた段階で購入解禁）。§13 ユーザー判断事項 #1 / #5 を「合意済 / 延期」に更新 |
+| 2026-04-26（後段） | M2 本実装の PR9 / PR10 / PR10.5 完了後、ユーザーが Cloudflare Registrar で実購入。**実購入は `vrc-photobook.com`（ハイフン入り）** で確定（`m2-domain-candidate-research.md` §9.5）。§3 候補比較表の `vrcphotobook.com` 行は履歴として保存し、§13 ユーザー判断事項 #1 / #5 を「確定・購入済」に更新。実装上の DNS / Cookie Domain は `.vrc-photobook.com` を正とする |

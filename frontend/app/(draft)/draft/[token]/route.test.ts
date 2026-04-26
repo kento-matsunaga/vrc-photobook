@@ -91,10 +91,10 @@ describe("GET /draft/[token] success path", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("正常_COOKIE_DOMAIN設定時はDomain=.vrcphotobook.com", async () => {
-    // Given: COOKIE_DOMAIN='.vrcphotobook.com' 設定 + Backend 200
-    // When: GET, Then: Set-Cookie に Domain=.vrcphotobook.com が含まれる
-    process.env.COOKIE_DOMAIN = ".vrcphotobook.com";
+  it("正常_COOKIE_DOMAIN設定時はDomain=.vrc-photobook.com", async () => {
+    // Given: COOKIE_DOMAIN='.vrc-photobook.com' 設定 + Backend 200
+    // When: GET, Then: Set-Cookie に Domain=.vrc-photobook.com が含まれる
+    process.env.COOKIE_DOMAIN = ".vrc-photobook.com";
     const draftRaw = fakeToken43("draft-domain");
     const sessionRaw = fakeToken43("session-domain");
     const photobookId = "11111111-1111-1111-1111-111111111111";
@@ -118,7 +118,7 @@ describe("GET /draft/[token] success path", () => {
     const res = await GET(req as never, { params: Promise.resolve({ token: draftRaw }) });
 
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain("Domain=.vrcphotobook.com");
+    expect(setCookie).toContain("Domain=.vrc-photobook.com");
   });
 });
 

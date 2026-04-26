@@ -86,10 +86,10 @@ func TestBuildIssue(t *testing.T) {
 		},
 		{
 			name:        "正常_Domain指定",
-			description: "Given: Domain=.vrcphotobook.com, When: BuildIssue, Then: Domain属性が反映",
-			policy:      cookie.Policy{Domain: ".vrcphotobook.com"},
+			description: "Given: Domain=.vrc-photobook.com, When: BuildIssue, Then: Domain属性が反映",
+			policy:      cookie.Policy{Domain: ".vrc-photobook.com"},
 			expiresAt:   now.Add(24 * time.Hour),
-			wantDomain:  ".vrcphotobook.com",
+			wantDomain:  ".vrc-photobook.com",
 		},
 		{
 			name:        "異常_expiresAt_=_now",

@@ -1,7 +1,27 @@
-# M2 ドメイン購入前チェックリスト（`vrcphotobook.com`）
+# M2 ドメイン購入チェックリスト + 購入記録（`vrc-photobook.com`）
 
-> 作成日: 2026-04-26
-> 位置付け: `vrcphotobook.com` 購入の **直前** に確認するチェック表。本書の作成時点では **まだ購入しない**。
+> 作成日: 2026-04-26（前段：購入前チェック）/ 2026-04-26（後段：購入完了記録）
+> **状態: 購入済み（2026-04-26）**
+>
+> ### 購入完了の経緯（2026-04-26 後段）
+>
+> - **購入したドメイン**: `vrc-photobook.com`（ハイフン入り）
+> - **当初の第一候補**は `vrcphotobook.com`（ハイフン無し、`m2-domain-candidate-research.md` §1）だったが、
+>   実購入は `vrc-photobook.com` で確定。以後は本ドメインを正とする
+> - ハイフン入りの懸念（口頭共有・入力性・SEO 微影響）は許容
+> - キャンセル / 名義変更は実質不可（ICANN 規則 + Cloudflare at-cost 価格）
+> - **WHOIS Privacy 確認済み**: 外部 RDAP（Verisign / Cloudflare）で個人情報は `DATA REDACTED` /
+>   `REDACTED FOR PRIVACY` を確認。Cloudflare Dashboard 上で見える個人情報は所有者向けの真の情報で、
+>   外部 ICANN WHOIS には公開されていない
+> - 自動更新 ON、Registrar = Cloudflare、有効期限 2027-04-26
+> - 本書の §1〜§3 は購入直前のチェック項目として **履歴的に保存**。実購入時点では § 1.1 の取得可否
+>   検証を経ずにハイフン入りでの購入が確定している（Cloudflare Dashboard の検索結果がハイフン入りを
+>   返した経緯）
+>
+> ### 購入後の次ステップ
+>
+> §5 の作業順序（DNS / Workers Custom Domain / Cloud Run Domain Mapping / 環境変数 / deploy /
+> Safari 実機確認）に進む。
 >
 > 上流参照（必読、本書では再記載しない）:
 > - [`docs/plan/m2-domain-candidate-research.md`](./m2-domain-candidate-research.md)（候補比較・推奨理由・WHOIS / Wayback 確認手順、§5）
@@ -26,7 +46,7 @@
 
 ### 1.1 取得可否・価格
 
-- [ ] Cloudflare Dashboard `Domain Registration → Register domains` で `vrcphotobook.com` を検索
+- [ ] Cloudflare Dashboard `Domain Registration → Register domains` で `vrc-photobook.com` を検索
 - [ ] 「取得可能」表示が出ること
 - [ ] 年額が **$10.46 前後**であること（at-cost 価格、`m2-domain-candidate-research.md` §3 と一致）
 - [ ] 為替で日本円表示が出る場合、概算 **¥1,500〜¥1,800/年** 程度であることを確認
@@ -35,7 +55,7 @@
 ### 1.2 WHOIS / 過去履歴
 
 - [ ] WHOIS で前所有歴がない / クリーン（既に `m2-domain-candidate-research.md` §5 #2 で「未登録の可能性高」と確認、購入直前に再確認）
-- [ ] [Wayback Machine](https://web.archive.org/web/*/vrcphotobook.com) で過去にスパム / 不正サイトとして使われていないこと
+- [ ] [Wayback Machine](https://web.archive.org/web/*/vrc-photobook.com) で過去にスパム / 不正サイトとして使われていないこと
 - [ ] Google Safe Browsing 等で blacklist 登録歴がないこと
 
 ### 1.3 WHOIS Privacy / Registrant 情報
@@ -53,7 +73,7 @@
 
 ### 1.5 ドメイン名自体のセルフチェック
 
-- [ ] 個人情報 / 本名 / 居住地が **ドメイン名に含まれていない**こと（`vrcphotobook.com` は OK）
+- [ ] 個人情報 / 本名 / 居住地が **ドメイン名に含まれていない**こと（`vrc-photobook.com` は OK）
 - [ ] 商標や他社サービス名と被っていないこと（§2 で詳細チェック）
 - [ ] スペルミス・タイポでないこと
 - [ ] 一度購入するとキャンセル / 名前変更が事実上不可能（同名取り直しは年額再支払い）であることを認識
@@ -105,13 +125,13 @@
 ## 3. 購入後の構成案（既定、`m2-early-domain-and-cookie-plan.md` §7 案 A 採用）
 
 ```
-app.vrcphotobook.com  → Frontend Workers（OpenNext for Cloudflare）
-api.vrcphotobook.com  → Backend Cloud Run（Domain Mapping、§4 で再確認）
-Cookie Domain         → .vrcphotobook.com（共通親ドメイン、Set-Cookie の Domain 属性）
+app.vrc-photobook.com  → Frontend Workers（OpenNext for Cloudflare）
+api.vrc-photobook.com  → Backend Cloud Run（Domain Mapping、§4 で再確認）
+Cookie Domain         → .vrc-photobook.com（共通親ドメイン、Set-Cookie の Domain 属性）
 ```
 
 メリット:
-- `.vrcphotobook.com` Cookie が `app.*` / `api.*` 両方に届く（U2 解消、ADR-0003）
+- `.vrc-photobook.com` Cookie が `app.*` / `api.*` 両方に届く（U2 解消、ADR-0003）
 - DNS 構成がシンプル（CNAME 2 本）
 - Backend を curl で直接叩けるためデバッグ容易
 - Safari ITP の First-party Cookie 扱い（共通親ドメイン）
@@ -168,26 +188,26 @@ Cookie Domain         → .vrcphotobook.com（共通親ドメイン、Set-Cookie
 
 ### 5.1 全体フロー
 
-1. **vrcphotobook.com 購入**（Cloudflare Registrar、ユーザー手動）
+1. **vrc-photobook.com 購入**（Cloudflare Registrar、ユーザー手動）
 2. **Cloudflare zone の自動作成を確認**（Registrar 購入で自動的に zone が作られる）
 3. **DNS 状態確認**（NS が Cloudflare、A/AAAA レコードがデフォルト状態）
-4. **Workers Custom Domain: `app.vrcphotobook.com`** を `vrcpb-frontend` Worker に紐付け
+4. **Workers Custom Domain: `app.vrc-photobook.com`** を `vrcpb-frontend` Worker に紐付け
 5. **Backend API ドメイン方針を §4 で確定したものに従って実施**（案 A: Cloud Run Domain Mapping）
-   - Cloud Run Domain Mapping `api.vrcphotobook.com` → `vrcpb-api` (asia-northeast1)
+   - Cloud Run Domain Mapping `api.vrc-photobook.com` → `vrcpb-api` (asia-northeast1)
    - Cloudflare DNS に CNAME `api` → `ghs.googlehosted.com`（Cloudflare Proxy は **OFF**、TLS 証明書を Google 側で発行させるため）
    - Cloud Run の証明書 PROVISIONING を待つ（最大数時間）
 6. **Frontend `.env.production`**:
-   - `NEXT_PUBLIC_BASE_URL=https://app.vrcphotobook.com`
-   - `NEXT_PUBLIC_API_BASE_URL=https://api.vrcphotobook.com`
-   - `COOKIE_DOMAIN=.vrcphotobook.com`
+   - `NEXT_PUBLIC_BASE_URL=https://app.vrc-photobook.com`
+   - `NEXT_PUBLIC_API_BASE_URL=https://api.vrc-photobook.com`
+   - `COOKIE_DOMAIN=.vrc-photobook.com`
 7. **Backend env**:
-   - `ALLOWED_ORIGINS=https://app.vrcphotobook.com`（CORS 設定、後続 PR で middleware 追加時）
+   - `ALLOWED_ORIGINS=https://app.vrc-photobook.com`（CORS 設定、後続 PR で middleware 追加時）
    - `APP_ENV=production` / `PORT=8080` / `DATABASE_URL=...`（Secret Manager 経由）
 8. **Frontend build/deploy**: `npm --prefix frontend run cf:build` → `wrangler deploy`
 9. **Backend deploy**: Cloud Build → Artifact Registry → Cloud Run revision
 10. **Safari / iPhone Safari 実機確認**（`safari-verification.md` の全項目）
-    - `https://app.vrcphotobook.com/draft/<実 token>` → 302 → `/edit/<id>`
-    - DevTools / Web Inspector で Cookie 属性確認（HttpOnly / Secure / SameSite=Strict / Path=/ / Domain=.vrcphotobook.com）
+    - `https://app.vrc-photobook.com/draft/<実 token>` → 302 → `/edit/<id>`
+    - DevTools / Web Inspector で Cookie 属性確認（HttpOnly / Secure / SameSite=Strict / Path=/ / Domain=.vrc-photobook.com）
     - URL から raw token が消えていること
     - 24 時間後 / 7 日後の Cookie 残存（運用開始後の継続観察）
 11. **旧 PoC リソース整理**（§6.5 参照）
@@ -196,17 +216,17 @@ Cookie Domain         → .vrcphotobook.com（共通親ドメイン、Set-Cookie
 
 詳細コマンドは購入後の別 PR で整備（本 PR では順序のみ）。雛形:
 
-- Workers Custom Domain: Cloudflare Dashboard `Workers & Pages → vrcpb-frontend → Settings → Triggers → Custom Domains` で `app.vrcphotobook.com` を追加
-- Cloud Run Domain Mapping: `gcloud beta run domain-mappings create --service=vrcpb-api --domain=api.vrcphotobook.com --region=asia-northeast1`
+- Workers Custom Domain: Cloudflare Dashboard `Workers & Pages → vrcpb-frontend → Settings → Triggers → Custom Domains` で `app.vrc-photobook.com` を追加
+- Cloud Run Domain Mapping: `gcloud beta run domain-mappings create --service=vrcpb-api --domain=api.vrc-photobook.com --region=asia-northeast1`
 - Cloudflare DNS: Dashboard `DNS → Records` で `app` (CNAME → `vrcpb-frontend.<account>.workers.dev`) / `api` (CNAME → `ghs.googlehosted.com`、Proxy OFF)
 - Wrangler: `npm --prefix frontend run cf:build && wrangler deploy --env production`
 
 ### 5.3 切替後の検証チェック（Safari 確認の前段）
 
-- [ ] `dig app.vrcphotobook.com` が Cloudflare の IP を返す
-- [ ] `dig api.vrcphotobook.com` が `ghs.googlehosted.com` の CNAME → Google IP を返す
-- [ ] `curl -i https://api.vrcphotobook.com/health` が 200 を返す
-- [ ] `curl -i https://app.vrcphotobook.com/` が 200 を返す
+- [ ] `dig app.vrc-photobook.com` が Cloudflare の IP を返す
+- [ ] `dig api.vrc-photobook.com` が `ghs.googlehosted.com` の CNAME → Google IP を返す
+- [ ] `curl -i https://api.vrc-photobook.com/health` が 200 を返す
+- [ ] `curl -i https://app.vrc-photobook.com/` が 200 を返す
 - [ ] HTTPS 証明書が有効（`curl --cacert ...` で警告無し）
 
 ---
@@ -217,7 +237,7 @@ Cookie Domain         → .vrcphotobook.com（共通親ドメイン、Set-Cookie
 
 | 項目 | 費用 | 備考 |
 |---|---|---|
-| ドメイン `vrcphotobook.com` | $10.46 / 年 | Cloudflare Registrar at-cost |
+| ドメイン `vrc-photobook.com` | $10.46 / 年 | Cloudflare Registrar at-cost |
 | Cloudflare DNS（基本機能） | $0 | Free プラン範囲 |
 | Workers Custom Domain | $0 | Workers Free プラン範囲（カスタム ドメイン自体は無料） |
 | Workers リクエスト | $0 | Free 100k req/日 まで、MVP では十分 |
@@ -254,7 +274,7 @@ Cookie Domain         → .vrcphotobook.com（共通親ドメイン、Set-Cookie
 
 ### 7.1 ドメイン
 
-- [ ] **`vrcphotobook.com` を本当に買う**（推奨、§1 / §2 のチェックを通過する前提）
+- [ ] **`vrc-photobook.com` を本当に買う**（推奨、§1 / §2 のチェックを通過する前提）
 - [ ] `.com` が取れなかった場合のフォールバック: 第二候補 `vrcphotobook.app`（年額 $14.20）に切り替え
 - [ ] Cloudflare Registrar で買う（推奨、§3 / §6.1）
 - [ ] 自動更新を ON（推奨、§1.4）
@@ -297,7 +317,7 @@ Cookie Domain         → .vrcphotobook.com（共通親ドメイン、Set-Cookie
 
 1. ブラウザで [Cloudflare Dashboard](https://dash.cloudflare.com/) にログイン
 2. 左メニュー `Domain Registration → Register domains`（または `Domain Registration → Search domains`）
-3. 検索ボックスに `vrcphotobook.com` を入力
+3. 検索ボックスに `vrc-photobook.com` を入力
 4. 表示される情報を本書 §1.1 と照合:
    - 取得可否（Available）
    - 年額（$10.46 前後）

@@ -37,7 +37,7 @@ export function buildSessionCookieName(
  *
  * 戻り値:
  *   - 空文字なら host-only Cookie（Domain 属性を出さない）
- *   - 値があればその値（例: ".vrcphotobook.com"）
+ *   - 値があればその値（例: ".vrc-photobook.com"）
  */
 export function getCookieDomain(): string {
   return process.env.COOKIE_DOMAIN ?? "";

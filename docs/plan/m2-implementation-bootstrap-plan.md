@@ -42,8 +42,9 @@
 ### 2.1 状態前提（2026-04-26 時点）
 
 - M1 は完了承認済（`harness/work-logs/2026-04-26_m1-completion-judgment.md`）
-- **`vrcphotobook.com` は第一候補として確定**（`m2-domain-candidate-research.md` §9.1）
-- **ドメイン購入は延期**（`m2-domain-candidate-research.md` §9.2）
+- **ドメインは `vrc-photobook.com` で確定・購入済**（2026-04-26 後段、`m2-domain-candidate-research.md` §9.5）。
+  当初は `vrcphotobook.com`（ハイフン無し）が第一候補だったが、ハイフン入りで購入が確定した。以後の実装は `vrc-photobook.com` を正とする
+- ドメイン取得後の DNS / Workers Custom Domain / Cloud Run Domain Mapping 設定は別 PR で実施（本書段階では未実施）
 - 本実装は `frontend/`（既存ディレクトリ、`.gitkeep` のみ）/ `backend/`（未作成）に新規作成
 - `harness/spike/` は **参照のみ**、コピペ流用しない
 

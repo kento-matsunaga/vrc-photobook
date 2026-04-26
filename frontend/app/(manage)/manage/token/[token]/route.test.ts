@@ -86,9 +86,9 @@ describe("GET /manage/token/[token] success path", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("正常_COOKIE_DOMAIN設定時はDomain=.vrcphotobook.com", async () => {
-    // Given: COOKIE_DOMAIN='.vrcphotobook.com', When: GET 200, Then: Set-Cookie に Domain=...
-    process.env.COOKIE_DOMAIN = ".vrcphotobook.com";
+  it("正常_COOKIE_DOMAIN設定時はDomain=.vrc-photobook.com", async () => {
+    // Given: COOKIE_DOMAIN='.vrc-photobook.com', When: GET 200, Then: Set-Cookie に Domain=...
+    process.env.COOKIE_DOMAIN = ".vrc-photobook.com";
     const manageRaw = fakeToken43("manage-domain");
     const sessionRaw = fakeToken43("session-domain-m");
     const photobookId = "33333333-3333-3333-3333-333333333333";
@@ -113,7 +113,7 @@ describe("GET /manage/token/[token] success path", () => {
     const res = await GET(req as never, { params: Promise.resolve({ token: manageRaw }) });
 
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain("Domain=.vrcphotobook.com");
+    expect(setCookie).toContain("Domain=.vrc-photobook.com");
   });
 });
 

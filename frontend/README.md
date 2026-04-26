@@ -67,8 +67,9 @@ PR10 で **未実装**（後続 PR で追加）:
   Backend で session 化した後に **302 redirect で URL から消す**
 - Backend は `Set-Cookie` を出さない。Cookie 発行は **Frontend Route Handler の専権**
 - `COOKIE_DOMAIN` 未設定時は host-only Cookie（localhost 開発時の既定）
-- 独自ドメイン取得後は `.<domain>`（例: `.vrcphotobook.com`）を `COOKIE_DOMAIN` に入れて
-  `app.<domain>` ↔ `api.<domain>` 間で Cookie 共有する（`docs/plan/m2-early-domain-and-cookie-plan.md` §8）
+- 本番では `COOKIE_DOMAIN=.vrc-photobook.com` を設定して
+  `app.vrc-photobook.com` ↔ `api.vrc-photobook.com` 間で Cookie 共有する（U2 解消、
+  `docs/plan/m2-early-domain-and-cookie-plan.md` §8）
 - 本 router に dummy token / 認証バイパス endpoint は作らない（PR9c / PR10 を通じて確認済）
 
 ### Next.js dev server のログに関する注意

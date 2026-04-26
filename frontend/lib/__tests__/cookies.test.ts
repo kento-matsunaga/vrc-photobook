@@ -46,12 +46,12 @@ describe("getCookieDomain / buildSessionCookieOptions", () => {
   });
 
   it("正常_COOKIE_DOMAIN設定時はDomain属性が反映", () => {
-    // Given: COOKIE_DOMAIN='.vrcphotobook.com', When: buildSessionCookieOptions, Then: domain='.vrcphotobook.com'
-    process.env.COOKIE_DOMAIN = ".vrcphotobook.com";
+    // Given: COOKIE_DOMAIN='.vrc-photobook.com', When: buildSessionCookieOptions, Then: domain='.vrc-photobook.com'
+    process.env.COOKIE_DOMAIN = ".vrc-photobook.com";
     const now = new Date("2026-04-26T00:00:00Z");
     const expires = new Date("2026-04-26T01:00:00Z");
     const opts = buildSessionCookieOptions(expires, now);
-    expect(opts.domain).toBe(".vrcphotobook.com");
+    expect(opts.domain).toBe(".vrc-photobook.com");
     expect(opts.maxAge).toBe(60 * 60);
   });
 
