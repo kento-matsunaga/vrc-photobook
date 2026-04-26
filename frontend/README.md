@@ -8,7 +8,7 @@ VRC PhotoBook の **本実装 Frontend**。M2 以降の段階的 PR で機能を
 - `harness/spike/frontend/` は M1 PoC、**コードを直接コピペしない**方針（同 §11）。
 - 本実装は ADR-0001 / ADR-0003 / 業務知識 v4 / [`.agents/rules/safari-verification.md`](../.agents/rules/safari-verification.md) 準拠。
 
-## 現在のスコープ（PR5）
+## 現在のスコープ（PR10）
 
 PR4 で導入したもの:
 
@@ -33,13 +33,57 @@ PR5 で追加したもの:
   - npm scripts: `cf:build` / `cf:preview` / `cf:check`
 - `.env.production.example` の方針コメント追記（`NEXT_PUBLIC_*` は build 時 inline、Secret を入れない）
 
-PR5 で **未実装**（後続 PR で追加）:
+PR10 で追加したもの:
 
-- draft / manage の token redirect ルート / Cookie 発行（ADR-0003）
-- Backend API クライアント / 結合検証ページ
+- `lib/cookies.ts`: Cookie util
+  - `buildSessionCookieName('draft' | 'manage', photobookId)` で `vrcpb_draft_<id>` / `vrcpb_manage_<id>` を組み立て
+  - `buildSessionCookieOptions(expiresAt)`: HttpOnly / Secure / SameSite=Strict / Path=/ / Max-Age 計算
+  - `getCookieDomain()`: Server-only env `COOKIE_DOMAIN` を読む（未設定なら host-only Cookie）
+- `lib/api.ts`: Backend API クライアント
+  - `exchangeDraftToken(raw)` / `exchangeManageToken(raw)` で `/api/auth/*-session-exchange` を呼ぶ
+  - 401 / 400 / network 失敗を `ApiExchangeError` のラベル付きエラーで表現
+  - raw token を含むエラー詳細を呼び出し元に渡さない
+- `app/(draft)/draft/[token]/route.ts`: Route Handler
+  - Backend `/api/auth/draft-session-exchange` 呼び出し → raw `session_token` を **Frontend 側で `Set-Cookie`**
+  - `/edit/<photobook_id>` へ 302 redirect（URL から raw token が消える）
+  - 失敗時は `/?reason=invalid_draft_token` へ redirect
+- `app/(manage)/manage/token/[token]/route.ts`: Route Handler
+  - 同様、`/manage/<photobook_id>` へ 302 redirect
+- `app/(draft)/edit/[photobookId]/page.tsx`: 最小ページ（PR11 以降で本実装）
+- `app/(manage)/manage/[photobookId]/page.tsx`: 最小ページ
+- `.env.local.example` / `.env.production.example`: `COOKIE_DOMAIN` を追加（Server-only env）
+
+PR10 で **未実装**（後続 PR で追加）:
+
+- Server Component での session 検証 / Backend protected API（`/api/photobooks/{id}` 等）
+- 編集 UI / 管理 UI / 公開ページ
 - 画像アップロード UI / Turnstile widget
-- Workers Custom Domain / Cloud Run Domain Mapping（M2 早期 §F-1、ドメイン取得後）
-- Safari / iPhone Safari の実機確認（後続 PR で UI / Cookie / redirect が入った時点で実施）
+- Workers Custom Domain / Cloud Run Domain Mapping（独自ドメイン取得後）
+- iPhone Safari 実機確認（独自ドメイン取得後の HTTPS 環境で実施、`safari-verification.md`）
+
+## token / Cookie の運用方針（重要）
+
+- raw `draft_edit_token` / `manage_url_token` は URL path に乗るが、Frontend Route Handler が
+  Backend で session 化した後に **302 redirect で URL から消す**
+- Backend は `Set-Cookie` を出さない。Cookie 発行は **Frontend Route Handler の専権**
+- `COOKIE_DOMAIN` 未設定時は host-only Cookie（localhost 開発時の既定）
+- 独自ドメイン取得後は `.<domain>`（例: `.vrcphotobook.com`）を `COOKIE_DOMAIN` に入れて
+  `app.<domain>` ↔ `api.<domain>` 間で Cookie 共有する（`docs/plan/m2-early-domain-and-cookie-plan.md` §8）
+- 本 router に dummy token / 認証バイパス endpoint は作らない（PR9c / PR10 を通じて確認済）
+
+### Next.js dev server のログに関する注意
+
+`next dev` 標準の access log は URL path をそのまま stdout に出すため、
+`/draft/<raw token>` のようなパスにアクセスすると raw token が dev server のターミナルに表示される。
+これは **本番（OpenNext / Workers）では発生しない**が、ローカル開発時の運用注意点として明記する。
+詳細: [`harness/failure-log/2026-04-26_nextjs-dev-server-url-path-log.md`](../harness/failure-log/2026-04-26_nextjs-dev-server-url-path-log.md)
+
+### Safari / iPhone Safari 実機確認
+
+- macOS Safari は localhost 開発時にも一定の動作確認が可能（手動実施推奨）
+- iPhone Safari への localhost 接続は別 PC からの接続設定が必要なため、
+  **独自ドメイン取得後（PR11 / M2 早期 §F-1）** の HTTPS 環境で必ず実機確認する
+- 確認項目は [`.agents/rules/safari-verification.md`](../.agents/rules/safari-verification.md) のチェックリスト全項目
 
 ## OpenNext / Workers ローカル確認
 
@@ -83,7 +127,7 @@ npm --prefix frontend run typecheck
 
 > WSL では `cd` を使わず `--prefix frontend` で固定（[`.agents/rules/wsl-shell-rules.md`](../.agents/rules/wsl-shell-rules.md)）。
 
-## ディレクトリ（PR5 時点）
+## ディレクトリ（PR10 時点）
 
 ```
 frontend/
@@ -92,19 +136,28 @@ frontend/
 ├── next.config.mjs
 ├── postcss.config.mjs
 ├── tailwind.config.ts
-├── middleware.ts          ← PR5 追加（ヘッダ一本化）
-├── open-next.config.ts    ← PR5 追加（OpenNext 設定）
-├── wrangler.jsonc         ← PR5 追加（Workers 設定）
+├── middleware.ts                                # PR5: X-Robots-Tag / Referrer-Policy 一本化
+├── open-next.config.ts                          # PR5
+├── wrangler.jsonc                               # PR5
 ├── .gitignore
 ├── .env.local.example
 ├── .env.production.example
 ├── README.md（本書）
+├── lib/                                         # PR10: Server-side util
+│   ├── api.ts                                   # Backend API client（fetch wrapper）
+│   └── cookies.ts                               # Cookie util（HttpOnly / Secure / SameSite=Strict）
 ├── public/
 │   └── .gitkeep
 └── app/
     ├── globals.css
-    ├── layout.tsx          ← PR5 で metadataBase / robots を追加
-    └── page.tsx
+    ├── layout.tsx                               # PR5: metadataBase / robots
+    ├── page.tsx
+    ├── (draft)/                                 # PR10
+    │   ├── draft/[token]/route.ts               # token → session 交換 → /edit redirect
+    │   └── edit/[photobookId]/page.tsx          # draft 編集ページ最小実装
+    └── (manage)/                                # PR10
+        ├── manage/token/[token]/route.ts        # token → session 交換 → /manage redirect
+        └── manage/[photobookId]/page.tsx        # 管理ページ最小実装
 ```
 
 PR6 以降の構造拡張は [`docs/plan/m2-implementation-bootstrap-plan.md`](../docs/plan/m2-implementation-bootstrap-plan.md) §5 / §12 を参照。
