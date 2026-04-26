@@ -25,15 +25,41 @@ type Config struct {
 	// DatabaseURL は PostgreSQL 接続 DSN。空のままでもサーバは起動するが /readyz は 503 を返す。
 	// 値そのものはログ・レスポンスに出さない。
 	DatabaseURL string
+	// AllowedOrigins は CORS で許可する origin（カンマ区切り）。Cloud Run env で注入。
+	AllowedOrigins string
+	// PR21: R2 関連。Secret 値はログに出さない。
+	R2AccountID       string
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+	R2BucketName      string
+	R2Endpoint        string
 }
 
 // Load は環境変数から Config を組み立てる。値の有無はここでは厳密に検査しない。
 func Load() *Config {
 	return &Config{
-		AppEnv:      getOrDefault("APP_ENV", "local"),
-		Port:        getOrDefault("PORT", "8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
+		AppEnv:            getOrDefault("APP_ENV", "local"),
+		Port:              getOrDefault("PORT", "8080"),
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		AllowedOrigins:    getOrDefault("ALLOWED_ORIGINS", "https://app.vrc-photobook.com"),
+		R2AccountID:       os.Getenv("R2_ACCOUNT_ID"),
+		R2AccessKeyID:     os.Getenv("R2_ACCESS_KEY_ID"),
+		R2SecretAccessKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
+		R2BucketName:      os.Getenv("R2_BUCKET_NAME"),
+		R2Endpoint:        os.Getenv("R2_ENDPOINT"),
 	}
+}
+
+// IsR2Configured は R2 関連の必須 Secret がすべて揃っているかを返す。
+//
+// PR21 Step A 段階では Secret 未登録のため false で起動継続を許容する。Step D 以降で
+// すべて揃う想定。
+func (c *Config) IsR2Configured() bool {
+	return c.R2AccountID != "" &&
+		c.R2AccessKeyID != "" &&
+		c.R2SecretAccessKey != "" &&
+		c.R2BucketName != "" &&
+		c.R2Endpoint != ""
 }
 
 func getOrDefault(key, defaultValue string) string {

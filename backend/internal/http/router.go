@@ -5,35 +5,84 @@
 // PR8: Session 認可 middleware と UseCase 枠を用意（**未接続のまま**）。
 // PR9c: Photobook の token 交換 endpoint 2 本（draft / manage）を追加。
 //       本物の token 検証経由のみ。dummy token / 認証バイパスは作らない。
-// PR10 以降で Frontend Route Handler 接続 + Cookie 化 + Safari 確認。
+// PR21: imageupload の upload-intent / complete endpoint を追加。
+//       draft session middleware で認可された context を前提に handler が動く。
+//       CORS middleware を導入（ALLOWED_ORIGINS 環境変数）。
 //
 // 注意:
-//   - chi の middleware（CORS / RequestID / Recoverer / Timeout）は本 PR では入れない
-//   - protected route（/api/photobooks/{id}）は PR10 以降で session middleware と一緒に接続
+//   - protected route（/api/photobooks/{id}/images/...）は draft session middleware を経由する
+//   - upload-intent は加えて Authorization: Bearer <upload_verification_token> が必須
+//     （middleware ではなく handler 内で確認）
 package http
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"vrcpb/backend/internal/auth/session/domain/vo/photobook_id"
+	authmiddleware "vrcpb/backend/internal/auth/session/middleware"
 	"vrcpb/backend/internal/health"
+	imageuploadhttp "vrcpb/backend/internal/imageupload/interface/http"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 )
+
+// RouterConfig は NewRouter の依存集約。
+type RouterConfig struct {
+	Pool                  *pgxpool.Pool
+	PhotobookHandlers     *photobookhttp.Handlers
+	ImageUploadHandlers   *imageuploadhttp.Handlers
+	DraftSessionValidator authmiddleware.Validator
+	AllowedOrigins        string
+}
 
 // NewRouter は API サーバの chi ルーターを返す。
 //
 // pool は nil でも可（その場合 /readyz は 503 db_not_configured）。
-// photobookHandlers が nil の場合は token 交換 endpoint を **登録しない**（DB 未設定時）。
-func NewRouter(pool *pgxpool.Pool, photobookHandlers *photobookhttp.Handlers) *chi.Mux {
+// PhotobookHandlers が nil の場合は token 交換 endpoint を登録しない。
+// ImageUploadHandlers / DraftSessionValidator が nil の場合は upload-intent / complete
+// endpoint を登録しない（PR21 Step A 段階の R2 Secret 未注入時など）。
+func NewRouter(cfg RouterConfig) *chi.Mux {
 	r := chi.NewRouter()
+	if cfg.AllowedOrigins != "" {
+		r.Use(NewCORS(cfg.AllowedOrigins))
+	}
 	r.Get("/health", health.Health)
-	r.Get("/readyz", health.Ready(pool))
+	r.Get("/readyz", health.Ready(cfg.Pool))
 
-	// PR9c: token 交換 endpoint。Photobook UseCase 経由で本物の token を検証する。
-	// DB 未設定時（pool nil）は handlers も nil 渡しになるため endpoint を生やさない。
-	if photobookHandlers != nil {
-		r.Post("/api/auth/draft-session-exchange", photobookHandlers.DraftSessionExchange)
-		r.Post("/api/auth/manage-session-exchange", photobookHandlers.ManageSessionExchange)
+	// PR9c: token 交換 endpoint。
+	if cfg.PhotobookHandlers != nil {
+		r.Post("/api/auth/draft-session-exchange", cfg.PhotobookHandlers.DraftSessionExchange)
+		r.Post("/api/auth/manage-session-exchange", cfg.PhotobookHandlers.ManageSessionExchange)
+	}
+
+	// PR21: imageupload endpoint。draft session middleware を chain。
+	if cfg.ImageUploadHandlers != nil && cfg.DraftSessionValidator != nil {
+		r.Route("/api/photobooks/{id}/images", func(sub chi.Router) {
+			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
+			sub.Post("/upload-intent", cfg.ImageUploadHandlers.UploadIntent)
+			sub.Post("/{imageId}/complete", cfg.ImageUploadHandlers.Complete)
+		})
 	}
 	return r
+}
+
+// photobookIDFromURL は chi の URL param `{id}` を auth/session の photobook_id VO に変換する。
+//
+// session middleware は auth/session/domain/vo/photobook_id を期待する（独立 VO）。
+// imageupload handler は photobook/domain/vo/photobook_id を使うため、handler 内で
+// chi.URLParam から再 parse する（型は別物だが UUID 値は一致する）。
+func photobookIDFromURL(r *http.Request) (photobook_id.PhotobookID, error) {
+	raw := chi.URLParam(r, "id")
+	if raw == "" {
+		return photobook_id.PhotobookID{}, errors.New("missing photobook id in URL")
+	}
+	u, err := uuid.Parse(raw)
+	if err != nil {
+		return photobook_id.PhotobookID{}, err
+	}
+	return photobook_id.FromUUID(u)
 }

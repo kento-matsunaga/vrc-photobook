@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	authsessrepo "vrcpb/backend/internal/auth/session/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/auth/session/domain/vo/photobook_id"
@@ -33,6 +34,15 @@ import (
 	"vrcpb/backend/internal/auth/session/domain/vo/token_version_at_issue"
 	authuc "vrcpb/backend/internal/auth/session/internal/usecase"
 )
+
+// NewSessionValidator は draft / manage session 認可 middleware に渡す Validator を作る。
+//
+// pool 起点なので、middleware 内では非 TX で SELECT する（session の SELECT は他集約と
+// 直接干渉しないため）。PR21 で imageupload endpoint の draft session middleware で使用。
+func NewSessionValidator(pool *pgxpool.Pool) *authuc.ValidateSession {
+	repo := authsessrepo.NewSessionRepository(pool)
+	return authuc.NewValidateSession(repo)
+}
 
 // IssueDraftWithTx は tx 起点で draft session を発行する。
 //

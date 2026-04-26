@@ -22,9 +22,13 @@ import (
 	"syscall"
 	"time"
 
+	"vrcpb/backend/internal/auth/session/sessionintegration"
 	"vrcpb/backend/internal/config"
 	"vrcpb/backend/internal/database"
 	internalhttp "vrcpb/backend/internal/http"
+	"vrcpb/backend/internal/imageupload/infrastructure/r2"
+	imageuploadhttp "vrcpb/backend/internal/imageupload/interface/http"
+	imageuploadwireup "vrcpb/backend/internal/imageupload/wireup"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/wireup"
 	"vrcpb/backend/internal/shared"
@@ -75,7 +79,39 @@ func main() {
 		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
 	}
 
-	router := internalhttp.NewRouter(pool, photobookHandlers)
+	// PR21: R2 が configured かつ pool 利用可能なときに imageupload endpoint を組み立てる。
+	// PR21 Step A 段階では R2 Secret 未注入（IsR2Configured()=false）のため、handler は
+	// nil で渡され endpoint は登録されない。Step D で Secret を注入後に有効化される。
+	var imageUploadHandlers *imageuploadhttp.Handlers
+	if pool != nil && cfg.IsR2Configured() {
+		r2Client, err := r2.NewAWSClient(r2.AWSConfig{
+			AccountID:       cfg.R2AccountID,
+			AccessKeyID:     cfg.R2AccessKeyID,
+			SecretAccessKey: cfg.R2SecretAccessKey,
+			BucketName:      cfg.R2BucketName,
+			Endpoint:        cfg.R2Endpoint,
+		})
+		if err != nil {
+			logger.Warn("r2 client init failed; image upload endpoints will be disabled",
+				slog.String("error", err.Error()))
+		} else {
+			imageUploadHandlers = imageuploadwireup.BuildHandlers(pool, r2Client, imageuploadhttp.SystemClock{})
+			logger.Info("r2 configured; image upload endpoints enabled")
+		}
+	} else if pool != nil {
+		logger.Info("r2 not configured; image upload endpoints disabled (PR21 Step A or earlier)")
+	}
+
+	routerCfg := internalhttp.RouterConfig{
+		Pool:                pool,
+		PhotobookHandlers:   photobookHandlers,
+		ImageUploadHandlers: imageUploadHandlers,
+		AllowedOrigins:      cfg.AllowedOrigins,
+	}
+	if imageUploadHandlers != nil {
+		routerCfg.DraftSessionValidator = sessionintegration.NewSessionValidator(pool)
+	}
+	router := internalhttp.NewRouter(routerCfg)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
