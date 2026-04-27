@@ -77,10 +77,13 @@ gcloud builds log <BUILD_ID> --project=$PROJ | tail -50
 ### 1.4 deploy 確認
 
 ```bash
-# 新 revision を確認
+# 新 revision + traffic 配分を確認
 gcloud run services describe vrcpb-api \
   --region=asia-northeast1 --project=$PROJ \
-  --format='value(spec.template.spec.containers[0].image,status.latestReadyRevisionName)'
+  --format='value(spec.template.spec.containers[0].image,status.latestReadyRevisionName,status.traffic[0].revisionName,status.traffic[0].percent)'
+
+# 期待: latestReadyRevisionName と traffic[0].revisionName が一致 / traffic[0].percent=100
+# 不一致の場合は §5.7「build success だが traffic が旧 revision に残る」を確認
 
 # smoke（cloudbuild.yaml の smoke step も実行されているが、念のため再実行）
 curl -sS https://api.vrc-photobook.com/health
@@ -89,6 +92,11 @@ curl -sS -o /dev/null -w "HTTP %{http_code}\n" \
   https://api.vrc-photobook.com/api/photobooks/00000000-0000-0000-0000-000000000000/edit-view
 # 期待: /health 200 ok / /readyz 200 ready / edit-view 401 unauthorized
 ```
+
+> **必ず確認**: `cloudbuild.yaml` の `traffic-to-latest` step により、deploy 直後に
+> traffic が最新 revision に明示切替されている。万一この step が失敗していると、
+> build SUCCESS でも traffic は旧 revision のままになり、smoke は旧 revision を見て
+> 200 を返してしまう（実害が遅延発覚する）。最終確認は **revision 名一致**で行うこと。
 
 ### 1.5 work-log 記録
 
@@ -135,6 +143,17 @@ gcloud run services update-traffic vrcpb-api \
   --to-revisions=<NEW_REVISION>=100 \
   --region=asia-northeast1 --project=$PROJ
 ```
+
+> **重要**: `update-traffic --to-revisions=<X>=100` を実行すると、Cloud Run の traffic
+> 設定は **「特定 revision に pin」状態**になる。この状態では、`gcloud run services
+> update --image=...` で新しい revision を作っても traffic は移動しない。
+>
+> 通常運用に戻すには以下のいずれか:
+>
+> - 次の Cloud Build deploy（`cloudbuild.yaml` 末尾の `traffic-to-latest` step が自動で pin を解除）
+> - 手動で `gcloud run services update-traffic vrcpb-api --to-latest --region=asia-northeast1 --project=$PROJ`
+>
+> 詳細は §5.7。
 
 ### 2.3 work-log + failure-log 記録
 
@@ -251,6 +270,58 @@ gcloud run services describe vrcpb-api --region=asia-northeast1 --project=$PROJ 
    `--update-secrets=` を使っていないか確認
 3. `failure-log/` に起票して再発防止ルール化
 
+### 5.7 build success だが traffic が旧 revision に残る（rollback drill 後の traffic pin）
+
+PR30 deploy 時に発生（`harness/failure-log/2026-04-28_cloudbuild-traffic-pin-not-switched.md`）。
+
+#### 症状
+
+- Cloud Build: build / push / deploy / smoke すべて SUCCESS
+- 新 revision は作成済（`gcloud run revisions list` で見える）
+- しかし `status.traffic[0].revisionName` が **旧 revision** のまま
+- 独自ドメイン `https://api.vrc-photobook.com/...` は旧 revision を返している
+- smoke も旧 revision を見て 200 を返してしまう（false positive）
+
+#### 原因
+
+`gcloud run services update-traffic --to-revisions=<X>=100` を実行すると Cloud Run の
+traffic 設定は「特定 revision に pin」状態になる。この状態では `gcloud run services
+update --image=...` だけでは traffic が新 revision に流れない（pin が優先される）。
+
+PR29 STOP 6 のロールバックドリル後に traffic が pin 状態のまま残っており、PR30 の
+Cloud Build deploy で初めて顕在化した。
+
+#### 恒久対策（PR30 完了後の独立タスクで適用済）
+
+`cloudbuild.yaml` の deploy step 直後に `update-traffic --to-latest` step
+（id: `traffic-to-latest`）を追加。これにより:
+
+- pin 状態でも必ず latest revision に traffic 100% を向ける
+- 通常運用（pin なし）でも冪等動作で副作用なし
+- smoke は traffic 切替後に走るため、必ず新 revision を検証する
+
+#### 暫定対処（cloudbuild.yaml 修正前 / 別事故で再発した場合）
+
+```bash
+gcloud run services update-traffic vrcpb-api \
+  --to-latest \
+  --region=asia-northeast1 --project=$PROJ
+```
+
+または明示的に新 revision を指定:
+
+```bash
+gcloud run services update-traffic vrcpb-api \
+  --to-revisions=<NEW_REVISION>=100 \
+  --region=asia-northeast1 --project=$PROJ
+```
+
+#### 必ず確認
+
+- deploy 完了報告では **`status.latestReadyRevisionName == status.traffic[0].revisionName`**
+  を必須チェック項目とする
+- build SUCCESS だけで「deploy 成功」とみなさない（false positive 防止）
+
 ---
 
 ## 6. 後続タスク（PR29 で先送りした項目、忘れないこと）
@@ -285,3 +356,4 @@ trigger 化に進むとき:
 | 日付 | 変更 |
 |------|------|
 | 2026-04-28 | 初版（PR29）。manual submit 方式 (`gcloud builds submit` + 専用 SA) を採用。trigger / GitHub App / tag trigger / main push auto-deploy / frontend deploy 自動化 は後続タスクとして §6 に記録 |
+| 2026-04-28 | PR30 完了後の独立タスクで `cloudbuild.yaml` に `traffic-to-latest` step を追加。§1.4 deploy 確認に traffic 一致チェックを追記、§2.2 rollback 後の pin 効果を明記、§5.7 の FAQ を追加 |

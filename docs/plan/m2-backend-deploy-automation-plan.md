@@ -151,7 +151,22 @@ steps:
       - --region=asia-northeast1
       - --project=$PROJECT_ID
 
-  # 4) smoke（gcloud + curl 等で /health と /readyz を叩く）
+  # 4) traffic を最新 revision に向ける（rollback drill 等で pin 状態のときの保険）
+  #    詳細は §4.3 + harness/failure-log/2026-04-28_cloudbuild-traffic-pin-not-switched.md
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: traffic-to-latest
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update-traffic
+      - vrcpb-api
+      - --to-latest
+      - --region=asia-northeast1
+      - --project=$PROJECT_ID
+
+  # 5) smoke（gcloud + curl 等で /health と /readyz を叩く）
+  #    traffic-to-latest 後に走るため必ず新 revision を叩く
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: smoke
     entrypoint: bash
@@ -186,13 +201,21 @@ timeout: 1200s  # 20 分
 - 過去 image は AR の retention policy（後段、PR40 で評価）で世代管理
 - 手動 deploy 期と命名互換: `git rev-parse --short=7 HEAD` と同じ
 
-### 4.3 失敗時の扱い
+### 4.3 失敗時の扱い + traffic pin への対応（PR30 で追補）
 
 - どのステップで失敗しても **新 revision は traffic 100% を取らない**
-  （`gcloud run services update --image=` は新 revision 作成 → traffic 切替を一連で行うため、
-  deploy step が失敗すると traffic は前 revision のまま残る）
-- ただし**新 revision が作成されてから smoke で fail する**場合、新 revision に traffic
-  が一部行く可能性 → §7 rollback で `update-traffic` で旧 revision を 100% に戻す
+  （`gcloud run services update --image=` は通常時に新 revision 作成 → traffic 切替を
+  行うが、 traffic pin 状態（`update-traffic --to-revisions=<X>=100` 後）では traffic
+  は移動しない）
+- **重要（PR30 で発見）**: 過去の rollback drill 等で traffic が特定 revision に
+  pin されている場合、build / deploy / smoke がすべて SUCCESS でも traffic は旧
+  revision に残る。このとき smoke は旧 revision を叩いて 200 を返してしまうため、
+  build success と deploy 成功を等価に扱えない（false positive リスク）
+- 対策として **§4.1 cloudbuild.yaml に `traffic-to-latest` step を deploy と smoke
+  の間に挟む**。これにより pin 状態でも必ず latest revision に traffic 100% を向ける
+- 新 revision が作成されてから smoke で fail する場合は §7 の rollback 手順で
+  旧 revision に戻す（`update-traffic --to-revisions=<old>=100`）。なお、その後の
+  通常 deploy で再び pin が効かないよう `traffic-to-latest` step が自動で解除する
 
 ### 4.4 Secret に関する制約（厳守）
 
@@ -528,3 +551,4 @@ PR28 で未実施の **「実画像を含む完全 visual Safari 確認」**:
 | 日付 | 変更 |
 |------|------|
 | 2026-04-28 | 初版作成。PR28 完了時点での Cloud Build 自動 deploy 計画 |
+| 2026-04-28 | PR30 完了後の独立タスクで §4.1 に `traffic-to-latest` step を追加、§4.3 に traffic pin 状態の挙動と対策を追記。`harness/failure-log/2026-04-28_cloudbuild-traffic-pin-not-switched.md` を参照 |

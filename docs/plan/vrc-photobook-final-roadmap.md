@@ -271,6 +271,12 @@
 - **Safari 確認が必要か**: なし（CI/CD のみ）
 - **完了条件**: main ブランチ push → 自動 deploy → revision 切替 / rollback 確認
 - **次 PR への引き継ぎ**: PR31 で Cloud Run Jobs を作る際の build / deploy パターン共有
+- **補追（2026-04-28、PR30 完了後の独立タスク）**: ロールバックドリル後の traffic
+  pin 状態で `cloudbuild.yaml` の `gcloud run services update --image=` だけでは
+  新 revision に traffic が流れない事象が PR30 deploy で顕在化。`cloudbuild.yaml`
+  に `traffic-to-latest` step を追加して恒久対処。詳細は
+  `harness/failure-log/2026-04-28_cloudbuild-traffic-pin-not-switched.md` /
+  `docs/runbook/backend-deploy.md` §1.4 / §5.7。
 
 ### PR30: Outbox table + 同一 TX INSERT
 

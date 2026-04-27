@@ -5,10 +5,18 @@
 #   - docs/runbook/backend-deploy.md
 #
 # 役割:
-#   - Backend image を build → Artifact Registry push → Cloud Run revision 更新 → smoke
+#   - Backend image を build → Artifact Registry push → Cloud Run revision 更新
+#     → traffic を最新 revision に向ける → smoke
 #   - Trigger は manual のみ（main push 自動 deploy はしない、計画書 §6.2）
 #   - Cloud Run の env / secretKeyRef は --image= 単独更新で維持される
 #     （DATABASE_URL / R2_* / TURNSTILE_SECRET_KEY を本ファイルに書かない、§11.1 を厳守）
+#
+# Traffic 切替について:
+#   - `gcloud run services update --image=` は新 revision を作るが、過去の rollback 等で
+#     traffic が特定 revision に明示 pin されている場合、自動で latest に流れない
+#     （PR30 で発見、harness/failure-log/2026-04-28_cloudbuild-traffic-pin-not-switched.md）
+#   - そのため deploy 直後に明示 `update-traffic --to-latest` を 1 step 挟み、
+#     pin 状態であっても新 revision (= latest) に 100% を向ける
 #
 # セキュリティ:
 #   - Secret 値を本ファイル / substitutions / Cloud Build logs に出さない
@@ -47,8 +55,24 @@ steps:
       - --region=asia-northeast1
       - --project=$PROJECT_ID
 
-  # 4) smoke（独自ドメイン経由、Cloud Run の publicly reachable な URL を使う）
+  # 4) traffic を最新 revision (= 直前で deploy したもの) に向ける
+  #    rollback drill 等で traffic が特定 revision に pin されていた場合の保険。
+  #    通常運用（pin なし）でも冪等に動く（既に latest なら no-op に近い）。
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: traffic-to-latest
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update-traffic
+      - vrcpb-api
+      - --to-latest
+      - --region=asia-northeast1
+      - --project=$PROJECT_ID
+
+  # 5) smoke（独自ドメイン経由、Cloud Run の publicly reachable な URL を使う）
   #    /health と /readyz を叩いて 200 を確認。失敗時は build 全体を失敗にする。
+  #    traffic-to-latest 後に走るため、必ず新 revision を叩く。
   #
   # 注意: Cloud Build の substitution parser は $VAR を予約変数として解釈するため、
   #       bash 変数は $$VAR にエスケープする（$$ → $）。
@@ -79,5 +103,5 @@ options:
   # machineType はまずデフォルト（E2_MEDIUM）から開始。
   # 速度が気になる場合は E2_HIGHCPU_8 などに昇格を検討（PR40 で再評価）。
 
-# 全体タイムアウト（docker build + push + deploy + smoke）
+# 全体タイムアウト（docker build + push + deploy + traffic-to-latest + smoke）
 timeout: 1200s
