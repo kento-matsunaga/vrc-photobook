@@ -288,10 +288,11 @@ func TestGetPublicPhotobook(t *testing.T) {
 }
 
 // truncateAll は test 間の干渉を避けるための共通リセット。
+// PR30: outbox_events も TRUNCATE 対象に含める。
 func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
-		"TRUNCATE TABLE photobook_page_metas, photobook_photos, photobook_pages, image_variants, images, sessions, photobooks CASCADE"); err != nil {
+		"TRUNCATE TABLE outbox_events, photobook_page_metas, photobook_photos, photobook_pages, image_variants, images, sessions, photobooks CASCADE"); err != nil {
 		t.Fatalf("TRUNCATE: %v", err)
 	}
 }

@@ -98,3 +98,18 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
+
+  # PR30: Outbox events。outbox_events 単独 schema。
+  # 他 table への FK は持たない（aggregate_id は緩い参照）。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00012_create_outbox_events.sql"
+    queries: "internal/outbox/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/outbox/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false

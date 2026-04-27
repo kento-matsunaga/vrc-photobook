@@ -41,6 +41,10 @@ import (
 	imagerdb "vrcpb/backend/internal/image/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/imageprocessor/infrastructure/imaging"
 	"vrcpb/backend/internal/imageupload/infrastructure/r2"
+	outboxdomain "vrcpb/backend/internal/outbox/domain"
+	outboxaggregate "vrcpb/backend/internal/outbox/domain/vo/aggregate_type"
+	outboxevent "vrcpb/backend/internal/outbox/domain/vo/event_type"
+	outboxrdb "vrcpb/backend/internal/outbox/infrastructure/repository/rdb"
 )
 
 // 共通エラー（呼び出し側に区別を必要とする粒度のみ）。
@@ -281,7 +285,7 @@ func (u *ProcessImage) Execute(ctx context.Context, in ProcessImageInput) (Proce
 		return ProcessImageOutput{}, fmt.Errorf("new thumbnail variant: %w", err)
 	}
 
-	// DB TX: MarkAvailable + AttachVariant×2（短く完結、plan §10.8）。
+	// DB TX: MarkAvailable + AttachVariant×2 + Outbox INSERT（短く完結、plan §10.8 / PR30）。
 	if err := database.WithTx(ctx, u.pool, func(tx pgx.Tx) error {
 		txRepo := imagerdb.NewImageRepository(tx)
 		if err := txRepo.MarkAvailable(ctx, available); err != nil {
@@ -292,6 +296,28 @@ func (u *ProcessImage) Execute(ctx context.Context, in ProcessImageInput) (Proce
 		}
 		if err := txRepo.AttachVariant(ctx, thumbnailVariant); err != nil {
 			return fmt.Errorf("attach thumbnail: %w", err)
+		}
+		// PR30: image.became_available event を同 TX で Outbox に INSERT
+		ev, err := outboxdomain.NewPendingEvent(outboxdomain.NewPendingEventParams{
+			AggregateType: outboxaggregate.Image(),
+			AggregateID:   img.ID().UUID(),
+			EventType:     outboxevent.ImageBecameAvailable(),
+			Payload: outboxdomain.ImageBecameAvailablePayload{
+				EventVersion:     outboxdomain.EventVersion,
+				OccurredAt:       in.Now.UTC(),
+				ImageID:          img.ID().String(),
+				PhotobookID:      img.OwnerPhotobookID().String(),
+				UsageKind:        img.UsageKind().String(),
+				NormalizedFormat: "jpg", // plan §10 で display/thumbnail は JPEG 統一
+				VariantCount:     2,
+			},
+			Now: in.Now.UTC(),
+		})
+		if err != nil {
+			return fmt.Errorf("build image.became_available event: %w", err)
+		}
+		if err := outboxrdb.NewOutboxRepository(tx).Create(ctx, ev); err != nil {
+			return fmt.Errorf("outbox create image.became_available: %w", err)
 		}
 		return nil
 	}); err != nil {
@@ -320,9 +346,11 @@ func (u *ProcessImage) Execute(ctx context.Context, in ProcessImageInput) (Proce
 	return ProcessImageOutput{ImageID: img.ID(), Status: "available", VariantCount: 2}, nil
 }
 
-// failAndReturn は domain.MarkFailed → repo.MarkFailed を実行し、log を出して結果を返す。
+// failAndReturn は domain.MarkFailed → repo.MarkFailed + Outbox INSERT を同 TX で
+// 実行し、log を出して結果を返す。
 //
 // MarkFailed 自体が失敗した場合は inner error を上に返す（DB 接続障害など）。
+// PR30: failed 確定 TX に image.failed event を同 TX で INSERT。
 func (u *ProcessImage) failAndReturn(
 	ctx context.Context,
 	img imagedomain.Image,
@@ -335,17 +363,47 @@ func (u *ProcessImage) failAndReturn(
 	if err != nil {
 		return ProcessImageOutput{}, fmt.Errorf("domain mark failed: %w", err)
 	}
-	repo := imagerdb.NewImageRepository(u.pool)
-	if err := repo.MarkFailed(ctx, failed); err != nil {
-		// 0 行影響（既に状態遷移済）はログ出して返す（race condition 想定）。
-		if errors.Is(err, imagerdb.ErrConflict) {
-			u.logger.WarnContext(ctx, "mark failed conflict (already transitioned)",
-				slog.String("image_id", img.ID().String()),
-				slog.String("hint", hint),
-			)
-		} else {
-			return ProcessImageOutput{}, fmt.Errorf("repo mark failed: %w", err)
+	conflictNoOp := false
+	if err := database.WithTx(ctx, u.pool, func(tx pgx.Tx) error {
+		txRepo := imagerdb.NewImageRepository(tx)
+		if err := txRepo.MarkFailed(ctx, failed); err != nil {
+			// 0 行影響（既に状態遷移済）は race condition 想定。
+			// 同 TX 内で event を入れる前にこの分岐に入ったら、event は出さず終了する。
+			if errors.Is(err, imagerdb.ErrConflict) {
+				conflictNoOp = true
+				return nil
+			}
+			return fmt.Errorf("repo mark failed: %w", err)
 		}
+		// PR30: image.failed event を同 TX で Outbox に INSERT
+		ev, evErr := outboxdomain.NewPendingEvent(outboxdomain.NewPendingEventParams{
+			AggregateType: outboxaggregate.Image(),
+			AggregateID:   img.ID().UUID(),
+			EventType:     outboxevent.ImageFailed(),
+			Payload: outboxdomain.ImageFailedPayload{
+				EventVersion:  outboxdomain.EventVersion,
+				OccurredAt:    now.UTC(),
+				ImageID:       img.ID().String(),
+				PhotobookID:   img.OwnerPhotobookID().String(),
+				FailureReason: reason.String(),
+			},
+			Now: now.UTC(),
+		})
+		if evErr != nil {
+			return fmt.Errorf("build image.failed event: %w", evErr)
+		}
+		if err := outboxrdb.NewOutboxRepository(tx).Create(ctx, ev); err != nil {
+			return fmt.Errorf("outbox create image.failed: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return ProcessImageOutput{}, err
+	}
+	if conflictNoOp {
+		u.logger.WarnContext(ctx, "mark failed conflict (already transitioned)",
+			slog.String("image_id", img.ID().String()),
+			slog.String("hint", hint),
+		)
 	}
 	u.logger.InfoContext(ctx, "image processing failed",
 		slog.String("image_id", img.ID().String()),

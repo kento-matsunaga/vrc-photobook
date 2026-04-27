@@ -10,6 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vrcpb/backend/internal/database"
+	outboxdomain "vrcpb/backend/internal/outbox/domain"
+	"vrcpb/backend/internal/outbox/domain/vo/aggregate_type"
+	"vrcpb/backend/internal/outbox/domain/vo/event_type"
+	outboxrdb "vrcpb/backend/internal/outbox/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/domain"
 	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token"
 	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_hash"
@@ -113,6 +117,35 @@ func (u *PublishFromDraft) Execute(
 		}
 		if _, err := revoker.RevokeAllDrafts(ctx, pb.ID()); err != nil {
 			return fmt.Errorf("revoke all drafts: %w", err)
+		}
+		// PR30: PhotobookPublished event を同一 TX で Outbox に INSERT。
+		// payload は worker（PR31）が DB 再 fetch できる最小値のみ含める。
+		// raw manage token / draft token / Cookie / presigned URL は入れない。
+		var coverIDStr *string
+		if cid := next.CoverImageID(); cid != nil {
+			s := cid.String()
+			coverIDStr = &s
+		}
+		ev, err := outboxdomain.NewPendingEvent(outboxdomain.NewPendingEventParams{
+			AggregateType: aggregate_type.Photobook(),
+			AggregateID:   next.ID().UUID(),
+			EventType:     event_type.PhotobookPublished(),
+			Payload: outboxdomain.PhotobookPublishedPayload{
+				EventVersion: outboxdomain.EventVersion,
+				OccurredAt:   in.Now.UTC(),
+				PhotobookID:  next.ID().String(),
+				Slug:         publicSlug.String(),
+				Visibility:   next.Visibility().String(),
+				Type:         next.Type().String(),
+				CoverImageID: coverIDStr,
+			},
+			Now: in.Now.UTC(),
+		})
+		if err != nil {
+			return fmt.Errorf("build photobook.published event: %w", err)
+		}
+		if err := outboxrdb.NewOutboxRepository(tx).Create(ctx, ev); err != nil {
+			return fmt.Errorf("outbox create photobook.published: %w", err)
 		}
 		resultPB = next
 		return nil
