@@ -348,41 +348,45 @@
 
 ### PR32: Email Provider 再選定 + Manage URL Delivery 再設計
 
-> **2026-04-28 ADR-0006 で本 PR の範囲を変更**。
+> **2026-04-28 ADR-0006 で本 PR の範囲を変更、PR32a で計画書化**。
 > SendGrid Japan は個人 / 個人事業主 / 任意団体は契約不可、AWS SES の production
 > access も不通過のため、ADR-0004 は Superseded。MVP のメール送信機能は必須要件から
 > 外し、Complete 画面で 1 度だけ表示する方式（PR28 で実装済）が MVP 標準。
 >
-> 本 PR はメール送信実装ではなく、**Provider 再選定タスク + ManageUrlDelivery 集約の
-> 再設計**を担う。実 API 接続 / 実装 / Outbox handler 実装は後続 PR で扱う。
+> PR32a で `docs/plan/m2-email-provider-reselection-plan.md` を作成し、Provider 候補
+> を公式情報ベースで再評価。**採用方針 C + D**（メール送信なし継続 + Complete 画面の
+> Provider 不要改善）を確定。
+
+PR32 は段階分割:
+
+| 段階 | 内容 |
+|---|---|
+| **PR32a**（本書時点で完了） | 計画書 + ADR-0006 補追 + 新正典更新（コード変更なし）|
+| PR32b | Complete 画面 Provider 不要改善（コピー導線強化 / .txt download / mailto / 保存確認チェック / FAQ）。Frontend のみ、Provider 契約 / Backend 変更なし |
+| PR32c | Provider PoC（**Mailgun + ZeptoMail**）。本人確認 → 1 通テスト送信 → ADR 化。停止ポイント付き、課金 / 契約はユーザー承認後 |
+| PR32d 以降 | EmailSender 実装 + ManageUrlDelivery 集約復活 + outbox event_type CHECK 緩和 + handler 接続 + bounce webhook |
 
 - **目的**: 個人 / 個人事業主でも契約可能なメール Provider を再選定し、確定後の
-  ManageUrlDelivery 設計を更新する。MVP リリース直前までに採用 Provider を確定できれば
-  「manage URL 再発行 → メール送信」を後続 PR で乗せる
-- **実装するもの**:
-  - 候補 Provider の **個人契約可否の実確認**（ADR-0006 §4.4 候補表）
-    - Resend / Mailgun / Brevo / Postmark / ZeptoMail / Zoho / Cloudflare 系 / 独自 SMTP
-  - 採用候補 1〜2 個に絞った PoC（API key 発行 + 1 通テスト送信）
-  - 新 ADR で採用確定（or「メール送信は ローンチ後対応」を確定）
-  - 採用確定時のみ `ManageUrlDelivery` 集約 / `internal/notification/` の設計を確定
-    （実装は採用後の別 PR）
-- **実装しないもの**: メール送信本実装 / Outbox handler の実装 / Cloud Run Jobs 統合
-  （いずれも採用 Provider 確定後の **PR32 後続 PR**で扱う）
-- **参照すべき design 資産**: なし
+  ManageUrlDelivery 設計を更新する。本書段階（PR32a）は **計画書 + ADR 補追のみ**で、
+  実装 / 契約 / 課金は伴わない
+- **実装するもの（PR32a 範囲）**: 計画書 / ADR-0006 履歴追記 / 新正典 §3 PR32 説明更新
+- **実装しないもの（PR32a 範囲）**: メール送信実装 / EmailSender / ManageUrlDelivery
+  集約 / outbox handler / Cloud Run Jobs / Provider 契約 / API key 発行 / Secret 登録 /
+  Frontend UI 変更（PR32b 以降）
 - **参照すべき docs**:
   - **ADR-0006**（本 PR の根拠）
+  - **`docs/plan/m2-email-provider-reselection-plan.md`**（PR32a 成果物）
   - ADR-0004（Superseded、過去経緯参照のみ）
   - 業務知識 v4 §6 manage URL / §通知
-- **実リソース操作の有無**: 候補 Provider のアカウント開設は **ユーザー判断**
-  （採用前 PoC 段階では trial / sandbox を使用）
-- **Secret が絡むか**: 採用確定時のみ `<PROVIDER>_API_KEY` を Secret Manager に登録
-- **Safari 確認が必要か**: なし
-- **完了条件**:
-  - 採用 Provider の確定 ADR が Accepted、または
-  - 「ローンチ後対応」を ADR で明記し、MVP は Complete 画面 1 度表示で受け入れる方針を確定
+- **実リソース操作の有無（PR32a）**: なし。Provider PoC は PR32c で停止ポイント付きで実施
+- **Secret が絡むか（PR32a）**: なし。PR32d 以降で `<PROVIDER>_API_KEY` を Secret Manager に登録
+- **Safari 確認が必要か**: PR32b（Complete 画面改善時）に必要
+- **完了条件（PR32a）**: 計画書 / ADR-0006 補追 / 新正典更新が PR closeout 通過
 - **次 PR への引き継ぎ**:
-  - 採用 Provider 確定: 後続 PR で ManageUrlDelivery 集約実装 + Outbox handler 実装
-  - ローンチ後対応: PR41+ にメール対応をルーチン化
+  - PR32b: Complete 画面 Provider 不要改善
+  - PR33: OGP 自動生成（**Email Provider と独立**、Provider 確定の待ち時間中に進められる）
+  - PR32c: Provider PoC（Mailgun + ZeptoMail のうち本人確認通過したものを採用）
+  - PR32d 以降: 採用 Provider 確定後の実装 / Outbox handler / ManageUrlDelivery 復活
 
 ### PR33: OGP 独立管理
 
