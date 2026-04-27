@@ -113,15 +113,52 @@ event 出さない判断を維持。
 | 既存 table 行数 | photobooks 11 / images 6 / image_variants 0 / sessions 10 / upload_verification_sessions 5（変動なし） |
 | 既存 revision (`vrcpb-api-00011-xfd`) への影響 | なし（旧 image は outbox_events を一切触らないコード） |
 
-## STOP B: Cloud Build manual submit deploy（**承認待ち**）
+## STOP B: Cloud Build manual submit deploy（**完了**）
 
-予定:
-- 対象 commit: `6b5e881`（または直前の最新）
-- 現 revision: `vrcpb-api-00011-xfd` (image `vrcpb-api:50f940c`)
-- rollback 用直前: `vrcpb-api-00011-xfd` 自身（migration 適用済の現役 image）
-- 実行コマンド: `gcloud builds submit ... --service-account=vrcpb-cloud-build@... --substitutions=SHORT_SHA=...`
+### 承認
 
-ユーザー承認後に実施。
+ユーザー承認受領: 2026-04-28。
+
+### 実行内容
+
+- 対象 commit: `019f1d4`（実装 commit `6b5e881` + work-log `019f1d4`）
+- Build ID: `1a9c9a35-5594-4852-9ae7-fa231ac5ccee`
+- Build duration: 3M36S（build / push / deploy / smoke すべて SUCCESS）
+- 新 image: `asia-northeast1-docker.pkg.dev/<PROJ>/vrcpb/vrcpb-api:019f1d4`
+- 新 revision: `vrcpb-api-00012-6g4`
+
+### Traffic 切替の補足（**新規発見、後続タスクで恒久対処**）
+
+`gcloud run services update --image=` は新 revision を作成するが、PR29 STOP 6
+ロールバックドリルで旧 `vrcpb-api-00011-xfd` に **traffic 100% を明示 pin** した
+状態のため、**自動で latest に流れない**事象を初検知。承認のもと
+`update-traffic --to-revisions=vrcpb-api-00012-6g4=100` で明示切替を実行。
+
+恒久対処は PR30 完了後の独立タスク（後述「後続 deferred」参照）。
+
+### 切替後検証
+
+| 観点 | 結果 |
+|---|---|
+| traffic 100% on `vrcpb-api-00012-6g4` | ✓ |
+| `https://api.vrc-photobook.com/health` | 200 |
+| `https://api.vrc-photobook.com/readyz` | 200 |
+| `GET /api/photobooks/{id}/edit-view` no Cookie | 401 |
+| `POST /api/photobooks/{id}/publish` no Cookie | 401 |
+| `GET /api/manage/photobooks/{id}/` no Cookie | 401 |
+| `POST /api/photobooks/{id}/images/upload-intent` no Cookie | 401 |
+| env / secretKeyRef 9 個維持 | ✓（APP_ENV / ALLOWED_ORIGINS / DATABASE_URL / R2_* 5 個 / TURNSTILE_SECRET_KEY）|
+| Cloud Build logs Secret 漏洩 grep | 0 件（204 行スキャン）|
+| Cloud Run logs Secret 漏洩 grep | 0 件（新 revision logs スキャン）|
+| 新 revision startup probe | TCP probe SUCCESS、AUTOSCALING / DEPLOYMENT_ROLLOUT 起因 INFO のみ |
+| WARNING 6 件 | すべて私の認可テスト curl 由来 401 / 404（Cloud Run は 4xx を WARNING に分類する標準動作）|
+
+### Rollback 準備
+
+- rollback 先: `vrcpb-api-00011-xfd`（migration 00012 適用後も後方互換、既存コードは
+  `outbox_events` を一切触らない）
+- rollback 手順: `gcloud run services update-traffic vrcpb-api --to-revisions=vrcpb-api-00011-xfd=100 --region=asia-northeast1`
+- 本 deploy 中は rollback 発火なし
 
 ## 実施しなかったこと（PR30 範囲外）
 
@@ -133,6 +170,32 @@ event 出さない判断を維持。
 - OGP 自動生成（PR33）
 - Moderation（PR34）/ Report（PR35）/ UsageLimit（PR36）
 - Cloud SQL 削除 / spike 削除 / Public repo 化
+
+## 後続 deferred（PR30 完了後、PR31 着手前に独立タスクで実施）
+
+### A. Cloud Build / Cloud Run の traffic pin 問題（**今回新規発見**）
+
+- 事象: `cloudbuild.yaml` の `gcloud run services update --image=` だけでは traffic
+  pin 状態の場合に新 revision に traffic が流れない
+- 原因: PR29 STOP 6 ロールバックドリルで `00011-xfd` に traffic 100% を明示 pin した
+  まま、`--to-latest` に戻していなかった
+- 必要対処:
+  - `cloudbuild.yaml` に `--to-latest` 追加 or 明示的な `update-traffic` step 追加を検討
+  - `docs/runbook/backend-deploy.md` に「rollback drill 後は traffic pin 状態になる」
+    注意を追記
+  - 本事象を `harness/failure-log/2026-04-28_cloudbuild-traffic-pin-not-switched.md`
+    に記録（`.agents/rules/feedback-loop.md` 準拠）
+- 注意: PR30 deploy 完了に集中するため本タスクと混ぜない。独立 PR で扱う
+
+### B. 古いコードコメント整理ターン（**ユーザー指示**）
+
+- PR 番号付きコメント / 後続 PR コメント / 未接続・未実装コメントの全検索
+- `publish_from_draft.go` / `router.go` / `session_auth.go` / `main.go` / `slug.go` /
+  `health.sql.go` / `manage_handler.go` / `get_manage_photobook.go` / `photobook.go`
+  を含めて確認
+- 実装済なのにコメントが古い箇所を一覧化
+- 修正のみの小 PR（動作変更なし、コメント・ドキュメント整合のみ）として実施
+- 完了後に PR31 outbox-worker に進む
 
 ## Secret 漏洩なし
 
@@ -155,4 +218,4 @@ PR30 中の manual 実施はなし。
 |------|------|
 | 2026-04-28 | 初版（PR30 進行中）。実装 + ローカル test 完了、commit `6b5e881` push 済 |
 | 2026-04-28 | STOP A 承認・実行記録（Cloud SQL に migration 00012 適用、検証完了） |
-| 2026-04-28 | STOP B 承認待ち |
+| 2026-04-28 | STOP B 承認・実行記録（Cloud Build manual submit + 明示 traffic 切替で `vrcpb-api-00012-6g4` 100% 反映、smoke / 認可 / Secret grep すべて OK）。後続 deferred として `cloudbuild.yaml` traffic pin 問題と古いコメント整理を追記 |
