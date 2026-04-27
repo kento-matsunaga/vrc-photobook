@@ -113,3 +113,25 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
+
+  # PR33b: OGP 状態 (photobook_ogp_images)。photobooks(id) と images(id) を FK 参照。
+  # 関連 schema を取り込み、photobook / image の query は本 set に含めない（型混入防止）。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00003_create_photobooks.sql"
+      - "migrations/00005_create_images.sql"
+      - "migrations/00006_create_image_variants.sql"
+      - "migrations/00007_create_photobook_pages.sql"
+      - "migrations/00008_create_photobook_photos.sql"
+      - "migrations/00009_create_photobook_page_metas.sql"
+      - "migrations/00010_add_photobooks_cover_image_fk.sql"
+      - "migrations/00013_create_photobook_ogp_images.sql"
+    queries: "internal/ogp/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/ogp/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
