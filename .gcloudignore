@@ -1,0 +1,41 @@
+# Cloud Build (gcloud builds submit) のソースアップロード除外設定。
+#
+# .gitignore を継承しつつ、Backend image build に不要な大きいディレクトリを除外する。
+# 設計参照: docs/plan/m2-backend-deploy-automation-plan.md §11.1（build context 最小化）
+
+# Git 管理外
+.git/
+.gitignore
+
+# .gitignore のルールを継承
+#!include:.gitignore
+
+# Backend deploy には不要なディレクトリ
+frontend/
+design/
+docs/
+harness/
+.agents/
+.claude/
+.github/
+scripts/
+.wrangler/
+node_modules/
+
+# Backend 内のテスト / ビルド成果物（image には不要）
+backend/_publishfixture/
+backend/.env
+backend/.env.local
+backend/.env.production
+backend/image-processor
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Cloud Build 自体の設定（context に含めない）
+cloudbuild.yaml
+.gcloudignore
