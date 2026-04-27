@@ -44,6 +44,29 @@ WHERE owner_photobook_id = $1
   AND deleted_at IS NULL
 ORDER BY uploaded_at ASC;
 
+-- ListProcessingImagesForUpdate
+--
+-- M2 image-processor: status='processing' の Image を最大 N 件 claim する。
+--
+-- FOR UPDATE SKIP LOCKED により、複数 worker が並列で動いても同じ row を二重 claim しない。
+-- 呼び出し側は短い TX 内で claim → return → 別 TX で重い処理（GetObject / 画像処理 / PUT）
+-- → 別 TX で finalize（MarkAvailable / MarkFailed）するパターンを取る。
+--
+-- 並び順は uploaded_at ASC（古い順、stuck 検出時に最も困る順）。
+-- name: ListProcessingImagesForUpdate :many
+SELECT
+    id, owner_photobook_id, usage_kind, source_format,
+    normalized_format, original_width, original_height,
+    original_byte_size, metadata_stripped_at,
+    status, uploaded_at, available_at, failed_at,
+    failure_reason, deleted_at, created_at, updated_at
+FROM images
+WHERE status = 'processing'
+  AND deleted_at IS NULL
+ORDER BY uploaded_at ASC
+LIMIT $1
+FOR UPDATE SKIP LOCKED;
+
 -- name: UpdateImageStatusProcessing :execrows
 UPDATE images
    SET status     = 'processing',

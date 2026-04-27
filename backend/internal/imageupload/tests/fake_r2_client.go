@@ -5,7 +5,9 @@
 package tests
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"time"
 
 	"vrcpb/backend/internal/imageupload/infrastructure/r2"
@@ -17,10 +19,15 @@ import (
 //   - PresignPutObject: 固定 URL "https://fake.r2.test/{key}" を返す
 //   - HeadObject: ContentLength=in input or 1024、ContentType=image/jpeg
 //   - DeleteObject: nil 成功
+//   - GetObject: 空 body を返す（image-processor テストでは Fn 必須）
+//   - PutObject: nil 成功
 type FakeR2Client struct {
 	PresignPutObjectFn func(ctx context.Context, in r2.PresignPutInput) (r2.PresignPutOutput, error)
 	HeadObjectFn       func(ctx context.Context, key string) (r2.HeadObjectOutput, error)
 	DeleteObjectFn     func(ctx context.Context, key string) error
+	GetObjectFn        func(ctx context.Context, key string) (r2.GetObjectOutput, error)
+	PutObjectFn        func(ctx context.Context, in r2.PutObjectInput) error
+	ListObjectsFn      func(ctx context.Context, prefix string) (r2.ListObjectsOutput, error)
 }
 
 // PresignPutObject は PresignPutObjectFn を呼び出す。
@@ -56,6 +63,35 @@ func (f *FakeR2Client) DeleteObject(ctx context.Context, key string) error {
 		return f.DeleteObjectFn(ctx, key)
 	}
 	return nil
+}
+
+// GetObject は GetObjectFn を呼び出す。差し替えなしの既定値は空 body。
+func (f *FakeR2Client) GetObject(ctx context.Context, key string) (r2.GetObjectOutput, error) {
+	if f.GetObjectFn != nil {
+		return f.GetObjectFn(ctx, key)
+	}
+	return r2.GetObjectOutput{
+		Body:          io.NopCloser(bytes.NewReader(nil)),
+		ContentLength: 0,
+		ContentType:   "application/octet-stream",
+		ETag:          "fake-etag",
+	}, nil
+}
+
+// PutObject は PutObjectFn を呼び出す。
+func (f *FakeR2Client) PutObject(ctx context.Context, in r2.PutObjectInput) error {
+	if f.PutObjectFn != nil {
+		return f.PutObjectFn(ctx, in)
+	}
+	return nil
+}
+
+// ListObjects は ListObjectsFn を呼び出す。差し替えなしの既定値は空 list。
+func (f *FakeR2Client) ListObjects(ctx context.Context, prefix string) (r2.ListObjectsOutput, error) {
+	if f.ListObjectsFn != nil {
+		return f.ListObjectsFn(ctx, prefix)
+	}
+	return r2.ListObjectsOutput{Keys: []string{}}, nil
 }
 
 func strFromInt64(v int64) string {

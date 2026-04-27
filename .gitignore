@@ -30,6 +30,9 @@ Thumbs.db
 # Claude Code ローカル設定（settings.local.json はローカル固有）
 .claude/settings.local.json
 
+# wrangler のローカル auth キャッシュ（OAuth refresh token などが含まれるため絶対にコミットしない）
+.wrangler/
+
 # failure-to-rule.sh で生成されるローカルルール（レビュー前）
 # ※ レビュー後にgit addする運用
 __pycache__/

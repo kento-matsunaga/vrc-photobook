@@ -228,6 +228,68 @@ func (q *Queries) ListImageVariantsByImageID(ctx context.Context, imageID pgtype
 	return items, nil
 }
 
+const listProcessingImagesForUpdate = `-- name: ListProcessingImagesForUpdate :many
+SELECT
+    id, owner_photobook_id, usage_kind, source_format,
+    normalized_format, original_width, original_height,
+    original_byte_size, metadata_stripped_at,
+    status, uploaded_at, available_at, failed_at,
+    failure_reason, deleted_at, created_at, updated_at
+FROM images
+WHERE status = 'processing'
+  AND deleted_at IS NULL
+ORDER BY uploaded_at ASC
+LIMIT $1
+FOR UPDATE SKIP LOCKED
+`
+
+// ListProcessingImagesForUpdate
+//
+// M2 image-processor: status='processing' の Image を最大 N 件 claim する。
+//
+// FOR UPDATE SKIP LOCKED により、複数 worker が並列で動いても同じ row を二重 claim しない。
+// 呼び出し側は短い TX 内で claim → return → 別 TX で重い処理（GetObject / 画像処理 / PUT）
+// → 別 TX で finalize（MarkAvailable / MarkFailed）するパターンを取る。
+//
+// 並び順は uploaded_at ASC（古い順、stuck 検出時に最も困る順）。
+func (q *Queries) ListProcessingImagesForUpdate(ctx context.Context, limit int32) ([]Image, error) {
+	rows, err := q.db.Query(ctx, listProcessingImagesForUpdate, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Image
+	for rows.Next() {
+		var i Image
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerPhotobookID,
+			&i.UsageKind,
+			&i.SourceFormat,
+			&i.NormalizedFormat,
+			&i.OriginalWidth,
+			&i.OriginalHeight,
+			&i.OriginalByteSize,
+			&i.MetadataStrippedAt,
+			&i.Status,
+			&i.UploadedAt,
+			&i.AvailableAt,
+			&i.FailedAt,
+			&i.FailureReason,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markImageDeleted = `-- name: MarkImageDeleted :execrows
 UPDATE images
    SET status     = 'deleted',

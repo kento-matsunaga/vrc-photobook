@@ -78,6 +78,30 @@ func (r *ImageRepository) FindByID(ctx context.Context, id image_id.ImageID) (do
 	return r.attachVariants(ctx, img)
 }
 
+// ListProcessingForUpdate は status='processing' の Image を最大 limit 件 claim する。
+//
+// FOR UPDATE SKIP LOCKED により並列 worker が同じ row を二重 claim しない。
+// **必ず TX 内で呼び出すこと**（pool 直で呼ぶと lock がすぐ解放される）。
+// variant は attach しない（claim 段階では不要、処理本体で使うのは id / source_format のみ）。
+func (r *ImageRepository) ListProcessingForUpdate(
+	ctx context.Context,
+	limit int,
+) ([]domain.Image, error) {
+	rows, err := r.q.ListProcessingImagesForUpdate(ctx, int32(limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Image, 0, len(rows))
+	for _, row := range rows {
+		img, err := marshaller.FromImageRow(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, img)
+	}
+	return out, nil
+}
+
 // ListActiveByPhotobookID は deleted_at IS NULL の Image を発行順で返す（variant 込み）。
 func (r *ImageRepository) ListActiveByPhotobookID(
 	ctx context.Context,

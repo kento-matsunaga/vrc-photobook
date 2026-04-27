@@ -13,6 +13,7 @@ package r2
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -50,12 +51,39 @@ type HeadObjectOutput struct {
 	ETag          string
 }
 
+// GetObjectOutput は GetObject の結果。Body は呼び出し側が Close する必要がある。
+type GetObjectOutput struct {
+	Body          io.ReadCloser
+	ContentLength int64
+	ContentType   string
+	ETag          string
+}
+
+// PutObjectInput は PutObject の引数。
+type PutObjectInput struct {
+	StorageKey  string
+	ContentType string
+	Body        []byte
+}
+
+// ListObjectsOutput は ListObjects の結果。
+type ListObjectsOutput struct {
+	Keys []string
+}
+
 // Client は R2 への最小操作を抽象化する。
 //
-// PR21 Step A は本 interface を fake で置き換えてテストし、AWS SDK v2 実装は実
-// Secret 注入後 (Step D) に動作確認する。
+// PR21 Step A: PresignPutObject / HeadObject / DeleteObject
+// PR23: GetObject / PutObject / ListObjects を追加（image-processor 用）
+//
+// ListObjects は image-processor で原本 key を prefix 解決するために使う
+// （images table に storage_key を持たないため、prefix で 1 件特定する。
+// 設計: m2-image-processor-plan.md §8）。
 type Client interface {
 	PresignPutObject(ctx context.Context, in PresignPutInput) (PresignPutOutput, error)
 	HeadObject(ctx context.Context, key string) (HeadObjectOutput, error)
 	DeleteObject(ctx context.Context, key string) error
+	GetObject(ctx context.Context, key string) (GetObjectOutput, error)
+	PutObject(ctx context.Context, in PutObjectInput) error
+	ListObjects(ctx context.Context, prefix string) (ListObjectsOutput, error)
 }

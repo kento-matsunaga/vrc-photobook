@@ -9,8 +9,10 @@
 //   - bucket 名は含めない（DB に保存するのは bucket 内パスのみ）
 //   - {random} は 12 byte 暗号論的乱数を base64url（padding なし）で 16 文字
 //   - {photobook_id} / {image_id} は UUID 文字列
-//   - original variant のみ {ext} に元拡張子（jpg / png / webp / heic）、
-//     display / thumbnail / ogp は固定（webp / png）
+//   - original variant は {ext} に元拡張子（jpg / png / webp / heic）
+//   - display / thumbnail は **jpg** 固定（M2 image-processor で JPEG 統一、
+//     互換性最優先 / EXIF strip も JPEG 再エンコードで実施）
+//   - ogp は png 固定
 //
 // セキュリティ:
 //   - storage_key はログ出力させない（presigned URL の前提情報になりうるため、
@@ -79,7 +81,7 @@ func (k StorageKey) IsZero() bool { return k.v == "" }
 //
 //	photobooks/{photobook_id}/images/{image_id}/{kind}/{random}.{ext}
 //
-// kind=display / thumbnail は webp 固定。
+// kind=display / thumbnail は **jpg** 固定（M2 image-processor で JPEG 統一）。
 // kind=original は元拡張子が必要なため、本関数では受け付けない（GenerateForOriginal を使う）。
 // kind=ogp は png 固定（GenerateForOgp を使う）。
 func GenerateForVariant(
@@ -92,7 +94,7 @@ func GenerateForVariant(
 		return generate(fmt.Sprintf(
 			"photobooks/%s/images/%s/%s",
 			pid.String(), iid.String(), kind.String(),
-		), "webp")
+		), "jpg")
 	case kind.IsOriginal():
 		return StorageKey{}, fmt.Errorf("%w: use GenerateForOriginal", ErrInvalidStorageKey)
 	case kind.IsOgp():

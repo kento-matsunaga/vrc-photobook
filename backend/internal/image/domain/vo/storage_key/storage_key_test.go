@@ -37,12 +37,12 @@ func TestGenerateForVariant_Display(t *testing.T) {
 	if !strings.HasPrefix(s, want) {
 		t.Errorf("prefix mismatch: %q", s)
 	}
-	if !strings.HasSuffix(s, ".webp") {
+	if !strings.HasSuffix(s, ".jpg") {
 		t.Errorf("suffix mismatch: %q", s)
 	}
-	// 16 文字 base64url の random 部 + ".webp"
+	// 16 文字 base64url の random 部 + ".jpg"
 	tail := strings.TrimPrefix(s, want)
-	if len(tail) != len("XXXXXXXXXXXXXXXX.webp") {
+	if len(tail) != len("XXXXXXXXXXXXXXXX.jpg") {
 		t.Errorf("tail length = %d", len(tail))
 	}
 }
@@ -57,8 +57,8 @@ func TestGenerateForVariant_Thumbnail(t *testing.T) {
 	if !strings.Contains(got.String(), "/thumbnail/") {
 		t.Errorf("thumbnail not in path: %q", got.String())
 	}
-	if !strings.HasSuffix(got.String(), ".webp") {
-		t.Errorf("thumbnail must end with .webp")
+	if !strings.HasSuffix(got.String(), ".jpg") {
+		t.Errorf("thumbnail must end with .jpg")
 	}
 }
 

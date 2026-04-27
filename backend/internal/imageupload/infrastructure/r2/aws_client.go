@@ -9,6 +9,7 @@
 package r2
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -133,6 +134,73 @@ func (c *AWSClient) DeleteObject(ctx context.Context, key string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("%w: delete object: %w", ErrUnavailable, err)
+	}
+	return nil
+}
+
+// GetObject は object を取得する（PR23 image-processor が original を読み込む）。
+//
+// 戻り値の Body は呼び出し側で必ず Close すること。404 のとき ErrObjectNotFound。
+func (c *AWSClient) GetObject(ctx context.Context, key string) (GetObjectOutput, error) {
+	out, err := c.s3.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var noSuchKey *types.NoSuchKey
+		var apiErr smithy.APIError
+		if errors.As(err, &noSuchKey) || (errors.As(err, &apiErr) && apiErr.ErrorCode() == "NoSuchKey") {
+			return GetObjectOutput{}, ErrObjectNotFound
+		}
+		return GetObjectOutput{}, fmt.Errorf("%w: get object: %w", ErrUnavailable, err)
+	}
+	res := GetObjectOutput{Body: out.Body}
+	if out.ContentLength != nil {
+		res.ContentLength = *out.ContentLength
+	}
+	if out.ContentType != nil {
+		res.ContentType = *out.ContentType
+	}
+	if out.ETag != nil {
+		res.ETag = *out.ETag
+	}
+	return res, nil
+}
+
+// ListObjects は prefix 一致の object key を列挙する（image-processor が原本 key を解決する用途）。
+//
+// images table に storage_key を保持しないため、`photobooks/{pid}/images/{iid}/original/`
+// prefix で 1 件特定する。CommonPrefixes は使わず、Contents を Key だけ取り出す。
+func (c *AWSClient) ListObjects(ctx context.Context, prefix string) (ListObjectsOutput, error) {
+	out, err := c.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.bucket),
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return ListObjectsOutput{}, fmt.Errorf("%w: list objects: %w", ErrUnavailable, err)
+	}
+	keys := make([]string, 0, len(out.Contents))
+	for _, obj := range out.Contents {
+		if obj.Key != nil {
+			keys = append(keys, *obj.Key)
+		}
+	}
+	return ListObjectsOutput{Keys: keys}, nil
+}
+
+// PutObject は object を直接 PUT する（PR23 image-processor が variant を書き込む）。
+//
+// PresignPutObject と異なり、Backend が Cloud Run service account の credential で直接 PUT
+// するため、Content-Length signature 問題（M1 PoC）は発生しない。
+func (c *AWSClient) PutObject(ctx context.Context, in PutObjectInput) error {
+	_, err := c.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(c.bucket),
+		Key:         aws.String(in.StorageKey),
+		ContentType: aws.String(in.ContentType),
+		Body:        bytes.NewReader(in.Body),
+	})
+	if err != nil {
+		return fmt.Errorf("%w: put object: %w", ErrUnavailable, err)
 	}
 	return nil
 }
