@@ -47,6 +47,19 @@ image-processor / display + thumbnail variant 生成）。次は PR24（公開 V
 - [`safari-verification.md`](./.agents/rules/safari-verification.md) — Cookie / redirect / OGP / ヘッダ変更時の Safari 必須確認
 - [`feedback-loop.md`](./.agents/rules/feedback-loop.md) — すべての失敗を `harness/failure-log/` に記録
 - [`wsl-shell-rules.md`](./.agents/rules/wsl-shell-rules.md) — `cd` 不使用 / `-C` / `-f` / 絶対パス、sudo は対話シェルで
+- [`pr-closeout.md`](./.agents/rules/pr-closeout.md) — **PR 完了前に必ず確認**: コメント整合チェック / 先送り事項のロードマップ記録 / 古い PR 番号コメントの削除
+
+## PR 完了前の必須チェック
+
+すべての PR / 作業サイクルの完了報告を出す前に [`pr-closeout.md`](./.agents/rules/pr-closeout.md) に従い:
+
+1. `bash scripts/check-stale-comments.sh` で stale コメント候補を一覧化
+2. 各ヒットを §3 の 4 区分（修正 / 状態ベース TODO で残す / 過去経緯として残す / 生成元を直す）に分類
+3. 先送り事項は新正典ロードマップ等に記録（「いつ・どの PR 以降で再検討するか」を明記）
+4. 完了報告に §6 のチェックリストを含める（コメント整合 / 残した TODO / 先送り記録 / generated 反映 / Secret grep）
+
+> 古い PR 番号コメント（「PR8 では未接続」「後続 PR で実装」等）は劣化が早いため新規に書かない。
+> 状態ベース表現（「未実装」「ADR-0006 後続」「MVP 範囲外」等）を使う。
 
 ## コアコンセプト
 
