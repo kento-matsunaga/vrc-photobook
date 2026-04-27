@@ -14,9 +14,9 @@ const pingHealthCheck = `-- name: PingHealthCheck :one
 SELECT 1::int AS ok
 `
 
-// PR3 基盤確認用の最小 query。
-// sqlc generate が通ることの確認のみが目的で、業務的な意味はない。
-// 後続 PR で各集約ごとに query を分離する。
+// 基盤確認用の最小 query（sqlc generate が通ることの確認のみが目的で、業務的な意味はない）。
+// 集約別の query は sqlc.yaml の他 set（auth/session / photobook / image / uploadverification /
+// outbox）に分離されている。本 set は health 単独。
 func (q *Queries) PingHealthCheck(ctx context.Context) (int32, error) {
 	row := q.db.QueryRow(ctx, pingHealthCheck)
 	var ok int32

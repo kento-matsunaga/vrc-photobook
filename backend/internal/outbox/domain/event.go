@@ -40,7 +40,8 @@ const payloadSoftLimit = 8 * 1024
 
 // Event は outbox_events テーブル 1 行に対応するドメイン entity。
 //
-// 状態遷移は worker（PR31）の責務。PR30 では `pending` 作成のみ扱う。
+// 状態遷移は worker（internal/outbox/internal/usecase）の責務。本 entity は producer
+// 側（同 TX で `pending` を INSERT する経路）でのみ扱う。
 type Event struct {
 	id            uuid.UUID
 	aggregateType aggregate_type.AggregateType
@@ -59,7 +60,7 @@ type NewPendingEventParams struct {
 	// Payload は jsonb 化前の Go struct（payload package の各 struct を渡す）
 	Payload     any
 	Now         time.Time
-	AvailableAt time.Time // 通常は Now と同じ。retry 用は worker（PR31）が将来扱う
+	AvailableAt time.Time // 通常は Now と同じ。retry 用 backoff は worker 側で計算する
 }
 
 // NewPendingEvent は新規 pending event を組み立てる。

@@ -65,3 +65,244 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 	)
 	return err
 }
+
+const findOutboxEventByID = `-- name: FindOutboxEventByID :one
+SELECT
+    id, aggregate_type, aggregate_id, event_type, payload,
+    status, available_at, attempts, last_error,
+    locked_at, locked_by, processed_at, created_at, updated_at
+FROM outbox_events
+WHERE id = $1
+`
+
+// test / inspector 用。
+func (q *Queries) FindOutboxEventByID(ctx context.Context, id pgtype.UUID) (OutboxEvent, error) {
+	row := q.db.QueryRow(ctx, findOutboxEventByID, id)
+	var i OutboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.AggregateType,
+		&i.AggregateID,
+		&i.EventType,
+		&i.Payload,
+		&i.Status,
+		&i.AvailableAt,
+		&i.Attempts,
+		&i.LastError,
+		&i.LockedAt,
+		&i.LockedBy,
+		&i.ProcessedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listPendingOutboxEventsForUpdate = `-- name: ListPendingOutboxEventsForUpdate :many
+
+SELECT
+    id, aggregate_type, aggregate_id, event_type, payload,
+    status, available_at, attempts, last_error,
+    locked_at, locked_by, processed_at, created_at, updated_at
+FROM outbox_events
+WHERE status IN ('pending', 'failed')
+  AND available_at <= $1
+ORDER BY available_at ASC, created_at ASC
+LIMIT $2
+FOR UPDATE SKIP LOCKED
+`
+
+type ListPendingOutboxEventsForUpdateParams struct {
+	AvailableAt pgtype.Timestamptz
+	Limit       int32
+}
+
+// ----------------------------------------------------------------------------
+// worker 用 query（PR31 で追加）。
+// ----------------------------------------------------------------------------
+//
+// 並列 worker 安全性:
+//
+//	ListPendingForUpdate は FOR UPDATE SKIP LOCKED で他 worker が見ている行を
+//	避けて取り出す。short TX で SELECT → UPDATE→ COMMIT し、lock を即解放したあとに
+//	handler を実行する。handler 中の long-running operation は DB lock を保持しない。
+//
+// status 遷移は worker 内でのみ実施:
+//
+//	pending → processing （MarkProcessingByIDs）
+//	processing → processed （MarkProcessed）
+//	processing → failed / dead （MarkFailed / MarkDead）
+//	processing → pending （ReleaseStaleLocks: locked_at が古いものを救出）
+//	failed → pending（pickup の status IN ('pending','failed') で自動 retry 候補）
+//
+// pickup query。status='pending' / 'failed' のうち available_at <= $1（worker 起動時刻）
+// のものを古い順で $2 件まで取り出す。FOR UPDATE SKIP LOCKED で並列 worker と
+// 衝突しない。
+func (q *Queries) ListPendingOutboxEventsForUpdate(ctx context.Context, arg ListPendingOutboxEventsForUpdateParams) ([]OutboxEvent, error) {
+	rows, err := q.db.Query(ctx, listPendingOutboxEventsForUpdate, arg.AvailableAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OutboxEvent
+	for rows.Next() {
+		var i OutboxEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.AggregateType,
+			&i.AggregateID,
+			&i.EventType,
+			&i.Payload,
+			&i.Status,
+			&i.AvailableAt,
+			&i.Attempts,
+			&i.LastError,
+			&i.LockedAt,
+			&i.LockedBy,
+			&i.ProcessedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markOutboxDead = `-- name: MarkOutboxDead :exec
+UPDATE outbox_events
+SET
+    status     = 'dead',
+    attempts   = attempts + 1,
+    last_error = $2,
+    updated_at = $3,
+    locked_at  = NULL,
+    locked_by  = NULL
+WHERE id = $1
+  AND status = 'processing'
+`
+
+type MarkOutboxDeadParams struct {
+	ID        pgtype.UUID
+	LastError *string
+	UpdatedAt pgtype.Timestamptz
+}
+
+// handler 失敗 + retry 上限到達。status='dead' に固定。available_at は触らない。
+func (q *Queries) MarkOutboxDead(ctx context.Context, arg MarkOutboxDeadParams) error {
+	_, err := q.db.Exec(ctx, markOutboxDead, arg.ID, arg.LastError, arg.UpdatedAt)
+	return err
+}
+
+const markOutboxFailedRetry = `-- name: MarkOutboxFailedRetry :exec
+UPDATE outbox_events
+SET
+    status       = 'failed',
+    attempts     = attempts + 1,
+    last_error   = $2,
+    available_at = $3,
+    updated_at   = $4,
+    locked_at    = NULL,
+    locked_by    = NULL
+WHERE id = $1
+  AND status = 'processing'
+`
+
+type MarkOutboxFailedRetryParams struct {
+	ID          pgtype.UUID
+	LastError   *string
+	AvailableAt pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+// handler 失敗 + retry 余地あり。status='failed' に戻し、available_at を後ろ倒し。
+// attempts++、last_error を sanitize 済の文字列で保存（200 char 上限は呼び出し側で担保）。
+func (q *Queries) MarkOutboxFailedRetry(ctx context.Context, arg MarkOutboxFailedRetryParams) error {
+	_, err := q.db.Exec(ctx, markOutboxFailedRetry,
+		arg.ID,
+		arg.LastError,
+		arg.AvailableAt,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
+const markOutboxProcessed = `-- name: MarkOutboxProcessed :exec
+UPDATE outbox_events
+SET
+    status       = 'processed',
+    processed_at = $2,
+    updated_at   = $2,
+    locked_at    = NULL,
+    locked_by    = NULL,
+    last_error   = NULL
+WHERE id = $1
+  AND status = 'processing'
+`
+
+type MarkOutboxProcessedParams struct {
+	ID          pgtype.UUID
+	ProcessedAt pgtype.Timestamptz
+}
+
+// handler 成功時。processed_at NOT NULL（CHECK 制約）。
+func (q *Queries) MarkOutboxProcessed(ctx context.Context, arg MarkOutboxProcessedParams) error {
+	_, err := q.db.Exec(ctx, markOutboxProcessed, arg.ID, arg.ProcessedAt)
+	return err
+}
+
+const markOutboxProcessingByIDs = `-- name: MarkOutboxProcessingByIDs :exec
+UPDATE outbox_events
+SET
+    status     = 'processing',
+    locked_at  = $2,
+    locked_by  = $3,
+    updated_at = $2
+WHERE id = ANY($1::uuid[])
+  AND status IN ('pending', 'failed')
+`
+
+type MarkOutboxProcessingByIDsParams struct {
+	Column1  []pgtype.UUID
+	LockedAt pgtype.Timestamptz
+	LockedBy *string
+}
+
+// claim TX で複数行をまとめて processing に遷移させる。
+// locked_by は worker 識別子（hostname-pid-... 等）。
+func (q *Queries) MarkOutboxProcessingByIDs(ctx context.Context, arg MarkOutboxProcessingByIDsParams) error {
+	_, err := q.db.Exec(ctx, markOutboxProcessingByIDs, arg.Column1, arg.LockedAt, arg.LockedBy)
+	return err
+}
+
+const releaseStaleOutboxLocks = `-- name: ReleaseStaleOutboxLocks :execrows
+UPDATE outbox_events
+SET
+    status     = 'pending',
+    locked_at  = NULL,
+    locked_by  = NULL,
+    updated_at = $2
+WHERE status = 'processing'
+  AND locked_at IS NOT NULL
+  AND locked_at < $1
+`
+
+type ReleaseStaleOutboxLocksParams struct {
+	LockedAt  pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// worker crash 等で processing のまま残った行を pending に戻す。
+// threshold は呼び出し側が指定（now - timeout）。
+// 戻り値は影響行数（exec が rows affected を返す）。
+func (q *Queries) ReleaseStaleOutboxLocks(ctx context.Context, arg ReleaseStaleOutboxLocksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseStaleOutboxLocks, arg.LockedAt, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
