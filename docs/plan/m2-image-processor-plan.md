@@ -352,6 +352,175 @@ Tx Commit
 
 → **案 R1 推奨**。TX 失敗時の R2 orphan は許容（Reconcile が PR25 で対応）。
 
+### 10.5 R2 orphan 定義（PR25 Reconcile 対象として記録）
+
+PR23 の処理パイプラインで **発生しうる R2 orphan** を明確化する。すべて PR25 Reconcile / cleanup
+の対象として記録し、PR23 では補償 retry をしない。
+
+| orphan 種別 | 発生条件 | 状態 | 対応方針（PR23） |
+|---|---|---|---|
+| display / thumbnail orphan | `R2 PUT(display)` / `R2 PUT(thumbnail)` 成功 → DB TX 失敗 | DB は processing のまま。R2 に display / thumbnail object が残る | DB 状態を信頼、R2 orphan は PR25 Reconcile で `image_variants` row 不在の object を 7 日後に削除 |
+| original orphan | DB TX 成功 → `R2 DELETE(original)` 失敗 | DB は **available 確定**。R2 に original object が残る | **DB を rollback しない**（available として確定）、warning log のみ、retry は PR25 Reconcile が `images.status='available' AND original variant 不在` の prefix を listing して削除 |
+| failed image の original | `MarkFailed(decode_failed / variant_generation_failed / unknown 等)` 後 | DB は failed、R2 に original 残置（手動調査用に意図的に残す） | unsupported_format / object_not_found / file_too_large はその場で削除、それ以外は残置 |
+
+### 10.6 original DELETE 失敗時の挙動（明示）
+
+```go
+// 擬似コード
+if err := r2.DeleteObject(ctx, originalKey); err != nil {
+    // DB rollback はしない。Image は available として確定済。
+    logger.Warn("original delete failed (orphan, will be cleaned by Reconcile in PR25)",
+        slog.String("image_id", imgID.String()))
+    // retry はせず、エラーは飲み込んで成功扱い
+}
+```
+
+意図:
+- available 確定後は「処理完了」として扱う（Frontend は image を表示できる状態）
+- R2 orphan は容量コストのみで安全性に影響しない
+- retry を PR23 で入れると複雑化（Reconcile 設計と二重実装）
+
+### 10.7 ListProcessingImagesForUpdate の lock 戦略
+
+PR23 で追加する `ListProcessingImagesForUpdate` は **`FOR UPDATE SKIP LOCKED`** を使う。
+
+```sql
+-- name: ListProcessingImagesForUpdate :many
+SELECT id, owner_photobook_id, usage_kind, source_format,
+       uploaded_at, created_at
+FROM images
+WHERE status = 'processing'
+ORDER BY uploaded_at ASC
+LIMIT $1
+FOR UPDATE SKIP LOCKED;
+```
+
+理由:
+- 将来 Cloud Run Jobs / 複数 worker で並列起動しても **同一 image を二重処理しない**
+- `FOR UPDATE` だけだと先行 worker が hold している行を待つ → throughput 低下
+- `SKIP LOCKED` で他 worker が既に claim した行をスキップ → 並列実行で台数比例
+- ORDER BY `uploaded_at ASC` で古い順に処理（順序保証は厳密ではないが starvation 回避）
+
+### 10.8 short-TX claim パターン（重要）
+
+R2 decode / resize / PUT 中に **DB transaction を開きっぱなしにしない**。
+
+理由:
+- Cloud Run Jobs request scope で長時間 TX を保持すると connection pool / lock 競合
+- pgx pool の TX timeout（既定数十秒）を超えると connection forcibly close
+
+PR23 実装時に **TX を 2 段階に分割**するか検討:
+
+```
+[claim TX]   ← 短い
+  SELECT ... FOR UPDATE SKIP LOCKED LIMIT 1
+  UPDATE images SET status='processing' WHERE id=$1 AND status='processing'
+                                        ↑ no-op だが lock を取得（PR23 では status 維持）
+COMMIT (claim TX 終了、lock 解放)
+
+[heavy work]  ← TX 外
+  R2 GetObject
+  decode / resize / encode
+  R2 PutObject(display) / PutObject(thumbnail)
+
+[finalize TX]  ← 短い
+  UPDATE images SET status='available', ... WHERE id=$1 AND status='processing'
+  INSERT INTO image_variants (display, thumbnail)
+  失敗時は MarkFailed
+COMMIT
+```
+
+ただし PR23 は **CLI / single worker** 前提のため、短 TX 分割は **必須ではない**。
+複数 worker / Cloud Run Jobs を本格化させる PR25 で必須化される。PR23 では:
+- 単一 worker 前提で `FOR UPDATE SKIP LOCKED` だけ採用（将来の並列化準備）
+- TX を分割するかどうかは PR23 実装時に再判断（実装複雑度とのトレードオフ）
+
+---
+
+## 10A. Context cancel / timeout 方針
+
+### 10A.1 timeout 設計
+
+| timeout 種別 | 値 | 適用範囲 |
+|---|---|---|
+| 1 image 全体 | 60 秒（既定）/ `--timeout` で上書き | GetObject + decode + resize + encode + PutObject + DB TX |
+| R2 GetObject 単体 | 30 秒 | network failure 検知 |
+| R2 PutObject 単体 | 30 秒 | 同上 |
+| decode 関数 | 60 秒 image 全体に従属 | decompression bomb 対策 |
+| DB TX (claim / finalize) | 5 秒 | lock 競合の早期 fail |
+
+`--all-pending` 全体には timeout を設けない（image 単位の timeout で十分）。
+
+### 10A.2 context cancel / timeout 時の Image 状態
+
+| cancel タイミング | Image 状態の扱い | 理由 |
+|---|---|---|
+| GetObject 開始前（claim 直後） | **processing 据え置き**（noop） | 重い処理に入っていない |
+| GetObject 中 | **processing 据え置き** | network 失敗の可能性、retry で復旧する可能性あり |
+| decode / resize / encode 中 | **`MarkFailed(unknown)` または timeout 専用 reason** | 重い CPU 処理を中断、retry しても同じ結果になりやすい |
+| R2 PutObject 中 | **processing 据え置き**（次回 retry で再処理） | display / thumbnail orphan が R2 に残るが PR25 cleanup |
+| DB TX 中 | **PostgreSQL が自動 rollback**、processing 据え置き | TX 仕様 |
+
+failure_reason に `timeout` は **既存の 12 種に含まれない**。
+
+選択肢:
+- 案 T1（推奨）: `unknown` を使う（既存 12 種で表現）
+- 案 T2: `timeout` を 13 番目として image データモデル §3.0 / domain VO に追加（schema 変更）
+
+→ **案 T1（unknown）推奨**。timeout は内部分類なので外部 API では区別不要、PR23 範囲外で migration 追加を避ける。
+内部 logs では `timeout=true` フィールドで区別する（§10B 構造化ログ）。
+
+### 10A.3 PR23 実装での明確化
+
+実装時は次の境界を明確に:
+1. `claim` 段階で cancel → noop で次へ
+2. `R2 GetObject` 開始後の cancel → `processing 据え置き`、次回再処理
+3. `decode / encode` 開始後の cancel → `MarkFailed(unknown)` + log で `timeout=true`
+4. `finalize TX` 中の cancel → PostgreSQL rollback、processing 据え置き
+
+---
+
+## 10B. 構造化ログ
+
+### 10B.1 ログ出力する fields
+
+各 image 処理ごとに 1 行の info / warn / error log:
+
+| field | 値 | 例 |
+|---|---|---|
+| `image_id` | UUIDv7 | `019dcb4d-558a-7f0e-89f2-2c229703cdac` |
+| `photobook_id` | UUIDv7 | `019dcb4c-...` |
+| `result` | `available` / `failed` / `skipped` | `available` |
+| `failure_reason` | failed 時のみ | `unsupported_format` |
+| `processing_duration_ms` | 全体経過 ms | `2348` |
+| `variant_count` | available 時の variant 数 | `2`（display + thumbnail） |
+| `timeout` | timeout で failed したかの bool | `true` / `false` |
+| `source_format` | 元 format | `jpg` / `png` / `webp` |
+
+`--all-pending` 完了時に summary log:
+```
+{
+  "result": "summary",
+  "success_count": 12,
+  "failed_count": 3,
+  "skipped_count": 1,
+  "total_duration_ms": 28430
+}
+```
+
+### 10B.2 ログに出さない（禁止）
+
+- `storage_key`（path 全文）
+- presigned URL
+- R2 credentials（access key / secret key / endpoint）
+- raw token / Cookie 値
+- DATABASE_URL
+- file name（File.name）
+- EXIF 内容（GPS / シリアル等を含む可能性）
+- 画像 binary
+
+これらは `security-guard.md` に従う。slog の構造化フィールドに乗せない。
+
 ---
 
 ## 11. Outbox 連携
@@ -457,6 +626,22 @@ PR22 で残存している processing 4 件:
 - storage_key / presigned URL / R2 credentials を logs に出さない
 - decode panic は recover で捕捉して `decode_failed` として扱う
 - malicious image（巨大 chunk / 異常 marker）は decode 関数の error を信頼
+
+### 14.1 ICC profile / color management（PR23 では除去を許容）
+
+JPEG re-encode によって EXIF / XMP / IPTC に加えて **ICC color profile** も除去される可能性が高い。
+
+- MVP では **プライバシー（GPS / 撮影者情報）とファイルサイズ削減**を優先し、ICC 除去を許容する
+- 大半の Web 表示では sRGB 既定でレンダリングされるため、色味の誤差は許容範囲（カラーマネジメント
+  必須のプロ用途は対象外）
+- 色味の差分が問題になった場合、後続 PR で次のいずれかを検討:
+  - sRGB 変換 + 出力時の sRGB profile を明示 embed（sRGB 限定運用）
+  - decode 時 ICC を読み取って encode 時に保持（プライバシー側の検証必要）
+  - format を WebP に切り替えて ICC 情報を最小化
+
+PR23 の test では:
+- **APP1（EXIF / XMP）/ APP13（IPTC）/ GPS marker が含まれないこと**を grep で確認
+- ICC profile（APP2 ICC_PROFILE marker）の有無は **検証しない**（除去前提、保持しても気にしない）
 
 ---
 
