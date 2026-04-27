@@ -1,29 +1,71 @@
-// /manage/[photobookId] の最小ページ（PR10 段階）。
+// /manage/[photobookId] 管理ページ（PR25b 本実装）。
 //
-// PR10 では Cookie 化された manage session の redirect 着地点として存在する。
-// Backend protected API の呼び出しは PR11 以降。
+// 設計参照:
+//   - docs/plan/m2-public-viewer-and-manage-plan.md §4
+//
+// 認可:
+//   - Cookie が無ければ Backend は 401 を返す → ErrorState(unauthorized) を表示
+//   - Cookie はあるが photobook_id 不一致は Backend 側で 401（middleware）
+//   - photobook_id 不存在は 404
 //
 // セキュリティ:
-//   - URL path の photobook_id 以外は **画面に出さない**
+//   - Cookie 値 / manage_url_token / draft_edit_token を画面に出さない
+//   - Cookie ヘッダは Backend にだけ転送（Workers の fetch は同 origin でないため
+//     `credentials: include` ではなく Cookie ヘッダを手で組み立てる）
+
+import type { Metadata } from "next";
+import { headers } from "next/headers";
+
+import { ErrorState } from "@/components/ErrorState";
+import { ManagePanel } from "@/components/Manage/ManagePanel";
+import {
+  fetchManagePhotobook,
+  isManageLookupError,
+  type ManagePhotobook,
+} from "@/lib/managePhotobook";
 
 export const dynamic = "force-dynamic";
 
-export default async function ManagePage({
-  params,
-}: {
-  params: Promise<{ photobookId: string }>;
-}) {
+type Params = Promise<{ photobookId: string }>;
+
+export const metadata: Metadata = {
+  title: "管理ページ | VRC PhotoBook",
+  robots: { index: false, follow: false },
+};
+
+/**
+ * Server Component が受信した Cookie ヘッダをそのまま Backend に転送する。
+ *
+ * Workers / OpenNext の SSR では、`next/headers` の cookies() で個別 Cookie が読めるが、
+ * Backend に対する forwarding は単純に Cookie ヘッダを文字列で渡す方が安全。
+ */
+async function getRequestCookieHeader(): Promise<string> {
+  const h = await headers();
+  return h.get("cookie") ?? "";
+}
+
+export default async function ManagePage({ params }: { params: Params }) {
   const { photobookId } = await params;
-  return (
-    <main className="mx-auto max-w-3xl p-8">
-      <h1 className="mb-4 text-xl font-semibold">Manage 管理ページ（最小実装）</h1>
-      <p className="text-sm text-gray-700">
-        photobook_id: <code className="font-mono">{photobookId}</code>
-      </p>
-      <p className="mt-4 text-sm text-gray-500">
-        PR10 段階のプレースホルダです。manage session Cookie が発行されていれば本ページに到達できます。
-        管理 UI と Backend protected API は PR11 以降で実装します。
-      </p>
-    </main>
-  );
+  const cookieHeader = await getRequestCookieHeader();
+
+  let photobook: ManagePhotobook;
+  try {
+    photobook = await fetchManagePhotobook(photobookId, cookieHeader);
+  } catch (e) {
+    if (isManageLookupError(e)) {
+      switch (e.kind) {
+        case "unauthorized":
+          return <ErrorState variant="unauthorized" />;
+        case "not_found":
+          return <ErrorState variant="not_found" />;
+        case "server_error":
+        case "network":
+          return <ErrorState variant="server_error" />;
+      }
+    }
+    return <ErrorState variant="server_error" />;
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+  return <ManagePanel photobook={photobook} appBaseUrl={baseUrl} />;
 }
