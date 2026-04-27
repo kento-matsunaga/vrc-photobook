@@ -622,3 +622,4 @@ PR31 への引き継ぎ事項は §12。
 | 日付 | 変更 |
 |------|------|
 | 2026-04-28 | 初版作成。cross-cutting/outbox.md を上流正典として参照、PR30 MVP 範囲を 3 イベントに絞る |
+| 2026-04-28 | PR31 完了。`cmd/outbox-worker` CLI 実装 + image 同梱 + Cloud Build deploy 完了。**Cloud Run Jobs / Scheduler 作成は本 PR で実施せず**、副作用 handler（OGP / 通知 / cleanup / email）が固まった後続独立 PR で再検討。詳細は `harness/work-logs/2026-04-28_outbox-worker-result.md` |

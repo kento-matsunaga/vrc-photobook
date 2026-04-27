@@ -310,29 +310,41 @@
 - **完了条件**: 主要 UseCase が Outbox INSERT を同 TX で行う / DB rollback で event も rollback
 - **次 PR への引き継ぎ**: pending event を消費する worker（PR31）
 
-### PR31: outbox-worker + Cloud Run Jobs / Scheduler 化
+### PR31: outbox-worker（CLI + image 同梱、Cloud Run Jobs / Scheduler は後続）
 
-- **目的**: outbox-worker と image-processor を Cloud Run Jobs として運用する。
-  メール送信は ADR-0006 で MVP 必須要件から外したため、worker handler は当面 **no-op + log のみ**
+- **目的**: PR30 で作成した outbox_events を消化する CLI worker を実装する。
+  メール送信は ADR-0006 で MVP 必須要件から外したため、worker handler は **no-op + log のみ**
 - **実装するもの**:
   - `cmd/outbox-worker`（pending event poll → 種別ごと handler 実行 → mark done / failed）
-  - Cloud Run Jobs spec（image-processor / outbox-worker）
-  - Cloud Scheduler（定期 trigger、業務知識 v4 §運用 SLO に沿う頻度）
-  - retry / dead letter（同 row の retry 上限と stuck 検出）
-  - 各 event handler は **no-op + structured log**（ADR-0006、メール送信なし MVP）
-- **実装しないもの**: メール送信本実装（**ADR-0006 後続**、Provider 確定後）/ OGP 自動生成本実装（PR33）
+  - claim TX (FOR UPDATE SKIP LOCKED) → handler dispatch → MarkProcessed / MarkFailedRetry / MarkDead
+  - exponential backoff（5min×2^attempts、上限 1h）、attempts >= 5 で dead 化
+  - ReleaseStaleLocks（locked_at < threshold で processing → pending 救出）
+  - 各 event handler は **no-op + structured log**（photobook.published / image.became_available / image.failed）
+  - last_error の sanitize（200 char + Secret 値 redact）
+  - Dockerfile に outbox-worker binary を同梱
+- **実装しないもの**:
+  - **Cloud Run Jobs / Scheduler 作成**（採用方針 A、後続 PR で扱う）
+  - 副作用 handler（OGP / 通知 / cleanup / メール送信）
+  - メール Provider 連携（ADR-0006 で再選定中）
 - **参照すべき design 資産**: なし
 - **参照すべき docs**:
   - **ADR-0006**（メール送信を MVP 必須から外す根拠）
-  - `docs/plan/m2-outbox-plan.md` §12 引き継ぎ
-  - `docs/plan/m2-image-processor-plan.md` §10〜§17
-- **実リソース操作の有無**: **Cloud Run Jobs + Cloud Scheduler 作成（課金影響あり）** / IAM service account 権限
-- **Secret が絡むか**: 既存 R2 / DATABASE_URL を Jobs にも secretKeyRef で注入。メール
-  Provider 関連 Secret は**当面追加しない**（ADR-0006）
+  - `docs/plan/m2-outbox-plan.md` §6 / §7
+  - `harness/work-logs/2026-04-28_outbox-worker-result.md`（PR31 実施記録）
+- **実リソース操作の有無**: Cloud Build manual submit で image 更新（既存パイプライン、課金影響なし）
+- **Secret が絡むか**: 既存 R2 / DATABASE_URL を runtime env で参照。メール Provider 関連
+  Secret は**当面追加しない**（ADR-0006）
 - **Safari 確認が必要か**: なし
-- **完了条件**: image-processor / outbox-worker が Jobs 経由で動く / dead letter 経路あり /
-  各 handler が no-op log を出すこと
-- **次 PR への引き継ぎ**: メール Provider 再選定（PR32 / ADR-0006）/ OGP 自動生成（PR33）
+- **完了条件**: outbox-worker CLI 実装 / image 同梱 / Cloud Build deploy / traffic-to-latest 検証 / handler が no-op log を出すこと
+- **2026-04-28 完了**: commit `c75fe66` / Cloud Run revision `vrcpb-api-00013-l9s` / 全検証 OK
+- **次 PR への引き継ぎ**:
+  - **Cloud Run Jobs / Scheduler 作成は本 PR で実施せず、後続独立 PR**
+    （理由: 現状 handler は no-op で、Jobs を稼働させると pending event を `processed` に
+    進めてしまい、将来 OGP / 通知 / cleanup などの副作用を入れる前に既存 event を消費
+    すると不整合状態になる）
+  - 副作用 handler 実装（PR33 OGP / PR34 Moderation 通知 / PR35 Report 等）と組で
+    Cloud Run Jobs 作成を再検討する
+  - メール Provider 再選定（PR32 / ADR-0006）
 
 ### PR32: Email Provider 再選定 + Manage URL Delivery 再設計
 
