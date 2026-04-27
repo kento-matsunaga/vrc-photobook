@@ -33,20 +33,29 @@ type Config struct {
 	R2SecretAccessKey string
 	R2BucketName      string
 	R2Endpoint        string
+	// PR22: Turnstile 関連。
+	// SecretKey は Cloud Run Secret Manager 経由で注入、ログに出さない。
+	// Hostname / Action は siteverify で厳格照合する公開値（既定で本番値）。
+	TurnstileSecretKey string
+	TurnstileHostname  string
+	TurnstileAction    string
 }
 
 // Load は環境変数から Config を組み立てる。値の有無はここでは厳密に検査しない。
 func Load() *Config {
 	return &Config{
-		AppEnv:            getOrDefault("APP_ENV", "local"),
-		Port:              getOrDefault("PORT", "8080"),
-		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		AllowedOrigins:    getOrDefault("ALLOWED_ORIGINS", "https://app.vrc-photobook.com"),
-		R2AccountID:       os.Getenv("R2_ACCOUNT_ID"),
-		R2AccessKeyID:     os.Getenv("R2_ACCESS_KEY_ID"),
-		R2SecretAccessKey: os.Getenv("R2_SECRET_ACCESS_KEY"),
-		R2BucketName:      os.Getenv("R2_BUCKET_NAME"),
-		R2Endpoint:        os.Getenv("R2_ENDPOINT"),
+		AppEnv:             getOrDefault("APP_ENV", "local"),
+		Port:               getOrDefault("PORT", "8080"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		AllowedOrigins:     getOrDefault("ALLOWED_ORIGINS", "https://app.vrc-photobook.com"),
+		R2AccountID:        os.Getenv("R2_ACCOUNT_ID"),
+		R2AccessKeyID:      os.Getenv("R2_ACCESS_KEY_ID"),
+		R2SecretAccessKey:  os.Getenv("R2_SECRET_ACCESS_KEY"),
+		R2BucketName:       os.Getenv("R2_BUCKET_NAME"),
+		R2Endpoint:         os.Getenv("R2_ENDPOINT"),
+		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
+		TurnstileHostname:  getOrDefault("TURNSTILE_HOSTNAME", "app.vrc-photobook.com"),
+		TurnstileAction:    getOrDefault("TURNSTILE_ACTION", "upload"),
 	}
 }
 

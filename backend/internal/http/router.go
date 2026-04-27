@@ -28,15 +28,17 @@ import (
 	"vrcpb/backend/internal/health"
 	imageuploadhttp "vrcpb/backend/internal/imageupload/interface/http"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
+	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 )
 
 // RouterConfig は NewRouter の依存集約。
 type RouterConfig struct {
-	Pool                  *pgxpool.Pool
-	PhotobookHandlers     *photobookhttp.Handlers
-	ImageUploadHandlers   *imageuploadhttp.Handlers
-	DraftSessionValidator authmiddleware.Validator
-	AllowedOrigins        string
+	Pool                       *pgxpool.Pool
+	PhotobookHandlers          *photobookhttp.Handlers
+	ImageUploadHandlers        *imageuploadhttp.Handlers
+	UploadVerificationHandlers *uvhttp.Handlers
+	DraftSessionValidator      authmiddleware.Validator
+	AllowedOrigins             string
 }
 
 // NewRouter は API サーバの chi ルーターを返す。
@@ -65,6 +67,14 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
 			sub.Post("/upload-intent", cfg.ImageUploadHandlers.UploadIntent)
 			sub.Post("/{imageId}/complete", cfg.ImageUploadHandlers.Complete)
+		})
+	}
+
+	// PR22: upload-verifications endpoint。draft session middleware を chain。
+	if cfg.UploadVerificationHandlers != nil && cfg.DraftSessionValidator != nil {
+		r.Route("/api/photobooks/{id}/upload-verifications", func(sub chi.Router) {
+			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
+			sub.Post("/", cfg.UploadVerificationHandlers.IssueUploadVerification)
 		})
 	}
 	return r

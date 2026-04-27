@@ -32,6 +32,9 @@ import (
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/wireup"
 	"vrcpb/backend/internal/shared"
+	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
+	uvwireup "vrcpb/backend/internal/uploadverification/wireup"
 )
 
 // manageSessionTTL は manage session の有効期限。
@@ -102,13 +105,30 @@ func main() {
 		logger.Info("r2 not configured; image upload endpoints disabled (PR21 Step A or earlier)")
 	}
 
-	routerCfg := internalhttp.RouterConfig{
-		Pool:                pool,
-		PhotobookHandlers:   photobookHandlers,
-		ImageUploadHandlers: imageUploadHandlers,
-		AllowedOrigins:      cfg.AllowedOrigins,
+	// PR22: Turnstile が configured かつ pool 利用可能なときに upload-verifications endpoint を
+	// 組み立てる。Turnstile secret は cfg.TurnstileSecretKey で渡す。
+	var uvHandlers *uvhttp.Handlers
+	if pool != nil && cfg.TurnstileSecretKey != "" {
+		verifier := turnstile.NewCloudflareVerifier(turnstile.CloudflareConfig{
+			Secret: cfg.TurnstileSecretKey,
+		})
+		uvHandlers = uvwireup.BuildHandlers(pool, verifier, uvwireup.Config{
+			Hostname: cfg.TurnstileHostname,
+			Action:   cfg.TurnstileAction,
+		}, uvhttp.SystemClock{})
+		logger.Info("turnstile configured; upload-verifications endpoint enabled")
+	} else if pool != nil {
+		logger.Info("turnstile not configured; upload-verifications endpoint disabled")
 	}
-	if imageUploadHandlers != nil {
+
+	routerCfg := internalhttp.RouterConfig{
+		Pool:                       pool,
+		PhotobookHandlers:          photobookHandlers,
+		ImageUploadHandlers:        imageUploadHandlers,
+		UploadVerificationHandlers: uvHandlers,
+		AllowedOrigins:             cfg.AllowedOrigins,
+	}
+	if imageUploadHandlers != nil || uvHandlers != nil {
 		routerCfg.DraftSessionValidator = sessionintegration.NewSessionValidator(pool)
 	}
 	router := internalhttp.NewRouter(routerCfg)
