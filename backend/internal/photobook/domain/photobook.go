@@ -5,19 +5,19 @@
 //   - docs/design/aggregates/photobook/データモデル設計.md
 //   - docs/plan/m2-photobook-session-integration-plan.md
 //
-// PR9a 段階で扱う状態: draft / published。
-//   - softDelete / restore / purge / hide / unhide は後続 PR
-//   - editContent / setTitle 等の編集操作も後続 PR
+// 扱う状態: draft / published / deleted（softDelete / restore / purge / hide /
+// unhide は MVP 範囲外で別 PR で導入予定）。
 //
-// PR9a の Photobook entity は以下を表現できる:
+// 主要な domain メソッド:
 //   - NewDraftPhotobook（新規 draft 作成）
 //   - RestorePhotobook（DB から復元）
 //   - Publish（draft → published、ドメイン側の状態遷移）
 //   - ReissueManageUrl（manage_url_token 再発行、ドメイン側の状態遷移）
 //   - TouchDraft（draft_expires_at 延長）
+//   - SetCoverImage / ClearCoverImage / BumpVersion（編集系の不変インスタンス更新）
 //
 // **本ファイルは domain ロジックのみ**。DB UPDATE / Session revoke / Outbox 等の
-// 副作用は UseCase 層（PR9b）の責務。entity は不変条件を守った新インスタンスを返すのみ。
+// 副作用は UseCase 層の責務。entity は不変条件を守った新インスタンスを返すのみ。
 //
 // 不変条件（CHECK 制約と一致）:
 //   - status='draft' のとき draft_edit_token_hash NOT NULL / draft_expires_at NOT NULL /
@@ -107,11 +107,9 @@ type Photobook struct {
 
 // NewDraftPhotobookParams は draft 作成の引数。
 //
-// 編集 UI が無い PR9a 段階では、業務知識 v4 / 設計書の最小必須項目のみを
-// 引数で受け取る。layout / opening_style / visibility / sensitive 等は
-// 既定値を VO 側で固定する設計（後続 PR で UseCase 層から上書き可能にする）。
-//
-// rights_agreed は本 PR では引数で受け取り、true 固定をテストで使う（計画 §14.6）。
+// draft 作成時は業務知識 v4 / 設計書の最小必須項目のみを引数で受け取る。
+// layout / opening_style / visibility / sensitive 等は既定値を VO 側で固定し、
+// 編集 UseCase（UpdateSettings 等）で後から上書きする設計。
 type NewDraftPhotobookParams struct {
 	ID                  photobook_id.PhotobookID
 	Type                photobook_type.PhotobookType
@@ -287,8 +285,8 @@ func (p Photobook) CanPublish() error {
 // Publish は draft → published の状態遷移を行う。
 //
 // **DB 副作用は持たない**。新しい Photobook 値を返すのみ（不変）。
-// UseCase 層（PR9b）はこの新値を repository.PublishFromDraft で永続化し、
-// 同一 TX 内で Session revoke を行う。
+// UseCase 層はこの新値を repository.PublishFromDraft で永続化し、
+// 同一 TX 内で Session revoke + Outbox INSERT を行う。
 func (p Photobook) Publish(
 	publishedSlug slug.Slug,
 	manageHash manage_url_token_hash.ManageUrlTokenHash,

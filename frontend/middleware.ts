@@ -14,8 +14,8 @@ import type { NextRequest } from "next/server";
 //   - /draft, /manage, /edit:    Referrer-Policy: no-referrer（token URL 漏洩対策、ADR-0003 §API 設計ルール）
 //   - それ以外:                   Referrer-Policy: strict-origin-when-cross-origin
 //
-// PR5 段階では /draft, /manage, /edit のルートは未実装。後続 PR で追加した時点で
-// 自動的に no-referrer が付与されるよう先行実装する。
+// /draft, /manage, /edit のルートは app/(draft|manage) 配下に実装済。本 middleware の
+// prefix match で no-referrer が自動付与される。
 
 const SENSITIVE_PATH_PREFIXES = ["/draft", "/manage", "/edit"];
 

@@ -1,16 +1,17 @@
 // Package http は HTTP ルーターを組み立てる。
 //
-// PR2: `/health` + `/readyz`（DB 未実装時 503 固定）。
-// PR3: `/readyz` を pool 状態に応じた分岐に置き換え。
-// PR8: Session 認可 middleware と UseCase 枠を用意（**未接続のまま**）。
-// PR9c: Photobook の token 交換 endpoint 2 本（draft / manage）を追加。
-//       本物の token 検証経由のみ。dummy token / 認証バイパスは作らない。
-// PR21: imageupload の upload-intent / complete endpoint を追加。
-//       draft session middleware で認可された context を前提に handler が動く。
-//       CORS middleware を導入（ALLOWED_ORIGINS 環境変数）。
+// 配線:
+//   - `/health` / `/readyz`（pool 状態に応じた分岐）
+//   - 認可 token 交換: `/api/auth/draft-session-exchange` / `/api/auth/manage-session-exchange`
+//   - 公開 Viewer: `/api/public/photobooks/{slug}`
+//   - 管理ページ read: `/api/manage/photobooks/{id}/`（manage session middleware 経由）
+//   - 編集 / 公開フロー: `/api/photobooks/{id}/...`（draft session middleware 経由）
+//   - 画像アップロード: `/api/photobooks/{id}/images/...`（draft session middleware 経由）
+//   - upload verification: `/api/photobooks/{id}/upload-verifications/`（draft session middleware 経由）
+//   - CORS middleware（ALLOWED_ORIGINS 環境変数）を全体に適用
 //
 // 注意:
-//   - protected route（/api/photobooks/{id}/images/...）は draft session middleware を経由する
+//   - protected route（/api/photobooks/{id}/images/... 等）は draft session middleware を経由する
 //   - upload-intent は加えて Authorization: Bearer <upload_verification_token> が必須
 //     （middleware ではなく handler 内で確認）
 package http
@@ -51,7 +52,7 @@ type RouterConfig struct {
 // pool は nil でも可（その場合 /readyz は 503 db_not_configured）。
 // PhotobookHandlers が nil の場合は token 交換 endpoint を登録しない。
 // ImageUploadHandlers / DraftSessionValidator が nil の場合は upload-intent / complete
-// endpoint を登録しない（PR21 Step A 段階の R2 Secret 未注入時など）。
+// endpoint を登録しない（R2 Secret 未注入で上位が handler を組み立てなかった場合等）。
 func NewRouter(cfg RouterConfig) *chi.Mux {
 	r := chi.NewRouter()
 	if cfg.AllowedOrigins != "" {
@@ -60,13 +61,13 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	r.Get("/health", health.Health)
 	r.Get("/readyz", health.Ready(cfg.Pool))
 
-	// PR9c: token 交換 endpoint。
+	// token 交換 endpoint（draft / manage）。本物の token 検証経由のみ。
 	if cfg.PhotobookHandlers != nil {
 		r.Post("/api/auth/draft-session-exchange", cfg.PhotobookHandlers.DraftSessionExchange)
 		r.Post("/api/auth/manage-session-exchange", cfg.PhotobookHandlers.ManageSessionExchange)
 	}
 
-	// PR21: imageupload endpoint。draft session middleware を chain。
+	// imageupload endpoint。draft session middleware を chain。
 	if cfg.ImageUploadHandlers != nil && cfg.DraftSessionValidator != nil {
 		r.Route("/api/photobooks/{id}/images", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
@@ -75,7 +76,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		})
 	}
 
-	// PR22: upload-verifications endpoint。draft session middleware を chain。
+	// upload-verifications endpoint。draft session middleware を chain。
 	if cfg.UploadVerificationHandlers != nil && cfg.DraftSessionValidator != nil {
 		r.Route("/api/photobooks/{id}/upload-verifications", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
@@ -83,12 +84,12 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		})
 	}
 
-	// PR25a: 公開 Viewer endpoint（認可不要、slug ベース）。
+	// 公開 Viewer endpoint（認可不要、slug ベース）。
 	if cfg.PhotobookPublicHandlers != nil {
 		r.Get("/api/public/photobooks/{slug}", cfg.PhotobookPublicHandlers.GetPublicPhotobook)
 	}
 
-	// PR25a: 管理ページ read endpoint。manage session middleware を chain。
+	// 管理ページ read endpoint。manage session middleware を chain。
 	if cfg.PhotobookManageHandlers != nil && cfg.ManageSessionValidator != nil {
 		r.Route("/api/manage/photobooks/{id}", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireManageSession(cfg.ManageSessionValidator, photobookIDFromURL))
@@ -96,8 +97,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		})
 	}
 
-	// PR27: 編集 UI 本格化 endpoint。draft session middleware を chain（manage Cookie では不可）。
-	// PR28: publish endpoint も同 group に追加（draft Cookie 必須）。
+	// 編集 / publish endpoint。draft session middleware を chain（manage Cookie では不可）。
 	if cfg.PhotobookEditHandlers != nil && cfg.DraftSessionValidator != nil {
 		r.Route("/api/photobooks/{id}", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))

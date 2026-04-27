@@ -14,7 +14,7 @@
 //
 // セキュリティ:
 //   - Set-Cookie ヘッダ全体 / Cookie 値はログに出さない（shared/logging.go 禁止リスト）
-//   - 本パッケージは「ヘッダ文字列を組み立てるだけ」。読み取りは middleware 側（後続 PR）の責務
+//   - 本パッケージは「ヘッダ文字列を組み立てるだけ」。読み取りは middleware 側の責務
 package cookie
 
 import (

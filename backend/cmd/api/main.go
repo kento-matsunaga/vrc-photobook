@@ -1,9 +1,11 @@
 // Package main は M2 本実装 Backend API の起動エントリ。
 //
-// PR1: 最小骨格として `/health` のみ。
-// PR2: config / slog JSON logger / graceful shutdown / `/readyz`（DB 未実装時 503 固定）。
-// PR3: pgx pool 接続を追加。DATABASE_URL 空時は pool nil で起動継続、`/readyz` で 503。
-// PR4 以降で middleware / 認証 / 各集約のルートを順次追加する。
+// 役割:
+//   - config / slog JSON logger / graceful shutdown
+//   - pgx pool 初期化（DATABASE_URL 空時は pool nil で起動継続、/readyz で 503）
+//   - R2 / Turnstile が configured な場合に依存 handler を組み立て
+//   - session validator を組み立てて router に注入
+//   - chi router を起動
 //
 // 起動:   `go run ./cmd/api`（PORT 環境変数を優先、未設定時 8080）
 // 終了:   SIGINT / SIGTERM を受け取り、10 秒以内に graceful shutdown する
@@ -75,22 +77,22 @@ func main() {
 		logger.Info("db not configured; /readyz will return 503 db_not_configured")
 	}
 
-	// PR9c: pool が利用可能なときだけ Photobook の token 交換 endpoint を組み立てる。
+	// pool が利用可能なときだけ Photobook の token 交換 endpoint を組み立てる。
 	// pool 未設定（DATABASE_URL 空）時は handler nil で渡して endpoint 自体を作らない。
 	var photobookHandlers *photobookhttp.Handlers
 	var photobookManageHandlers *photobookhttp.ManageHandlers
 	var photobookPublishHandlers *photobookhttp.PublishHandlers
 	if pool != nil {
 		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
-		// PR25a: 管理ページ read endpoint（pool だけで完結）
+		// 管理ページ read endpoint（pool だけで完結）
 		photobookManageHandlers = wireup.BuildManageReadHandlers(pool)
-		// PR28: publish endpoint（既存 PublishFromDraft UseCase の HTTP 化）
+		// publish endpoint（PublishFromDraft UseCase の HTTP 化）
 		photobookPublishHandlers = wireup.BuildPublishHandlers(pool)
 	}
 
-	// PR21: R2 が configured かつ pool 利用可能なときに imageupload endpoint を組み立てる。
-	// PR21 Step A 段階では R2 Secret 未注入（IsR2Configured()=false）のため、handler は
-	// nil で渡され endpoint は登録されない。Step D で Secret を注入後に有効化される。
+	// R2 が configured かつ pool 利用可能なときに imageupload endpoint と、
+	// presigned URL を返す Public Viewer / 編集 UI handler を組み立てる。
+	// Secret 未注入時は handler nil で渡され endpoint は登録されない。
 	var imageUploadHandlers *imageuploadhttp.Handlers
 	var photobookPublicHandlers *photobookhttp.PublicHandlers
 	var photobookEditHandlers *photobookhttp.EditHandlers
@@ -107,17 +109,17 @@ func main() {
 				slog.String("error", err.Error()))
 		} else {
 			imageUploadHandlers = imageuploadwireup.BuildHandlers(pool, r2Client, imageuploadhttp.SystemClock{})
-			// PR25a: 公開 Viewer は presigned GET URL を返すため r2Client を必要とする
+			// 公開 Viewer は presigned GET URL を返すため r2Client を必要とする
 			photobookPublicHandlers = wireup.BuildPublicHandlers(pool, r2Client)
-			// PR27: 編集 UI も edit-view で variant URL を返すため r2Client が必要
+			// 編集 UI も edit-view で variant URL を返すため r2Client が必要
 			photobookEditHandlers = wireup.BuildEditHandlers(pool, r2Client)
 			logger.Info("r2 configured; image upload endpoints enabled")
 		}
 	} else if pool != nil {
-		logger.Info("r2 not configured; image upload endpoints disabled (PR21 Step A or earlier)")
+		logger.Info("r2 not configured; image upload endpoints disabled")
 	}
 
-	// PR22: Turnstile が configured かつ pool 利用可能なときに upload-verifications endpoint を
+	// Turnstile が configured かつ pool 利用可能なときに upload-verifications endpoint を
 	// 組み立てる。Turnstile secret は cfg.TurnstileSecretKey で渡す。
 	var uvHandlers *uvhttp.Handlers
 	if pool != nil && cfg.TurnstileSecretKey != "" {

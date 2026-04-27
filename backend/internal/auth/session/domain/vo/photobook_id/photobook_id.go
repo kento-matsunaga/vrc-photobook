@@ -1,10 +1,11 @@
-// Package photobook_id は PhotobookID の **仮 VO** を提供する（PR7 限定）。
+// Package photobook_id は session 機構内で使う PhotobookID VO を提供する。
 //
-// PR9 で Photobook aggregate を実装する際に、本パッケージは
-// internal/photobook/domain/vo/photobook_id/ 等の正式 VO に置き換える。
+// 同名の VO `internal/photobook/domain/vo/photobook_id/` が photobook 集約側にも存在し、
+// 本 VO は session 集約の独立性を保つために**敢えて分離**している。両 VO は同じ
+// uuid.UUID を表現し、middleware / handler の境界で型変換される
+// （`internal/http/router.go` の photobookIDFromURL 等）。
 //
-// 本 VO は session 機構が photobook_id を「ただの UUID」として扱うための最小限の型安全性を提供する。
-// FK 制約も PR7 では張らず、PR9 の ALTER TABLE で追加する（migrations/00002 ヘッダ参照）。
+// session 機構が photobook_id を「ただの UUID」として扱うための最小限の型安全性のみを提供する。
 package photobook_id
 
 import (

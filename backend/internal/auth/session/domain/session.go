@@ -2,7 +2,7 @@
 //
 // 集約相当の位置付け:
 //   - Session は集約ではなく **認可機構** の概念単位（docs/design/auth/README.md / ドメイン設計.md）
-//   - photobook_id は集約間参照（FK は PR9 で追加）
+//   - photobook_id は集約間参照（FK は migrations/00004 で追加済）
 //
 // 設計参照:
 //   - docs/design/auth/session/ドメイン設計.md
@@ -55,7 +55,7 @@ type Session struct {
 
 // NewSessionParams は Session のコンストラクタ引数。
 //
-// 通常フローは IssueDraft / IssueManage（後続 PR の usecase）から呼ぶ。
+// 通常フローは IssueDraftSession / IssueManageSession usecase から呼ぶ。
 // Restore は永続化層からの復元のため別関数（Restore）に分ける。
 type NewSessionParams struct {
 	ID                  session_id.SessionID

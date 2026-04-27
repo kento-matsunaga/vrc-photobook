@@ -44,7 +44,9 @@ type ReissueManageUrlOutput struct {
 //
 // session revoke 失敗時は photobook 側 UPDATE もロールバックされる（I-S10 整合）。
 //
-// ModerationAction / ManageUrlDelivery / Outbox INSERT は本 PR では行わない（後続 PR）。
+// ModerationAction / ManageUrlDelivery / ManageUrlReissued の Outbox INSERT は
+// **未実装**（前者 2 つは Moderation / ManageUrlDelivery 集約導入時、後者は ADR-0006
+// で email provider 確定後に追加予定）。
 type ReissueManageUrl struct {
 	pool                 *pgxpool.Pool
 	photobookRepoFactory PhotobookTxRepositoryFactory

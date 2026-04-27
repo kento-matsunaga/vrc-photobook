@@ -45,10 +45,10 @@ type PublishFromDraftOutput struct {
 //  3. ManageUrlToken / ManageUrlTokenHash 生成
 //  4. photobookRepo.PublishFromDraft（status='draft' AND version=$expected で UPDATE）
 //  5. session の RevokeAllDrafts（同 tx）
+//  6. outbox_events に photobook.published event を INSERT（同 tx）
 //
-// session revoke 失敗時は photobook 側 UPDATE もロールバックされる（I-D7 / I-S9 整合）。
-//
-// Outbox INSERT は本 PR では行わない（Outbox table は後続 PR、計画 §7.1）。
+// 5 / 6 のいずれかが失敗した場合は photobook 側 UPDATE もロールバックされる
+// （I-D7 / I-S9 整合 + Outbox 同 TX 不変条件）。
 type PublishFromDraft struct {
 	pool                 *pgxpool.Pool
 	photobookRepoFactory PhotobookTxRepositoryFactory

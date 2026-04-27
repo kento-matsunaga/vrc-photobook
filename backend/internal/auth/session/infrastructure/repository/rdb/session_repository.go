@@ -122,7 +122,7 @@ func (r *SessionRepository) RevokeAllManageByTokenVersion(
 }
 
 // DeleteExpired は GC 対象（revoke から 30 日 / 期限切れから 7 日）の session を物理削除する。
-// 後続 PR の cmd/ops から呼び出す前提。
+// 運用 GC ジョブ（cmd/ops 等、未実装）から呼び出す前提。
 func (r *SessionRepository) DeleteExpired(ctx context.Context) (int64, error) {
 	return r.q.DeleteExpiredSessions(ctx)
 }

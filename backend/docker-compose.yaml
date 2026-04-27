@@ -4,12 +4,12 @@
 #   - postgres: PostgreSQL 16
 #   - api:      Backend API（cmd/api、Dockerfile multi-stage build）
 #
-# 含まれないもの（意図的に分離。後続 PR / 別経路で扱う）:
+# 含まれないもの（意図的に分離。別経路で扱う）:
 #   - frontend  : Next.js dev server / OpenNext / Workers preview の切替が頻繁なため
 #                 npm --prefix frontend run dev で別起動する（backend/README.md §E）
-#   - mailpit   : SendGrid 実送信 PoC のローカル代替、§F-3 タイミング
+#   - mailpit   : email provider 実送信 PoC のローカル代替（ADR-0006 で provider 再選定中）
 #   - cmd/outbox-worker / cmd/ops : Cloud Run Jobs 想定、ローカルでは不要
-#   - R2 / Turnstile / SendGrid : 各集約の実装 PR で個別接続
+#   - R2 / Turnstile / email provider : 各集約の実装で個別接続（実値は Secret Manager 経由）
 #   - 自動 migration entrypoint : goose は go run 経由で手動適用（README §C）
 #
 # 注意:

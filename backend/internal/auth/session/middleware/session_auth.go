@@ -6,7 +6,9 @@
 //   - 本 middleware は usecase に依存するため、同じサブツリー内（auth/session/middleware）に置く
 //   - 外部（chi router 等）からは「session 機構が公開する HTTP middleware」として import する
 //
-// PR8: Session 認可の枠（RequireDraftSession / RequireManageSession / SessionFromContext）。
+// 公開する middleware:
+//   - RequireDraftSession / RequireManageSession
+//   - SessionFromContext（context から検証済 Session を取り出す）
 //
 // 設計参照:
 //   - docs/adr/0003-frontend-token-session-flow.md
@@ -18,8 +20,6 @@
 //   - 認可成功時のみ context に Session を格納し、handler は SessionFromContext で取得する
 //
 // 注意:
-//   - PR8 では本番 router からは未接続。HTTP endpoint の本接続は PR9 (Photobook aggregate) と
-//     PR10 (Frontend route) の段階で行う。
 //   - photobook_id の取得関数は呼び出し元から注入する（URL param / path / body の差を吸収するため）。
 package middleware
 

@@ -1,9 +1,9 @@
 /**
  * Wrangler 設定（OpenNext for Cloudflare Workers + Static Assets binding）
  *
- * PR5 では `cf:build` と `cf:preview`（ローカル wrangler dev）の動作のみ確認する。
- * Workers 実デプロイは行わない（独自ドメイン取得後に PR で別途進める、
- * docs/plan/m2-early-domain-and-cookie-plan.md §8）。
+ * 本番 deploy は `npm run cf:build && wrangler deploy` で行う（独自ドメイン
+ * `vrc-photobook.com` に紐付け、運用中）。ローカル確認は `npm run cf:preview`
+ * （wrangler dev）で行う。
  *
  * 値の方針:
  *   - name は本実装名 `vrcpb-frontend`（M1 PoC の `vrcpb-spike-frontend` とは別）

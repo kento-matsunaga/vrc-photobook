@@ -14,7 +14,8 @@
 //
 // セキュリティ:
 //   - manage_url_token / draft_edit_token / hash 値は応答に含めない
-//   - 再発行 URL は本 PR では含めない（PR32 で SendGrid 連携時に確定）
+//   - manage URL の再送経路は ADR-0006（email provider 再選定中）の決着後に検討。
+//     MVP は publish 完了画面での 1 回表示が標準で、再発行 URL を view に含めない
 package usecase
 
 import (

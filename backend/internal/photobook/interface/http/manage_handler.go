@@ -8,7 +8,8 @@
 //   - manage Cookie 必須（router 側で RequireManageSession middleware を適用）
 //   - 200 / 404 / 500
 //   - manage_url_token / draft_edit_token / hash 値は応答に含めない
-//   - 再発行 URL は本 PR では含めない（PR32 で SendGrid + Outbox 経由）
+//   - manage URL の再送経路は ADR-0006（email provider 再選定中）の決着後に検討。
+//     MVP は publish 完了画面での 1 回表示が標準で、再送 URL は応答に含めない
 package http
 
 import (

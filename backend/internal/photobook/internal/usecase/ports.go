@@ -1,14 +1,13 @@
 // Package usecase は Photobook 集約の UseCase を提供する。
 //
-// PR9b 段階で扱う UseCase:
+// 主な UseCase:
 //   - CreateDraftPhotobook
 //   - TouchDraft
-//   - ExchangeDraftTokenForSession
-//   - ExchangeManageTokenForSession
-//   - PublishFromDraft（同一 TX 内で Session の RevokeAllDrafts を呼ぶ）
+//   - ExchangeDraftTokenForSession / ExchangeManageTokenForSession（token → Cookie session 交換）
+//   - PublishFromDraft（同一 TX 内で Session の RevokeAllDrafts と Outbox INSERT を行う）
 //   - ReissueManageUrl（同一 TX 内で Session の RevokeAllManageByTokenVersion を呼ぶ）
-//
-// HTTP endpoint / 本番 router 接続 / Set-Cookie / Frontend route handler は PR9c で別途扱う。
+//   - GetManagePhotobook / GetPublicPhotobook / GetEditView（read 系）
+//   - 編集 UseCase（settings 更新 / page / photo / cover 操作）
 //
 // セキュリティ:
 //   - raw DraftEditToken / ManageUrlToken / SessionToken は戻り値としてのみ取り扱い、
@@ -124,8 +123,8 @@ type ManageSessionRevokerFactory func(tx pgx.Tx) ManageSessionRevoker
 
 // SlugGenerator は publish 時に public_url_slug を生成する。
 //
-// MVP の MinimalSlugGenerator（後述）は crypto/rand から 12 文字の英数を作る。
-// 衝突検出・retry の高度化は後続 PR で行う。
+// MVP 実装は usecase.MinimalSlugGenerator（crypto/rand から 12 文字の英数を作る）。
+// 衝突検出・retry の高度化は MVP 範囲外（衝突発生時は publish handler が 409 で返す）。
 type SlugGenerator interface {
 	Generate(ctx context.Context) (slug.Slug, error)
 }

@@ -16,8 +16,8 @@ import (
 
 // IssueDraftSessionInput は draft session 発行の入力。
 //
-// expires_at は呼び出し元（後続 PR の Photobook UseCase）が draft_expires_at を渡す。
-// 業務知識 v4 §6.4 / 設計書: max 7 日。
+// expires_at は呼び出し元（Photobook 側の token 交換 UseCase）が
+// draft_expires_at を渡す。業務知識 v4 §6.4 / 設計書: max 7 日。
 type IssueDraftSessionInput struct {
 	PhotobookID photobook_id.PhotobookID
 	Now         time.Time

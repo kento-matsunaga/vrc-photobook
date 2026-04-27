@@ -4,8 +4,8 @@
 //   - docs/design/aggregates/photobook/データモデル設計.md §3
 //   - docs/adr/0001-tech-stack.md（UUIDv7 採用）
 //
-// auth/session 側にも仮 VO `photobook_id` があるが、本 VO が正式版。
-// PR9b 以降で session UseCase / middleware の adapter で型変換する。
+// auth/session 側にも独立 VO `photobook_id` があり、両者は集約境界を保つために
+// **敢えて分離**している。session UseCase / middleware の adapter で型変換する。
 package photobook_id
 
 import (

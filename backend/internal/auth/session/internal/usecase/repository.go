@@ -1,13 +1,14 @@
 // Package usecase は Session 認可機構の UseCase を提供する。
 //
-// PR8 段階では:
+// 公開する UseCase:
 //   - IssueDraftSession / IssueManageSession（発行）
 //   - ValidateSession（検証）
 //   - TouchSession / RevokeSession（個別更新）
 //   - RevokeAllDrafts / RevokeAllManageByTokenVersion（一括失効）
 //
-// Photobook aggregate との接続（draft_edit_token / manage_url_token の本物検証 → 上記の
-// IssueXxxSession 呼び出し）は PR9 で追加する。token 交換用 HTTP endpoint も同 PR9。
+// Photobook 側 token（draft_edit_token / manage_url_token）の本物検証 → 上記
+// IssueXxxSession 呼び出しは photobook 集約の UseCase（ExchangeDraftTokenForSession /
+// ExchangeManageTokenForSession）で行い、HTTP endpoint は internal/http/router.go で配線済。
 //
 // セキュリティ:
 //   - raw SessionToken は戻り値としてのみ扱う（戻したあと、呼び出し元が Cookie へ書き込む）

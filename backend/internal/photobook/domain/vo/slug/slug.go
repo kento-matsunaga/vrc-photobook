@@ -8,7 +8,8 @@
 //   - 推測困難（生成器側で乱数を含める）
 //   - publish 時に発行、削除後も解放されない（Slug 復元ルール）
 //
-// 本 VO は **形式検証のみ**。生成は呼び出し元（後続 PR の SlugGenerator）の責務。
+// 本 VO は **形式検証のみ**。生成は呼び出し元 UseCase 側の SlugGenerator
+// （MVP 実装は usecase.MinimalSlugGenerator）の責務。
 package slug
 
 import (
