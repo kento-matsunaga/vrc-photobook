@@ -18,6 +18,10 @@ image-processor / display + thumbnail variant 生成）。次は PR24（公開 V
 
 過去のロードマップ（M1 完了時点）: [`harness/work-logs/2026-04-26_project-roadmap-overview.md`](./harness/work-logs/2026-04-26_project-roadmap-overview.md)
 
+> Backend deploy は **Cloud Build manual trigger** を経由する（PR29）。
+> 手順は [`docs/runbook/backend-deploy.md`](./docs/runbook/backend-deploy.md)。
+> 旧手動 `docker build` → `gcloud run services update` 経路は緊急時のみ。
+
 ## 一目で見るリンクハブ
 
 | 何を知りたいか | 参照先 |

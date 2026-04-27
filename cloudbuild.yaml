@@ -1,0 +1,80 @@
+# Cloud Build manual trigger 用 deploy pipeline（PR29）。
+#
+# 設計参照:
+#   - docs/plan/m2-backend-deploy-automation-plan.md §4 / §5 / §11
+#   - docs/runbook/backend-deploy.md
+#
+# 役割:
+#   - Backend image を build → Artifact Registry push → Cloud Run revision 更新 → smoke
+#   - Trigger は manual のみ（main push 自動 deploy はしない、計画書 §6.2）
+#   - Cloud Run の env / secretKeyRef は --image= 単独更新で維持される
+#     （DATABASE_URL / R2_* / TURNSTILE_SECRET_KEY を本ファイルに書かない、§11.1 を厳守）
+#
+# セキュリティ:
+#   - Secret 値を本ファイル / substitutions / Cloud Build logs に出さない
+#   - --update-secrets / --update-env-vars は使わない（既存 secretKeyRef 維持）
+#   - distroless static + CGO_ENABLED=0 のため Dockerfile は変更不要
+
+steps:
+  # 1) docker build（Dockerfile は backend 配下、context も backend）
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - -t
+      - asia-northeast1-docker.pkg.dev/$PROJECT_ID/vrcpb/vrcpb-api:$SHORT_SHA
+      - backend
+
+  # 2) Artifact Registry push
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - asia-northeast1-docker.pkg.dev/$PROJECT_ID/vrcpb/vrcpb-api:$SHORT_SHA
+
+  # 3) Cloud Run revision 更新（env / secretKeyRef は不変、計画書 §4.1）
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - vrcpb-api
+      - --image=asia-northeast1-docker.pkg.dev/$PROJECT_ID/vrcpb/vrcpb-api:$SHORT_SHA
+      - --region=asia-northeast1
+      - --project=$PROJECT_ID
+
+  # 4) smoke（独自ドメイン経由、Cloud Run の publicly reachable な URL を使う）
+  #    /health と /readyz を叩いて 200 を確認。失敗時は build 全体を失敗にする。
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: smoke
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+        set -eu
+        URL="https://api.vrc-photobook.com"
+        for path in /health /readyz; do
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "${URL}${path}")
+          if [ "${code}" != "200" ]; then
+            echo "smoke failed: ${path} -> HTTP ${code}"
+            exit 1
+          fi
+          echo "smoke ok: ${path} -> HTTP 200"
+        done
+
+# build 成果物として AR の image を記録
+images:
+  - asia-northeast1-docker.pkg.dev/$PROJECT_ID/vrcpb/vrcpb-api:$SHORT_SHA
+
+# Cloud Build 実行設定
+options:
+  logging: CLOUD_LOGGING_ONLY
+  # machineType はまずデフォルト（E2_MEDIUM）から開始。
+  # 速度が気になる場合は E2_HIGHCPU_8 などに昇格を検討（PR40 で再評価）。
+
+# 全体タイムアウト（docker build + push + deploy + smoke）
+timeout: 1200s
