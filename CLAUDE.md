@@ -3,11 +3,20 @@
 VRChat 向けフォトブックサービス。**スマホファースト / ログイン不要 / 管理 URL 方式**。
 ハーネスエンジニアリング（Spec → Implement → Verify → Feedback）で開発する。
 
-## 現在地（2026-04-26）
+## 現在地（2026-04-27）
 
-**M1 完了 → M2 早期入口**。次の 1 サイクルは独自ドメイン取得 + U2 Cookie Domain 解消の計画書作成。
+**M2 中盤**。PR12〜PR23 完了（独自ドメイン / Cookie session / Image upload pipeline /
+image-processor / display + thumbnail variant 生成）。次は PR24（公開 Viewer / 管理ページ計画書）。
 
-→ 全体ロードマップ・現在地マーカー・次のサイクル・落とし穴: [`harness/work-logs/2026-04-26_project-roadmap-overview.md`](./harness/work-logs/2026-04-26_project-roadmap-overview.md)
+> **新しい PR / サイクルに着手する前に必ず最初に確認するロードマップ（新正典）**:
+> [`docs/plan/vrc-photobook-final-roadmap.md`](./docs/plan/vrc-photobook-final-roadmap.md)
+>
+> PR 番号体系・現在地マーカー・各 PR の必須項目・実リソース操作・Safari 確認要否・
+> 課金判断ポイントは本書に集約する。旧ロードマップ
+> [`harness/work-logs/2026-04-27_post-deploy-final-roadmap.md`](./harness/work-logs/2026-04-27_post-deploy-final-roadmap.md)
+> は PR12〜PR23 の進行記録としてのみ参照（PR24 以降は新正典を優先）。
+
+過去のロードマップ（M1 完了時点）: [`harness/work-logs/2026-04-26_project-roadmap-overview.md`](./harness/work-logs/2026-04-26_project-roadmap-overview.md)
 
 ## 一目で見るリンクハブ
 
