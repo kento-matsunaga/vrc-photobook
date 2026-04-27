@@ -39,11 +39,29 @@ describe("validateFile", () => {
   it("正常_jpeg_1KB", () => {
     expect(validateFile(makeFile(1024, "image/jpeg"))).toBeNull();
   });
-  it("正常_heic_1KB", () => {
-    expect(validateFile(makeFile(1024, "image/heic"))).toBeNull();
+  it("正常_png_1KB", () => {
+    expect(validateFile(makeFile(1024, "image/png"))).toBeNull();
   });
-  it("正常_heic_拡張子fallback_typeなし", () => {
-    expect(validateFile(makeFile(1024, "", "x.heic"))).toBeNull();
+  it("正常_webp_1KB", () => {
+    expect(validateFile(makeFile(1024, "image/webp"))).toBeNull();
+  });
+  it("PR22.5_heic_content_type拒否", () => {
+    expect(validateFile(makeFile(1024, "image/heic"))).toEqual({ kind: "heic_unsupported" });
+  });
+  it("PR22.5_heif_content_type拒否", () => {
+    expect(validateFile(makeFile(1024, "image/heif"))).toEqual({ kind: "heic_unsupported" });
+  });
+  it("PR22.5_heic-sequence_拒否", () => {
+    expect(validateFile(makeFile(1024, "image/heic-sequence"))).toEqual({ kind: "heic_unsupported" });
+  });
+  it("PR22.5_heic_拡張子fallback_typeなし", () => {
+    expect(validateFile(makeFile(1024, "", "x.heic"))).toEqual({ kind: "heic_unsupported" });
+  });
+  it("PR22.5_heif_拡張子fallback_typeなし", () => {
+    expect(validateFile(makeFile(1024, "", "x.heif"))).toEqual({ kind: "heic_unsupported" });
+  });
+  it("PR22.5_hif_拡張子fallback_typeなし", () => {
+    expect(validateFile(makeFile(1024, "", "x.hif"))).toEqual({ kind: "heic_unsupported" });
   });
   it("異常_svg_拒否", () => {
     expect(validateFile(makeFile(1024, "image/svg+xml"))).toEqual({ kind: "invalid_type" });
@@ -60,7 +78,7 @@ describe("sourceFormatOf", () => {
   it("image/jpeg => jpg", () => expect(sourceFormatOf("image/jpeg")).toBe("jpg"));
   it("image/png => png", () => expect(sourceFormatOf("image/png")).toBe("png"));
   it("image/webp => webp", () => expect(sourceFormatOf("image/webp")).toBe("webp"));
-  it("image/heic => heic", () => expect(sourceFormatOf("image/heic")).toBe("heic"));
+  it("PR22.5_image/heic => null", () => expect(sourceFormatOf("image/heic")).toBeNull());
   it("image/svg+xml => null", () => expect(sourceFormatOf("image/svg+xml")).toBeNull());
 });
 

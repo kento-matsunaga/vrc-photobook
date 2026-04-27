@@ -9,30 +9,51 @@
 //   - 失敗時のエラー詳細は console / 画面に出さない（kind だけを返す）
 //   - file name は upload-intent body に乗せない（DB 保存防止）
 
+// PR22.5: HEIC / HEIF は PR23 で image-processor が unsupported_format に倒すため、
+// 本リリースでは Frontend 側でも明示的に拒否する。Backend は引き続き
+// unsupported_format で防御する。HEIC 本対応（libheif + cgo）は PR25 以降に分離。
 const ALLOWED_CONTENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
-  "image/heic",
 ]);
+
+const REJECTED_HEIC_CONTENT_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+]);
+
+const REJECTED_HEIC_EXTENSIONS = [".heic", ".heif", ".hif"];
 
 export const MAX_UPLOAD_BYTE_SIZE = 10 * 1024 * 1024; // 10MB
 
 /** ファイル軽量検証の結果。失敗時は kind を返す。 */
 export type FileValidationError =
   | { kind: "invalid_type" }
+  | { kind: "heic_unsupported" }
   | { kind: "too_large" };
 
-/** File を Frontend 側で軽量検証する。 */
+/** File を Frontend 側で軽量検証する。
+ *
+ * PR22.5: HEIC / HEIF は明示的に `heic_unsupported` で拒否する（content_type と拡張子の
+ * 両軸でガード）。
+ */
 export function validateFile(file: File): FileValidationError | null {
-  // HEIC は browser によって content_type が空になる場合がある。拡張子で fallback。
-  let ct = file.type;
-  if (!ct) {
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith(".heic") || lower.endsWith(".heif")) {
-      ct = "image/heic";
+  const ct = file.type;
+  const lower = file.name.toLowerCase();
+
+  // 明示的な HEIC/HEIF 拒否
+  if (REJECTED_HEIC_CONTENT_TYPES.has(ct)) {
+    return { kind: "heic_unsupported" };
+  }
+  for (const ext of REJECTED_HEIC_EXTENSIONS) {
+    if (lower.endsWith(ext)) {
+      return { kind: "heic_unsupported" };
     }
   }
+
   if (!ALLOWED_CONTENT_TYPES.has(ct)) {
     return { kind: "invalid_type" };
   }
@@ -46,7 +67,7 @@ export function validateFile(file: File): FileValidationError | null {
 }
 
 /** content_type → source_format mapping（Backend whitelist と一致）。 */
-export function sourceFormatOf(contentType: string): "jpg" | "png" | "webp" | "heic" | null {
+export function sourceFormatOf(contentType: string): "jpg" | "png" | "webp" | null {
   switch (contentType) {
     case "image/jpeg":
       return "jpg";
@@ -54,8 +75,6 @@ export function sourceFormatOf(contentType: string): "jpg" | "png" | "webp" | "h
       return "png";
     case "image/webp":
       return "webp";
-    case "image/heic":
-      return "heic";
     default:
       return null;
   }

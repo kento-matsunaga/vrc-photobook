@@ -79,7 +79,20 @@ export function UploadClient({
     if (!f) return;
     const v = validateFile(f);
     if (v) {
-      setStatus({ kind: "error", message: v.kind === "too_large" ? "10MB 以下のファイルを選択してください。" : "対応していないファイル形式です。" });
+      let message: string;
+      switch (v.kind) {
+        case "too_large":
+          message = "10MB 以下のファイルを選択してください。";
+          break;
+        case "heic_unsupported":
+          message = "HEIC / HEIF は現在未対応です。JPEG / PNG / WebP でアップロードしてください。";
+          break;
+        default:
+          message = "対応していないファイル形式です（JPEG / PNG / WebP のみ）。";
+      }
+      setStatus({ kind: "error", message });
+      // 入力をクリアして同じファイルを再選択しても change が発火するように
+      e.target.value = "";
       return;
     }
     setPendingFile(f);
@@ -107,11 +120,7 @@ export function UploadClient({
     if (!pendingFile) return;
     if (!isTurnstileVerified(turnstileToken)) return;
     const file = pendingFile;
-    let contentType = file.type;
-    if (!contentType) {
-      const lower = file.name.toLowerCase();
-      if (lower.endsWith(".heic") || lower.endsWith(".heif")) contentType = "image/heic";
-    }
+    const contentType = file.type;
     const sf = sourceFormatOf(contentType);
     if (!sf) {
       setStatus({ kind: "error", message: ERROR_MESSAGES.invalid_parameters });
@@ -162,11 +171,15 @@ export function UploadClient({
       <div className="mt-6 rounded-lg border border-dashed border-gray-300 p-6">
         <h2 className="mb-3 text-base font-semibold">写真を追加</h2>
         <p className="mb-3 text-xs text-gray-500">
-          JPG / PNG / WEBP / HEIC、最大 10MB。
+          JPEG / PNG / WebP、最大 10MB。
+        </p>
+        <p className="mb-3 text-xs text-amber-700">
+          ※ HEIC / HEIF は現在未対応です。iPhone でアップロードする場合は、設定で写真形式を
+          「互換性優先（JPEG）」に切り替えるか、JPEG / PNG / WebP に変換してください。
         </p>
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic"
+          accept="image/jpeg,image/png,image/webp"
           onChange={handleFileSelect}
           disabled={status.kind === "verifying" || status.kind === "uploading" || status.kind === "completing"}
           className="block w-full text-sm"
