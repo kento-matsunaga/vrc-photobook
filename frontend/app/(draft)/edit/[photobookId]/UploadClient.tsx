@@ -6,7 +6,14 @@
 // セキュリティ:
 //   - Turnstile token / upload_verification_token / presigned URL / Cookie 値を
 //     UI / console / URL に出さない
-//   - upload 完了後の表示は image_id と status のみ（image preview / file name は出さない）
+//   - upload 完了後の表示は image_id と status のみ（image preview / file name は出さない)
+//
+// 多層 Bot ガード（PR22 Safari 確認時の指摘を受けて強化、2026-04-27）:
+//   - L1: アップロード開始ボタンは turnstileToken が空文字以外でなければ disabled
+//   - L2: startUpload 関数の冒頭で空 token チェック（再防御）
+//   - L3: lib/upload.ts の issueUploadVerification も空 token を弾く
+//   - L4: Backend handler が空 turnstile_token を 400 で拒否
+//   - UI: Turnstile 検証完了状態を明示的にバッジ表示（Bot 検証成功 ✓）
 "use client";
 
 import { useCallback, useState } from "react";
@@ -50,6 +57,11 @@ function isUploadError(e: unknown): e is UploadError {
   return typeof e === "object" && e !== null && "kind" in e;
 }
 
+/** Turnstile token が「実際に検証完了した」と扱える状態かを判定する。 */
+function isTurnstileVerified(token: string | null): token is string {
+  return typeof token === "string" && token.trim().length > 0;
+}
+
 export function UploadClient({
   photobookId,
   turnstileSiteKey,
@@ -76,15 +88,24 @@ export function UploadClient({
   }, []);
 
   const handleTurnstileVerify = useCallback((token: string) => {
+    // 念のため空文字を弾く（widget の不正実装に対する defensive）
+    if (typeof token !== "string" || token.trim() === "") return;
     setTurnstileToken(token);
   }, []);
 
   const handleTurnstileError = useCallback(() => {
+    setTurnstileToken(null);
     setStatus({ kind: "error", message: ERROR_MESSAGES.verification_failed });
   }, []);
 
+  const handleTurnstileExpired = useCallback(() => {
+    setTurnstileToken(null);
+  }, []);
+
   const startUpload = useCallback(async () => {
-    if (!pendingFile || !turnstileToken) return;
+    // L2: defensive ガード（disabled UI を突破された / 状態 race のとき確実に弾く）
+    if (!pendingFile) return;
+    if (!isTurnstileVerified(turnstileToken)) return;
     const file = pendingFile;
     let contentType = file.type;
     if (!contentType) {
@@ -124,6 +145,13 @@ export function UploadClient({
     }
   }, [pendingFile, turnstileToken, photobookId]);
 
+  const tokenReady = isTurnstileVerified(turnstileToken);
+  const buttonDisabled =
+    !tokenReady ||
+    status.kind === "verifying" ||
+    status.kind === "uploading" ||
+    status.kind === "completing";
+
   return (
     <section className="mx-auto max-w-3xl p-8">
       <h1 className="mb-4 text-xl font-semibold">Draft 編集ページ</h1>
@@ -149,28 +177,50 @@ export function UploadClient({
             <p className="text-sm text-gray-700">
               選択中: {pendingFile.size.toLocaleString()} byte
             </p>
+
             <div className="mt-3">
+              <p className="mb-2 text-xs text-gray-500">
+                Bot 検証（Cloudflare Turnstile）を完了してください。
+              </p>
               <TurnstileWidget
                 sitekey={turnstileSiteKey}
                 action="upload"
                 onVerify={handleTurnstileVerify}
                 onError={handleTurnstileError}
-                onExpired={() => setTurnstileToken(null)}
+                onExpired={handleTurnstileExpired}
               />
+              <p
+                className={
+                  "mt-2 text-xs " +
+                  (tokenReady ? "text-emerald-700" : "text-gray-500")
+                }
+                aria-live="polite"
+                data-testid="turnstile-state"
+              >
+                {tokenReady ? "Bot 検証成功 ✓ アップロード可能" : "Bot 検証 未完了（widget の challenge を完了してください）"}
+              </p>
             </div>
+
             <button
               type="button"
               onClick={startUpload}
-              disabled={!turnstileToken || status.kind === "verifying" || status.kind === "uploading" || status.kind === "completing"}
-              className="mt-3 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              disabled={buttonDisabled}
+              data-testid="upload-button"
+              aria-disabled={buttonDisabled}
+              className="mt-3 rounded-md bg-teal-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               アップロード開始
             </button>
+            {!tokenReady && (
+              <p className="mt-1 text-xs text-gray-500">
+                ※ Bot 検証が完了するまでアップロードできません。
+              </p>
+            )}
           </div>
         )}
 
         <div className="mt-4 text-sm">
-          {status.kind === "verifying" && <p>Bot 検証中…</p>}
+          {status.kind === "verifying" && <p>サーバ側で Bot 検証中…</p>}
           {status.kind === "uploading" && <p>アップロード中…</p>}
           {status.kind === "completing" && <p>完了処理中…</p>}
           {status.kind === "processing" && (

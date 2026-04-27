@@ -99,12 +99,19 @@ export type UploadError =
   | { kind: "validation_failed" }
   | { kind: "network" };
 
-/** POST /api/photobooks/{id}/upload-verifications */
+/** POST /api/photobooks/{id}/upload-verifications
+ *
+ * L3 defensive guard: 空 / 空白文字 token は Backend へ送らず即拒否する。
+ * Frontend disabled / startUpload guard と多層防御。
+ */
 export async function issueUploadVerification(
   photobookId: string,
   turnstileToken: string,
   signal?: AbortSignal,
 ): Promise<UploadVerificationResponse> {
+  if (typeof turnstileToken !== "string" || turnstileToken.trim() === "") {
+    throw { kind: "verification_failed" } satisfies UploadError;
+  }
   const url = `${getApiBaseUrl()}/api/photobooks/${photobookId}/upload-verifications/`;
   let res: Response;
   try {

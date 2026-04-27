@@ -88,6 +88,14 @@ describe("issueUploadVerification", () => {
     await expect(issueUploadVerification("pid", "x")).rejects.toMatchObject({ kind: "verification_failed" } satisfies UploadError);
   });
 
+  it("ガード_空token_は_fetch_せずに_verification_failed", async () => {
+    const mockFetch = vi.fn(async () => new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", mockFetch);
+    await expect(issueUploadVerification("pid", "")).rejects.toMatchObject({ kind: "verification_failed" } satisfies UploadError);
+    await expect(issueUploadVerification("pid", "   ")).rejects.toMatchObject({ kind: "verification_failed" } satisfies UploadError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("異常_503で turnstile_unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 503 })));
     await expect(issueUploadVerification("pid", "x")).rejects.toMatchObject({ kind: "turnstile_unavailable" } satisfies UploadError);

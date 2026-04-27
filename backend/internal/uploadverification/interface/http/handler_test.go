@@ -219,6 +219,43 @@ func TestIssueUploadVerification_DraftSessionMissing(t *testing.T) {
 	}
 }
 
+func TestIssueUploadVerification_EmptyTurnstileToken(t *testing.T) {
+	pool := dbPool(t)
+	pid, rawTok := seedPhotobookAndDraftSession(t, pool)
+	router := buildRouter(t, pool, &uvtests.FakeTurnstile{})
+
+	body, _ := json.Marshal(map[string]string{"turnstile_token": ""})
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/photobooks/"+pid.String()+"/upload-verifications/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	withDraftCookie(req, pid, rawTok)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d want 400", rec.Code)
+	}
+}
+
+func TestIssueUploadVerification_MissingTurnstileTokenField(t *testing.T) {
+	pool := dbPool(t)
+	pid, rawTok := seedPhotobookAndDraftSession(t, pool)
+	router := buildRouter(t, pool, &uvtests.FakeTurnstile{})
+
+	// turnstile_token フィールド欠落 → JSON decode は成功するが空文字列扱いで 400
+	body := []byte(`{}`)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/photobooks/"+pid.String()+"/upload-verifications/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	withDraftCookie(req, pid, rawTok)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d want 400", rec.Code)
+	}
+}
+
 func TestIssueUploadVerification_PhotobookMismatch(t *testing.T) {
 	pool := dbPool(t)
 	pid, rawTok := seedPhotobookAndDraftSession(t, pool)
