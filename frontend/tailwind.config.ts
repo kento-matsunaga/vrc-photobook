@@ -36,6 +36,8 @@ const config: Config = {
         status: {
           error: "#EF4444",
           "error-soft": "#FEF2F2",
+          warn: "#D97706",
+          "warn-soft": "#FFF7ED",
         },
       },
       fontFamily: {
