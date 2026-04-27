@@ -79,8 +79,8 @@ describe("issueUploadVerification", () => {
     expect(got.allowedIntentCount).toBe(20);
     expect(got.uploadVerificationToken.length).toBe(43);
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const url = mockFetch.mock.calls[0][0];
-    expect(url).toBe("https://api.test/api/photobooks/pid/upload-verifications/");
+    const calls = mockFetch.mock.calls as unknown as Array<[string, RequestInit | undefined]>;
+    expect(calls[0][0]).toBe("https://api.test/api/photobooks/pid/upload-verifications/");
   });
 
   it("異常_403で verification_failed", async () => {
@@ -115,7 +115,8 @@ describe("issueUploadIntent", () => {
     const got = await issueUploadIntent("pid", "uv-token", "image/jpeg", 1024, "jpg");
     expect(got.imageId).toBe("iid");
     expect(got.requiredHeaders["Content-Type"]).toBe("image/jpeg");
-    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    const calls = mockFetch.mock.calls as unknown as Array<[string, RequestInit | undefined]>;
+    const init = calls[0][1] as RequestInit;
     expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer uv-token");
   });
 
