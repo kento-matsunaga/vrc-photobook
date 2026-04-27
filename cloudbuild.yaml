@@ -49,6 +49,9 @@ steps:
 
   # 4) smoke（独自ドメイン経由、Cloud Run の publicly reachable な URL を使う）
   #    /health と /readyz を叩いて 200 を確認。失敗時は build 全体を失敗にする。
+  #
+  # 注意: Cloud Build の substitution parser は $VAR を予約変数として解釈するため、
+  #       bash 変数は $$VAR にエスケープする（$$ → $）。
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: smoke
     entrypoint: bash
@@ -58,12 +61,12 @@ steps:
         set -eu
         URL="https://api.vrc-photobook.com"
         for path in /health /readyz; do
-          code=$(curl -sS -o /dev/null -w "%{http_code}" "${URL}${path}")
-          if [ "${code}" != "200" ]; then
-            echo "smoke failed: ${path} -> HTTP ${code}"
+          code=$$(curl -sS -o /dev/null -w "%{http_code}" "$${URL}$${path}")
+          if [ "$${code}" != "200" ]; then
+            echo "smoke failed: $${path} -> HTTP $${code}"
             exit 1
           fi
-          echo "smoke ok: ${path} -> HTTP 200"
+          echo "smoke ok: $${path} -> HTTP 200"
         done
 
 # build 成果物として AR の image を記録
