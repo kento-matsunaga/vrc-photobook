@@ -78,14 +78,18 @@ func main() {
 	// PR9c: pool が利用可能なときだけ Photobook の token 交換 endpoint を組み立てる。
 	// pool 未設定（DATABASE_URL 空）時は handler nil で渡して endpoint 自体を作らない。
 	var photobookHandlers *photobookhttp.Handlers
+	var photobookManageHandlers *photobookhttp.ManageHandlers
 	if pool != nil {
 		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
+		// PR25a: 管理ページ read endpoint（pool だけで完結）
+		photobookManageHandlers = wireup.BuildManageReadHandlers(pool)
 	}
 
 	// PR21: R2 が configured かつ pool 利用可能なときに imageupload endpoint を組み立てる。
 	// PR21 Step A 段階では R2 Secret 未注入（IsR2Configured()=false）のため、handler は
 	// nil で渡され endpoint は登録されない。Step D で Secret を注入後に有効化される。
 	var imageUploadHandlers *imageuploadhttp.Handlers
+	var photobookPublicHandlers *photobookhttp.PublicHandlers
 	if pool != nil && cfg.IsR2Configured() {
 		r2Client, err := r2.NewAWSClient(r2.AWSConfig{
 			AccountID:       cfg.R2AccountID,
@@ -99,6 +103,8 @@ func main() {
 				slog.String("error", err.Error()))
 		} else {
 			imageUploadHandlers = imageuploadwireup.BuildHandlers(pool, r2Client, imageuploadhttp.SystemClock{})
+			// PR25a: 公開 Viewer は presigned GET URL を返すため r2Client を必要とする
+			photobookPublicHandlers = wireup.BuildPublicHandlers(pool, r2Client)
 			logger.Info("r2 configured; image upload endpoints enabled")
 		}
 	} else if pool != nil {
@@ -124,12 +130,17 @@ func main() {
 	routerCfg := internalhttp.RouterConfig{
 		Pool:                       pool,
 		PhotobookHandlers:          photobookHandlers,
+		PhotobookPublicHandlers:    photobookPublicHandlers,
+		PhotobookManageHandlers:    photobookManageHandlers,
 		ImageUploadHandlers:        imageUploadHandlers,
 		UploadVerificationHandlers: uvHandlers,
 		AllowedOrigins:             cfg.AllowedOrigins,
 	}
-	if imageUploadHandlers != nil || uvHandlers != nil {
-		routerCfg.DraftSessionValidator = sessionintegration.NewSessionValidator(pool)
+	// session validator は draft / manage 共通（session_type は middleware が渡す）。
+	if imageUploadHandlers != nil || uvHandlers != nil || photobookManageHandlers != nil {
+		validator := sessionintegration.NewSessionValidator(pool)
+		routerCfg.DraftSessionValidator = validator
+		routerCfg.ManageSessionValidator = validator
 	}
 	router := internalhttp.NewRouter(routerCfg)
 	srv := &http.Server{

@@ -35,9 +35,12 @@ import (
 type RouterConfig struct {
 	Pool                       *pgxpool.Pool
 	PhotobookHandlers          *photobookhttp.Handlers
+	PhotobookPublicHandlers    *photobookhttp.PublicHandlers
+	PhotobookManageHandlers    *photobookhttp.ManageHandlers
 	ImageUploadHandlers        *imageuploadhttp.Handlers
 	UploadVerificationHandlers *uvhttp.Handlers
 	DraftSessionValidator      authmiddleware.Validator
+	ManageSessionValidator     authmiddleware.Validator
 	AllowedOrigins             string
 }
 
@@ -75,6 +78,19 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		r.Route("/api/photobooks/{id}/upload-verifications", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
 			sub.Post("/", cfg.UploadVerificationHandlers.IssueUploadVerification)
+		})
+	}
+
+	// PR25a: 公開 Viewer endpoint（認可不要、slug ベース）。
+	if cfg.PhotobookPublicHandlers != nil {
+		r.Get("/api/public/photobooks/{slug}", cfg.PhotobookPublicHandlers.GetPublicPhotobook)
+	}
+
+	// PR25a: 管理ページ read endpoint。manage session middleware を chain。
+	if cfg.PhotobookManageHandlers != nil && cfg.ManageSessionValidator != nil {
+		r.Route("/api/manage/photobooks/{id}", func(sub chi.Router) {
+			sub.Use(authmiddleware.RequireManageSession(cfg.ManageSessionValidator, photobookIDFromURL))
+			sub.Get("/", cfg.PhotobookManageHandlers.GetManagePhotobook)
 		})
 	}
 	return r

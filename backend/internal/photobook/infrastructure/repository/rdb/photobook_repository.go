@@ -109,6 +109,23 @@ func (r *PhotobookRepository) FindBySlug(ctx context.Context, s slug.Slug) (doma
 	return marshaller.FromRow(row)
 }
 
+// FindAnyBySlug は status / hidden_by_operator を問わず slug 一致の Photobook を返す。
+//
+// PR25a 公開 Viewer の usecase が 200 / 410 / 404 を分岐するために使う
+// （plan §3.2 / m2-public-viewer-and-manage-plan.md）。
+// 0 行は ErrNotFound を返す。
+func (r *PhotobookRepository) FindAnyBySlug(ctx context.Context, s slug.Slug) (domain.Photobook, error) {
+	val := s.String()
+	row, err := r.q.FindPhotobookBySlugAny(ctx, &val)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Photobook{}, ErrNotFound
+		}
+		return domain.Photobook{}, err
+	}
+	return marshaller.FromRow(row)
+}
+
 // TouchDraft は draft_expires_at を newExpiresAt に延長する。
 // 0 行 UPDATE（version 不一致 / status≠draft）は ErrOptimisticLockConflict。
 func (r *PhotobookRepository) TouchDraft(

@@ -99,6 +99,28 @@ func (c *AWSClient) PresignPutObject(ctx context.Context, in PresignPutInput) (P
 	}, nil
 }
 
+// PresignGetObject は短命 GET URL を生成する（PR25a Viewer / Manage 配信用）。
+//
+// ExpiresIn は呼び出し側から渡す。0 以下の場合は 15 分（plan §5.3）。
+// 戻り値の URL はログに出さない。
+func (c *AWSClient) PresignGetObject(ctx context.Context, in PresignGetInput) (PresignGetOutput, error) {
+	expiresIn := in.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 15 * time.Minute
+	}
+	req, err := c.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(c.bucket),
+		Key:    aws.String(in.StorageKey),
+	}, s3.WithPresignExpires(expiresIn))
+	if err != nil {
+		return PresignGetOutput{}, fmt.Errorf("%w: presign get: %w", ErrUnavailable, err)
+	}
+	return PresignGetOutput{
+		URL:       req.URL,
+		ExpiresAt: time.Now().Add(expiresIn),
+	}, nil
+}
+
 // HeadObject は object 存在 + メタを取得する。
 func (c *AWSClient) HeadObject(ctx context.Context, key string) (HeadObjectOutput, error) {
 	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{

@@ -23,6 +23,7 @@ import (
 //   - PutObject: nil 成功
 type FakeR2Client struct {
 	PresignPutObjectFn func(ctx context.Context, in r2.PresignPutInput) (r2.PresignPutOutput, error)
+	PresignGetObjectFn func(ctx context.Context, in r2.PresignGetInput) (r2.PresignGetOutput, error)
 	HeadObjectFn       func(ctx context.Context, key string) (r2.HeadObjectOutput, error)
 	DeleteObjectFn     func(ctx context.Context, key string) error
 	GetObjectFn        func(ctx context.Context, key string) (r2.GetObjectOutput, error)
@@ -41,6 +42,17 @@ func (f *FakeR2Client) PresignPutObject(ctx context.Context, in r2.PresignPutInp
 			"Content-Type":   in.ContentType,
 			"Content-Length": strFromInt64(in.ContentLength),
 		},
+		ExpiresAt: time.Now().Add(in.ExpiresIn),
+	}, nil
+}
+
+// PresignGetObject は PresignGetObjectFn を呼び出す。
+func (f *FakeR2Client) PresignGetObject(ctx context.Context, in r2.PresignGetInput) (r2.PresignGetOutput, error) {
+	if f.PresignGetObjectFn != nil {
+		return f.PresignGetObjectFn(ctx, in)
+	}
+	return r2.PresignGetOutput{
+		URL:       "https://fake.r2.test/get/" + in.StorageKey,
 		ExpiresAt: time.Now().Add(in.ExpiresIn),
 	}, nil
 }

@@ -25,6 +25,21 @@ var (
 	ErrUnavailable = errors.New("r2 client unavailable")
 )
 
+// PresignGetInput は PresignGetObject 呼び出しの引数。
+//
+// Viewer / Manage 経路で公開画像を短命 URL で配信する用途（PR25a / plan §5.2）。
+// R2 public access OFF の前提で、Backend が要求のたびに短命 GET URL を生成する。
+type PresignGetInput struct {
+	StorageKey string
+	ExpiresIn  time.Duration
+}
+
+// PresignGetOutput は PresignGetObject の結果。URL はログに出さない。
+type PresignGetOutput struct {
+	URL       string
+	ExpiresAt time.Time
+}
+
 // PresignPutInput は PresignPutObject 呼び出しの引数。
 //
 // ContentLength は申告サイズ。aws-sdk-go-v2 の presign は Content-Length を
@@ -81,6 +96,7 @@ type ListObjectsOutput struct {
 // 設計: m2-image-processor-plan.md §8）。
 type Client interface {
 	PresignPutObject(ctx context.Context, in PresignPutInput) (PresignPutOutput, error)
+	PresignGetObject(ctx context.Context, in PresignGetInput) (PresignGetOutput, error)
 	HeadObject(ctx context.Context, key string) (HeadObjectOutput, error)
 	DeleteObject(ctx context.Context, key string) error
 	GetObject(ctx context.Context, key string) (GetObjectOutput, error)

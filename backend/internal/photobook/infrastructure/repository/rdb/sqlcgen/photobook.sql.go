@@ -295,6 +295,55 @@ func (q *Queries) FindPhotobookBySlug(ctx context.Context, publicUrlSlug *string
 	return i, err
 }
 
+const findPhotobookBySlugAny = `-- name: FindPhotobookBySlugAny :one
+SELECT
+    id, type, title, description, layout, opening_style, visibility,
+    sensitive, rights_agreed, rights_agreed_at, creator_display_name,
+    creator_x_id, cover_title, cover_image_id, public_url_slug,
+    manage_url_token_hash, manage_url_token_version, draft_edit_token_hash,
+    draft_expires_at, status, hidden_by_operator, version, published_at,
+    created_at, updated_at, deleted_at
+FROM photobooks
+WHERE public_url_slug = $1
+`
+
+// FindPhotobookBySlugAny: slug 一致のみで status / hidden_by_operator を判別しない。
+// PR25a 公開 Viewer は status / hidden / visibility を usecase 側で判定して
+// 200 / 410 / 404 を分岐するため、より permissive な query を別に置く。
+func (q *Queries) FindPhotobookBySlugAny(ctx context.Context, publicUrlSlug *string) (Photobook, error) {
+	row := q.db.QueryRow(ctx, findPhotobookBySlugAny, publicUrlSlug)
+	var i Photobook
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Title,
+		&i.Description,
+		&i.Layout,
+		&i.OpeningStyle,
+		&i.Visibility,
+		&i.Sensitive,
+		&i.RightsAgreed,
+		&i.RightsAgreedAt,
+		&i.CreatorDisplayName,
+		&i.CreatorXID,
+		&i.CoverTitle,
+		&i.CoverImageID,
+		&i.PublicUrlSlug,
+		&i.ManageUrlTokenHash,
+		&i.ManageUrlTokenVersion,
+		&i.DraftEditTokenHash,
+		&i.DraftExpiresAt,
+		&i.Status,
+		&i.HiddenByOperator,
+		&i.Version,
+		&i.PublishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const publishPhotobookFromDraft = `-- name: PublishPhotobookFromDraft :execrows
 UPDATE photobooks
    SET status                   = 'published',

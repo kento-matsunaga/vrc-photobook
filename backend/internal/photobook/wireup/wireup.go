@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"vrcpb/backend/internal/imageupload/infrastructure/r2"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/infrastructure/session_adapter"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
@@ -39,4 +40,27 @@ func BuildHandlers(
 	manageExchange := usecase.NewExchangeManageTokenForSession(repo, manageIssuer)
 
 	return photobookhttp.NewHandlers(draftExchange, manageExchange, manageSessionTTL, clock)
+}
+
+// BuildPublicHandlers は公開 Viewer 用の HTTP Handlers を組み立てる（PR25a）。
+//
+// r2Client は presigned GET URL 発行に使う。pool が nil / r2Client が nil の場合は nil を返す
+// （main.go 側で endpoint 自体を登録しない判断）。
+func BuildPublicHandlers(pool *pgxpool.Pool, r2Client r2.Client) *photobookhttp.PublicHandlers {
+	if pool == nil || r2Client == nil {
+		return nil
+	}
+	uc := usecase.NewGetPublicPhotobook(pool, r2Client)
+	return photobookhttp.NewPublicHandlers(uc)
+}
+
+// BuildManageReadHandlers は管理ページ用の HTTP Handlers を組み立てる（PR25a）。
+//
+// pool が nil の場合は nil を返す。
+func BuildManageReadHandlers(pool *pgxpool.Pool) *photobookhttp.ManageHandlers {
+	if pool == nil {
+		return nil
+	}
+	uc := usecase.NewGetManagePhotobook(pool)
+	return photobookhttp.NewManageHandlers(uc)
 }

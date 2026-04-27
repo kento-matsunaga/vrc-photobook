@@ -92,6 +92,20 @@ WHERE public_url_slug = $1
   AND status = 'published'
   AND hidden_by_operator = false;
 
+-- FindPhotobookBySlugAny: slug 一致のみで status / hidden_by_operator を判別しない。
+-- PR25a 公開 Viewer は status / hidden / visibility を usecase 側で判定して
+-- 200 / 410 / 404 を分岐するため、より permissive な query を別に置く。
+-- name: FindPhotobookBySlugAny :one
+SELECT
+    id, type, title, description, layout, opening_style, visibility,
+    sensitive, rights_agreed, rights_agreed_at, creator_display_name,
+    creator_x_id, cover_title, cover_image_id, public_url_slug,
+    manage_url_token_hash, manage_url_token_version, draft_edit_token_hash,
+    draft_expires_at, status, hidden_by_operator, version, published_at,
+    created_at, updated_at, deleted_at
+FROM photobooks
+WHERE public_url_slug = $1;
+
 -- name: TouchDraftPhotobook :execrows
 UPDATE photobooks
    SET draft_expires_at = $2,
