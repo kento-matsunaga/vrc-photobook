@@ -477,3 +477,119 @@ func timePtrToPgDate(t *time.Time) pgtype.Date {
 // suppress unused import warning（image_id は exported 型として使用されているが、
 // import 整列時に保護するため）
 var _ = uuid.Nil
+
+// === PR27 新規 ===
+
+// UpdatePhotoCaption は Photo の caption を単独で更新する（version+1 と同 TX）。
+//
+// caption が nil なら NULL を保存する。0 行 UPDATE は ErrPhotoNotFound。
+func (r *PhotobookRepository) UpdatePhotoCaption(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+	id photo_id.PhotoID,
+	c *caption.Caption,
+	expectedVersion int,
+	now time.Time,
+) error {
+	if err := r.bumpVersion(ctx, photobookID, expectedVersion, now); err != nil {
+		return err
+	}
+	rows, err := r.q.UpdatePhotobookPhotoCaption(ctx, sqlcgen.UpdatePhotobookPhotoCaptionParams{
+		ID:      pgtype.UUID{Bytes: id.UUID(), Valid: true},
+		Caption: captionPtr(c),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrPhotoNotFound
+	}
+	return nil
+}
+
+// PhotoOrderAssignment は BulkReorderPhotosOnPage の引数の 1 件分。
+type PhotoOrderAssignment struct {
+	PhotoID  photo_id.PhotoID
+	NewOrder display_order.DisplayOrder
+}
+
+// BulkReorderPhotosOnPage は同 page 内の photo 群の display_order を一括で再配置する。
+//
+// アルゴリズム（PR27 計画書 §5.4 方式 A）:
+//  1. photobooks.version+1（status=draft AND version=$expected で OCC）
+//  2. 同 page の全 photo の display_order を +1000 して一時退避（UNIQUE 衝突回避）
+//  3. assignments の各 (photo_id, new_order) を順次 UPDATE
+//  4. すべて同 TX 内で実行
+//
+// 0 行 / 個数不一致は ErrPhotoNotFound に集約。
+func (r *PhotobookRepository) BulkReorderPhotosOnPage(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+	pageID page_id.PageID,
+	assignments []PhotoOrderAssignment,
+	expectedVersion int,
+	now time.Time,
+) error {
+	if err := r.bumpVersion(ctx, photobookID, expectedVersion, now); err != nil {
+		return err
+	}
+	if _, err := r.q.BulkOffsetPhotoOrdersOnPage(ctx,
+		pgtype.UUID{Bytes: pageID.UUID(), Valid: true}); err != nil {
+		return err
+	}
+	for _, a := range assignments {
+		rows, err := r.q.UpdatePhotobookPhotoOrder(ctx, sqlcgen.UpdatePhotobookPhotoOrderParams{
+			ID:           pgtype.UUID{Bytes: a.PhotoID.UUID(), Valid: true},
+			DisplayOrder: int32(a.NewOrder.Int()),
+		})
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return ErrPhotoNotFound
+		}
+	}
+	return nil
+}
+
+// PhotobookSettings は UpdateSettings の入力値（VO 化済み）。
+type PhotobookSettings struct {
+	Type         string
+	Title        string
+	Description  *string
+	Layout       string
+	OpeningStyle string
+	Visibility   string
+	CoverTitle   *string
+}
+
+// UpdateSettings は draft Photobook の settings 一括 PATCH。
+//
+// 0 行 UPDATE は ErrOptimisticLockConflict（draft 以外 / version 不一致 を区別しない）。
+func (r *PhotobookRepository) UpdateSettings(
+	ctx context.Context,
+	id photobook_id.PhotobookID,
+	s PhotobookSettings,
+	expectedVersion int,
+	now time.Time,
+) error {
+	rows, err := r.q.UpdatePhotobookSettings(ctx, sqlcgen.UpdatePhotobookSettingsParams{
+		ID:           pgtype.UUID{Bytes: id.UUID(), Valid: true},
+		Type:         s.Type,
+		Title:        s.Title,
+		Description:  s.Description,
+		Layout:       s.Layout,
+		OpeningStyle: s.OpeningStyle,
+		Visibility:   s.Visibility,
+		CoverTitle:   s.CoverTitle,
+		UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+		Version:      int32(expectedVersion),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrOptimisticLockConflict
+	}
+	return nil
+}

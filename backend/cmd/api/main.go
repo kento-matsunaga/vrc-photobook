@@ -90,6 +90,7 @@ func main() {
 	// nil で渡され endpoint は登録されない。Step D で Secret を注入後に有効化される。
 	var imageUploadHandlers *imageuploadhttp.Handlers
 	var photobookPublicHandlers *photobookhttp.PublicHandlers
+	var photobookEditHandlers *photobookhttp.EditHandlers
 	if pool != nil && cfg.IsR2Configured() {
 		r2Client, err := r2.NewAWSClient(r2.AWSConfig{
 			AccountID:       cfg.R2AccountID,
@@ -105,6 +106,8 @@ func main() {
 			imageUploadHandlers = imageuploadwireup.BuildHandlers(pool, r2Client, imageuploadhttp.SystemClock{})
 			// PR25a: 公開 Viewer は presigned GET URL を返すため r2Client を必要とする
 			photobookPublicHandlers = wireup.BuildPublicHandlers(pool, r2Client)
+			// PR27: 編集 UI も edit-view で variant URL を返すため r2Client が必要
+			photobookEditHandlers = wireup.BuildEditHandlers(pool, r2Client)
 			logger.Info("r2 configured; image upload endpoints enabled")
 		}
 	} else if pool != nil {
@@ -132,12 +135,13 @@ func main() {
 		PhotobookHandlers:          photobookHandlers,
 		PhotobookPublicHandlers:    photobookPublicHandlers,
 		PhotobookManageHandlers:    photobookManageHandlers,
+		PhotobookEditHandlers:      photobookEditHandlers,
 		ImageUploadHandlers:        imageUploadHandlers,
 		UploadVerificationHandlers: uvHandlers,
 		AllowedOrigins:             cfg.AllowedOrigins,
 	}
 	// session validator は draft / manage 共通（session_type は middleware が渡す）。
-	if imageUploadHandlers != nil || uvHandlers != nil || photobookManageHandlers != nil {
+	if imageUploadHandlers != nil || uvHandlers != nil || photobookManageHandlers != nil || photobookEditHandlers != nil {
 		validator := sessionintegration.NewSessionValidator(pool)
 		routerCfg.DraftSessionValidator = validator
 		routerCfg.ManageSessionValidator = validator

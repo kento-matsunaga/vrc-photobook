@@ -82,6 +82,21 @@ UPDATE photobook_photos
    SET display_order = $2
  WHERE id = $1;
 
+-- BulkOffsetPhotoOrdersOnPage: PR27 reorder 一時退避用。
+-- 同 page 内の全 photo の display_order を +1000 オフセットして UNIQUE 衝突を一時的に回避する。
+-- 呼び出し側は同 TX 内で各 photo を新 display_order に書き戻す。
+-- name: BulkOffsetPhotoOrdersOnPage :execrows
+UPDATE photobook_photos
+   SET display_order = display_order + 1000
+ WHERE page_id = $1;
+
+-- UpdatePhotobookPhotoCaption: PR27 photo caption 単独編集。
+-- caption は VARCHAR/TEXT で NULL 許容（空 caption は NULL として保存）。
+-- name: UpdatePhotobookPhotoCaption :execrows
+UPDATE photobook_photos
+   SET caption = $2
+ WHERE id = $1;
+
 -- name: UpsertPhotobookPageMeta :exec
 INSERT INTO photobook_page_metas (
     page_id, world, cast_list, photographer, note, event_date, created_at, updated_at

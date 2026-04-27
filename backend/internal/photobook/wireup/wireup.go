@@ -64,3 +64,24 @@ func BuildManageReadHandlers(pool *pgxpool.Pool) *photobookhttp.ManageHandlers {
 	uc := usecase.NewGetManagePhotobook(pool)
 	return photobookhttp.NewManageHandlers(uc)
 }
+
+// BuildEditHandlers は編集 UI 本格化（PR27）用の HTTP Handlers を組み立てる。
+//
+// r2Client は edit-view の display/thumbnail presigned URL 発行に必要。
+// pool / r2Client が nil なら nil を返す（main.go 側で endpoint を登録しない判断）。
+func BuildEditHandlers(pool *pgxpool.Pool, r2Client r2.Client) *photobookhttp.EditHandlers {
+	if pool == nil || r2Client == nil {
+		return nil
+	}
+	return photobookhttp.NewEditHandlers(
+		usecase.NewGetEditView(pool, r2Client),
+		usecase.NewUpdatePhotoCaption(pool),
+		usecase.NewBulkReorderPhotosOnPage(pool),
+		usecase.NewUpdatePhotobookSettings(pool),
+		usecase.NewAddPage(pool),
+		usecase.NewRemovePage(pool),
+		usecase.NewRemovePhoto(pool),
+		usecase.NewSetCoverImage(pool),
+		usecase.NewClearCoverImage(pool),
+	)
+}

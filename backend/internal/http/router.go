@@ -37,6 +37,7 @@ type RouterConfig struct {
 	PhotobookHandlers          *photobookhttp.Handlers
 	PhotobookPublicHandlers    *photobookhttp.PublicHandlers
 	PhotobookManageHandlers    *photobookhttp.ManageHandlers
+	PhotobookEditHandlers      *photobookhttp.EditHandlers
 	ImageUploadHandlers        *imageuploadhttp.Handlers
 	UploadVerificationHandlers *uvhttp.Handlers
 	DraftSessionValidator      authmiddleware.Validator
@@ -91,6 +92,22 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 		r.Route("/api/manage/photobooks/{id}", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireManageSession(cfg.ManageSessionValidator, photobookIDFromURL))
 			sub.Get("/", cfg.PhotobookManageHandlers.GetManagePhotobook)
+		})
+	}
+
+	// PR27: 編集 UI 本格化 endpoint。draft session middleware を chain（manage Cookie では不可）。
+	if cfg.PhotobookEditHandlers != nil && cfg.DraftSessionValidator != nil {
+		r.Route("/api/photobooks/{id}", func(sub chi.Router) {
+			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
+			sub.Get("/edit-view", cfg.PhotobookEditHandlers.GetEditView)
+			sub.Patch("/settings", cfg.PhotobookEditHandlers.UpdateSettings)
+			sub.Post("/pages", cfg.PhotobookEditHandlers.AddPage)
+			sub.Delete("/pages/{pageId}", cfg.PhotobookEditHandlers.RemovePage)
+			sub.Patch("/photos/reorder", cfg.PhotobookEditHandlers.BulkReorderPhotos)
+			sub.Patch("/photos/{photoId}/caption", cfg.PhotobookEditHandlers.UpdatePhotoCaption)
+			sub.Delete("/photos/{photoId}", cfg.PhotobookEditHandlers.RemovePhoto)
+			sub.Patch("/cover-image", cfg.PhotobookEditHandlers.SetCoverImage)
+			sub.Delete("/cover-image", cfg.PhotobookEditHandlers.ClearCoverImage)
 		})
 	}
 	return r

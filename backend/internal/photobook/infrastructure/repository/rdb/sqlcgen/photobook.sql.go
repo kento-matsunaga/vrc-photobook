@@ -430,3 +430,56 @@ func (q *Queries) TouchDraftPhotobook(ctx context.Context, arg TouchDraftPhotobo
 	}
 	return result.RowsAffected(), nil
 }
+
+const updatePhotobookSettings = `-- name: UpdatePhotobookSettings :execrows
+UPDATE photobooks
+   SET type           = $2,
+       title          = $3,
+       description    = $4,
+       layout         = $5,
+       opening_style  = $6,
+       visibility     = $7,
+       cover_title    = $8,
+       updated_at     = $9,
+       version        = version + 1
+ WHERE id      = $1
+   AND status  = 'draft'
+   AND version = $10
+`
+
+type UpdatePhotobookSettingsParams struct {
+	ID           pgtype.UUID
+	Type         string
+	Title        string
+	Description  *string
+	Layout       string
+	OpeningStyle string
+	Visibility   string
+	CoverTitle   *string
+	UpdatedAt    pgtype.Timestamptz
+	Version      int32
+}
+
+// UpdatePhotobookSettings: PR27 編集 UI から settings 一括 PATCH。
+//
+// title / description / type / layout / opening_style / visibility / cover_title を
+// まとめて更新する。version+1 を含めて status='draft' AND version=$expected で OCC。
+// 0 行影響は ErrOptimisticLockConflict。
+func (q *Queries) UpdatePhotobookSettings(ctx context.Context, arg UpdatePhotobookSettingsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePhotobookSettings,
+		arg.ID,
+		arg.Type,
+		arg.Title,
+		arg.Description,
+		arg.Layout,
+		arg.OpeningStyle,
+		arg.Visibility,
+		arg.CoverTitle,
+		arg.UpdatedAt,
+		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

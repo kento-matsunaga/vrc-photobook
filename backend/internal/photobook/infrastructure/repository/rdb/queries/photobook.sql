@@ -106,6 +106,26 @@ SELECT
 FROM photobooks
 WHERE public_url_slug = $1;
 
+-- UpdatePhotobookSettings: PR27 編集 UI から settings 一括 PATCH。
+--
+-- title / description / type / layout / opening_style / visibility / cover_title を
+-- まとめて更新する。version+1 を含めて status='draft' AND version=$expected で OCC。
+-- 0 行影響は ErrOptimisticLockConflict。
+-- name: UpdatePhotobookSettings :execrows
+UPDATE photobooks
+   SET type           = $2,
+       title          = $3,
+       description    = $4,
+       layout         = $5,
+       opening_style  = $6,
+       visibility     = $7,
+       cover_title    = $8,
+       updated_at     = $9,
+       version        = version + 1
+ WHERE id      = $1
+   AND status  = 'draft'
+   AND version = $10;
+
 -- name: TouchDraftPhotobook :execrows
 UPDATE photobooks
    SET draft_expires_at = $2,

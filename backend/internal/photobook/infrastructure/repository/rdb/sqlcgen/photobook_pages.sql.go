@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bulkOffsetPhotoOrdersOnPage = `-- name: BulkOffsetPhotoOrdersOnPage :execrows
+UPDATE photobook_photos
+   SET display_order = display_order + 1000
+ WHERE page_id = $1
+`
+
+// BulkOffsetPhotoOrdersOnPage: PR27 reorder 一時退避用。
+// 同 page 内の全 photo の display_order を +1000 オフセットして UNIQUE 衝突を一時的に回避する。
+// 呼び出し側は同 TX 内で各 photo を新 display_order に書き戻す。
+func (q *Queries) BulkOffsetPhotoOrdersOnPage(ctx context.Context, pageID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, bulkOffsetPhotoOrdersOnPage, pageID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const bumpPhotobookVersionForDraft = `-- name: BumpPhotobookVersionForDraft :execrows
 UPDATE photobooks
    SET version    = version + 1,
@@ -389,6 +406,27 @@ type UpdatePhotobookPageOrderParams struct {
 
 func (q *Queries) UpdatePhotobookPageOrder(ctx context.Context, arg UpdatePhotobookPageOrderParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updatePhotobookPageOrder, arg.ID, arg.DisplayOrder, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePhotobookPhotoCaption = `-- name: UpdatePhotobookPhotoCaption :execrows
+UPDATE photobook_photos
+   SET caption = $2
+ WHERE id = $1
+`
+
+type UpdatePhotobookPhotoCaptionParams struct {
+	ID      pgtype.UUID
+	Caption *string
+}
+
+// UpdatePhotobookPhotoCaption: PR27 photo caption 単独編集。
+// caption は VARCHAR/TEXT で NULL 許容（空 caption は NULL として保存）。
+func (q *Queries) UpdatePhotobookPhotoCaption(ctx context.Context, arg UpdatePhotobookPhotoCaptionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePhotobookPhotoCaption, arg.ID, arg.Caption)
 	if err != nil {
 		return 0, err
 	}
