@@ -31,6 +31,7 @@ import (
 	"vrcpb/backend/internal/imageupload/infrastructure/r2"
 	imageuploadhttp "vrcpb/backend/internal/imageupload/interface/http"
 	imageuploadwireup "vrcpb/backend/internal/imageupload/wireup"
+	ogpwireup "vrcpb/backend/internal/ogp/wireup"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/wireup"
 	"vrcpb/backend/internal/shared"
@@ -145,6 +146,9 @@ func main() {
 		ImageUploadHandlers:        imageUploadHandlers,
 		UploadVerificationHandlers: uvHandlers,
 		AllowedOrigins:             cfg.AllowedOrigins,
+	}
+	if pool != nil {
+		routerCfg.OgpPublicHandlers = ogpwireup.BuildPublicHandlers(pool)
 	}
 	// session validator は draft / manage 共通（session_type は middleware が渡す）。
 	if imageUploadHandlers != nil || uvHandlers != nil || photobookManageHandlers != nil || photobookEditHandlers != nil {

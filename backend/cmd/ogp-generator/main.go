@@ -8,9 +8,9 @@
 //   --dry-run               R2 PUT / DB 更新せず、render 結果のみ log
 //
 // 注意:
-//   PR33b では UseCase は **renderer + R2 PUT までで停止**し、images table の
-//   usage_kind='ogp' 行作成 / photobook_ogp_images.MarkGenerated は行わない（CHECK 制約
-//   image_id NOT NULL を満たせないため、PR33c で images row 作成と組で完了させる）。
+//   UseCase は renderer → R2 PUT → 同 TX で images / image_variants 作成 +
+//   photobook_ogp_images.MarkGenerated まで完了させる。完了後 status='generated'。
+//   失敗時は MarkFailed で failure_reason を sanitize して記録（VO 経由 200 char 上限）。
 //
 // セキュリティ:
 //   - DATABASE_URL / R2 credentials は env 経由（値はログに出さない）

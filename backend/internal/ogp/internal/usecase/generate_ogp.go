@@ -4,23 +4,22 @@
 //   - docs/plan/m2-ogp-generation-plan.md §7（生成タイミング）/ §9（CLI 範囲）/ §11（Security）
 //   - docs/design/cross-cutting/ogp-generation.md §5
 //
-// PR33b の責務（最小実装）:
+// PR33c で完了化:
 //   1. photobook を fetch（published 確認）
 //   2. photobook_ogp_images row を ensure（無ければ CreatePending）
-//   3. cover thumbnail を取得（cover_image_id がある場合のみ。本 PR では fallback の
-//      みに簡略化することも可。実装は handler 側で choose）
-//   4. renderer で 1200×630 PNG を生成
-//   5. R2 PUT（key = photobooks/<photobook_id>/ogp/<ogp_id>/<random>.png）
-//
-// 本 PR では行わないこと（PR33c に持ち越し）:
-//   - images table の usage_kind='ogp' row 作成
-//   - photobook_ogp_images.MarkGenerated（image_id 必須のため、images row が無い段階では
-//     CHECK 制約違反になる）
-//   - 公開 endpoint / Workers proxy 経由の配信
+//   3. renderer で 1200×630 PNG を生成
+//   4. R2 PUT（key = photobooks/<photobook_id>/ogp/<ogp_id>/<random>.png）
+//   5. **同 TX で**:
+//        - images に usage_kind='ogp' / status='available' で 1 行 INSERT
+//        - image_variants に kind='ogp' / 1200×630 / image/png で 1 行 INSERT
+//        - photobook_ogp_images.MarkGenerated（image_id / generated_at 設定、status='generated'）
+//   6. status='generated' で完了
 //
 // 失敗時:
 //   - 検証段階の失敗（photobook 不在 / 未 published）→ ErrXxx を返し、DB は変更しない
-//   - render / PUT 失敗 → MarkFailed（failure_reason は VO で sanitize）
+//   - render / PUT / 完了 TX 失敗 → MarkFailed（failure_reason は VO で sanitize、
+//     R2 object は完了 TX 失敗時に orphan が残るが、cross-cutting/reconcile-scripts.md
+//     の orphan GC で回収する想定）
 package usecase
 
 import (
@@ -33,8 +32,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"vrcpb/backend/internal/database"
+	imageid "vrcpb/backend/internal/image/domain/vo/image_id"
 	"vrcpb/backend/internal/imageupload/infrastructure/r2"
 	"vrcpb/backend/internal/ogp/domain"
 	"vrcpb/backend/internal/ogp/domain/vo/ogp_failure_reason"
@@ -205,10 +207,51 @@ func (u *GenerateOgpForPhotobook) Execute(ctx context.Context, in GenerateOgpInp
 		slog.String("photobook_id", view.ID.String()),
 		slog.Int("png_bytes", len(res.Bytes)),
 	)
-	// PR33b では MarkGenerated まで行わない（images row 作成が未実装、
-	// CHECK 制約 image_id NOT NULL を満たせないため）。
-	// status は pending / stale / failed のまま留め、PR33c で images row 作成と組で
-	// 完了させる。out.Generated は false のまま。
+
+	// PR33c: 完了化（images / image_variants row 作成 + MarkGenerated）を同 TX で。
+	// imageID / variantID は新規 uuid v7。MarkGenerated に渡すための ImageID VO も用意。
+	imageID, err := uuid.NewV7()
+	if err != nil {
+		u.recordCompletionFailure(ctx, repo, row, err, in.Now, &out)
+		return out, fmt.Errorf("uuid v7 (image): %w", err)
+	}
+	variantID, err := uuid.NewV7()
+	if err != nil {
+		u.recordCompletionFailure(ctx, repo, row, err, in.Now, &out)
+		return out, fmt.Errorf("uuid v7 (variant): %w", err)
+	}
+	imgIDVO, err := imageid.FromUUID(imageID)
+	if err != nil {
+		u.recordCompletionFailure(ctx, repo, row, err, in.Now, &out)
+		return out, fmt.Errorf("image_id VO: %w", err)
+	}
+	generated := row.MarkGenerated(imgIDVO, in.Now)
+
+	if err := database.WithTx(ctx, u.pool, func(tx pgx.Tx) error {
+		txRepo := ogprdb.NewOgpRepository(tx)
+		if err := txRepo.CreateOgpImageAndVariant(ctx,
+			imageID, view.ID.UUID(), variantID,
+			storageKey, res.Width, res.Height, int64(len(res.Bytes)),
+			in.Now,
+		); err != nil {
+			return fmt.Errorf("create images / image_variants: %w", err)
+		}
+		if err := txRepo.MarkGenerated(ctx, generated); err != nil {
+			return fmt.Errorf("mark generated: %w", err)
+		}
+		return nil
+	}); err != nil {
+		u.recordCompletionFailure(ctx, repo, row, err, in.Now, &out)
+		return out, err
+	}
+	out.Generated = true
+
+	u.logger.InfoContext(ctx, "ogp marked generated",
+		slog.String("ogp_image_id", out.OgpImageID.String()),
+		slog.String("photobook_id", view.ID.String()),
+		slog.String("image_id", imageID.String()),
+		slog.Int("version", row.Version().Int()),
+	)
 	return out, nil
 }
 
@@ -233,6 +276,19 @@ func (u *GenerateOgpForPhotobook) recordRenderFailure(
 		return
 	}
 	out.FailureLogged = true
+}
+
+// recordCompletionFailure は完了化 TX が失敗したときの記録。R2 object は orphan
+// として残るが、DB row は failed に倒す。
+func (u *GenerateOgpForPhotobook) recordCompletionFailure(
+	ctx context.Context,
+	repo *ogprdb.OgpRepository,
+	row domain.OgpImage,
+	err error,
+	now time.Time,
+	out *GenerateOgpOutput,
+) {
+	u.recordRenderFailure(ctx, repo, row, err, now, out)
 }
 
 // randomHex は 2*n 文字の hex 文字列を返す。crypto/rand 使用。

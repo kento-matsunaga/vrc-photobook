@@ -61,6 +61,8 @@ type publicPagePayload struct {
 }
 
 type publicPhotobookPayload struct {
+	PhotobookID        string                   `json:"photobook_id"`
+	Slug               string                   `json:"slug"`
 	Type               string                   `json:"type"`
 	Title              string                   `json:"title"`
 	Description        *string                  `json:"description,omitempty"`
@@ -125,6 +127,8 @@ func toPublicPayload(v usecase.PublicPhotobookView) publicPhotobookPayload {
 		cover = &c
 	}
 	return publicPhotobookPayload{
+		PhotobookID:        v.PhotobookID,
+		Slug:               v.Slug,
 		Type:               v.Type,
 		Title:              v.Title,
 		Description:        v.Description,

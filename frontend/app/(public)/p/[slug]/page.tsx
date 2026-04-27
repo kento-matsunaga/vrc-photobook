@@ -25,7 +25,12 @@ export const dynamic = "force-dynamic";
 type Params = Promise<{ slug: string }>;
 
 /**
- * SSR メタデータ。MVP は noindex 固定（OGP 本実装は PR33）。
+ * SSR メタデータ。MVP は noindex 固定で SNS preview 用 OGP のみ出す
+ * （noindex と OGP は両立、検索 vs SNS の責務分離）。
+ *
+ * og:image は `https://app.vrc-photobook.com/ogp/<photobook_id>?v=<version>` を
+ * 指す（Cloudflare Workers proxy が R2 から PNG を返す）。OGP 未生成 / 公開不可 /
+ * lookup 失敗時は `/og/default.png` の絶対 URL に倒す。
  */
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { slug } = await params;
@@ -36,6 +41,11 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   } catch {
     pb = null;
   }
+  const appBaseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "https://app.vrc-photobook.com";
+  const ogpURL = pb
+    ? `${appBaseUrl}/ogp/${pb.photobookId}?v=1`
+    : `${appBaseUrl}/og/default.png`;
+  const publicURL = pb ? `${appBaseUrl}/p/${pb.slug}` : appBaseUrl;
   const title = pb?.title ?? "VRC PhotoBook";
   const description = pb?.description ?? "VRC PhotoBook（非公式ファンメイドサービス）";
   return {
@@ -46,11 +56,14 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
       title,
       description,
       type: "website",
+      url: publicURL,
+      images: [{ url: ogpURL, width: 1200, height: 630 }],
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title,
       description,
+      images: [ogpURL],
     },
   };
 }

@@ -102,6 +102,83 @@ func (r *OgpRepository) MarkStale(ctx context.Context, id uuid.UUID, now func() 
 	})
 }
 
+// CreateOgpImageAndVariant は OGP 完了化用に images + image_variants を 1 行ずつ
+// INSERT する。呼び出し側 TX で MarkGenerated と組で実行することを想定。
+//
+// images 行は usage_kind='ogp' / status='available' / source_format='png' /
+// normalized_format='jpg'（CHECK 制約に合わせる、実体は PNG）/ 1200×630 固定。
+// image_variants 行は kind='ogp' / mime_type='image/png'。
+func (r *OgpRepository) CreateOgpImageAndVariant(
+	ctx context.Context,
+	imageID uuid.UUID,
+	photobookID uuid.UUID,
+	variantID uuid.UUID,
+	storageKey string,
+	width int,
+	height int,
+	byteSize int64,
+	now time.Time,
+) error {
+	if err := r.q.CreateOgpImageRecord(ctx, sqlcgen.CreateOgpImageRecordParams{
+		ID:               pgtype.UUID{Bytes: imageID, Valid: true},
+		OwnerPhotobookID: pgtype.UUID{Bytes: photobookID, Valid: true},
+		OriginalWidth:    int32Ptr(int32(width)),
+		OriginalHeight:   int32Ptr(int32(height)),
+		OriginalByteSize: int64Ptr(byteSize),
+		MetadataStrippedAt: pgtype.Timestamptz{Time: now, Valid: true},
+	}); err != nil {
+		return err
+	}
+	return r.q.CreateOgpImageVariant(ctx, sqlcgen.CreateOgpImageVariantParams{
+		ID:         pgtype.UUID{Bytes: variantID, Valid: true},
+		ImageID:    pgtype.UUID{Bytes: imageID, Valid: true},
+		StorageKey: storageKey,
+		Width:      int32(width),
+		Height:     int32(height),
+		ByteSize:   byteSize,
+		CreatedAt:  pgtype.Timestamptz{Time: now, Valid: true},
+	})
+}
+
+func int32Ptr(v int32) *int32 { return &v }
+func int64Ptr(v int64) *int64 { return &v }
+
+// OgpDelivery は public OGP lookup endpoint / Workers proxy が必要とする値。
+// chat / log には storage_key 完全値を出さず、Workers binding 経由で R2 GET にのみ使う。
+type OgpDelivery struct {
+	OgpStatus           string
+	OgpVersion          int
+	PhotobookStatus     string
+	PhotobookVisibility string
+	HiddenByOperator    bool
+	StorageKey          string // status != 'generated' の場合 ""
+}
+
+// GetDeliveryByPhotobookID は photobook_ogp_images + photobooks + image_variants
+// を JOIN して Workers proxy が必要な情報を返す。
+//
+// 行が存在しない場合は ErrNotFound。
+func (r *OgpRepository) GetDeliveryByPhotobookID(ctx context.Context, pid uuid.UUID) (OgpDelivery, error) {
+	row, err := r.q.GetOgpDeliveryByPhotobookID(ctx, pgtype.UUID{Bytes: pid, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return OgpDelivery{}, ErrNotFound
+		}
+		return OgpDelivery{}, err
+	}
+	out := OgpDelivery{
+		OgpStatus:           row.OgpStatus,
+		OgpVersion:          int(row.OgpVersion),
+		PhotobookStatus:     row.PhotobookStatus,
+		PhotobookVisibility: row.PhotobookVisibility,
+		HiddenByOperator:    row.HiddenByOperator,
+	}
+	if row.OgpStorageKey != nil {
+		out.StorageKey = *row.OgpStorageKey
+	}
+	return out, nil
+}
+
 // ListPending は pending / stale / failed の行を limit 件取り出す。
 func (r *OgpRepository) ListPending(ctx context.Context, limit int) ([]domain.OgpImage, error) {
 	rows, err := r.q.ListPendingOgp(ctx, int32(limit))

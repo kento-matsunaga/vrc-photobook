@@ -11,6 +11,91 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createOgpImageRecord = `-- name: CreateOgpImageRecord :exec
+
+INSERT INTO images (
+    id, owner_photobook_id, usage_kind,
+    source_format, normalized_format,
+    original_width, original_height, original_byte_size,
+    metadata_stripped_at, status, uploaded_at, available_at,
+    created_at, updated_at
+) VALUES (
+    $1, $2, 'ogp',
+    'png', 'jpg',
+    $3, $4, $5,
+    $6, 'available', $6, $6,
+    $6, $6
+)
+`
+
+type CreateOgpImageRecordParams struct {
+	ID                 pgtype.UUID
+	OwnerPhotobookID   pgtype.UUID
+	OriginalWidth      *int32
+	OriginalHeight     *int32
+	OriginalByteSize   *int64
+	MetadataStrippedAt pgtype.Timestamptz
+}
+
+// ----------------------------------------------------------------------------
+// PR33c: OGP 生成完了化のための images / image_variants INSERT。
+// ----------------------------------------------------------------------------
+//
+// 採用方針:
+//   - OGP は domain.image の通常フローを通さず、ogp package が直接書き込む
+//     （source は backend 生成 PNG で uploading→processing→available の遷移を持たない）
+//   - 必須列を一発で埋めて status='available' で INSERT する
+//   - image_variants には kind='ogp' で 1 行だけ INSERT（display/thumbnail 等は不要）
+//
+// usage_kind='ogp', status='available' で images に 1 行作成する（generated 化用）。
+// すべての NOT NULL（images_status_columns_consistency_check 'available' 経路）を満たす。
+func (q *Queries) CreateOgpImageRecord(ctx context.Context, arg CreateOgpImageRecordParams) error {
+	_, err := q.db.Exec(ctx, createOgpImageRecord,
+		arg.ID,
+		arg.OwnerPhotobookID,
+		arg.OriginalWidth,
+		arg.OriginalHeight,
+		arg.OriginalByteSize,
+		arg.MetadataStrippedAt,
+	)
+	return err
+}
+
+const createOgpImageVariant = `-- name: CreateOgpImageVariant :exec
+INSERT INTO image_variants (
+    id, image_id, kind, storage_key,
+    width, height, byte_size, mime_type, created_at
+) VALUES (
+    $1, $2, 'ogp', $3,
+    $4, $5, $6, 'image/png', $7
+)
+`
+
+type CreateOgpImageVariantParams struct {
+	ID         pgtype.UUID
+	ImageID    pgtype.UUID
+	StorageKey string
+	Width      int32
+	Height     int32
+	ByteSize   int64
+	CreatedAt  pgtype.Timestamptz
+}
+
+// image_variants に kind='ogp' / mime_type='image/png' で 1 行作成する。
+// (image_id, kind) UNIQUE 制約で同一 image に対する再投入は失敗する。
+func (q *Queries) CreateOgpImageVariant(ctx context.Context, arg CreateOgpImageVariantParams) error {
+	_, err := q.db.Exec(ctx, createOgpImageVariant,
+		arg.ID,
+		arg.ImageID,
+		arg.StorageKey,
+		arg.Width,
+		arg.Height,
+		arg.ByteSize,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const createPendingOgp = `-- name: CreatePendingOgp :exec
 INSERT INTO photobook_ogp_images (
     id, photobook_id, status, version,
@@ -66,6 +151,54 @@ func (q *Queries) FindOgpByPhotobookID(ctx context.Context, photobookID pgtype.U
 		&i.FailureReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOgpDeliveryByPhotobookID = `-- name: GetOgpDeliveryByPhotobookID :one
+SELECT
+    o.status::text       AS ogp_status,
+    o.version            AS ogp_version,
+    p.status::text       AS photobook_status,
+    p.visibility::text   AS photobook_visibility,
+    p.hidden_by_operator,
+    v.storage_key        AS ogp_storage_key
+FROM photobook_ogp_images o
+INNER JOIN photobooks p ON p.id = o.photobook_id
+LEFT JOIN image_variants v
+    ON v.image_id = o.image_id
+   AND v.kind = 'ogp'
+WHERE o.photobook_id = $1
+`
+
+type GetOgpDeliveryByPhotobookIDRow struct {
+	OgpStatus           string
+	OgpVersion          int32
+	PhotobookStatus     string
+	PhotobookVisibility string
+	HiddenByOperator    bool
+	OgpStorageKey       *string
+}
+
+// 公開 OGP 配信 lookup 用：photobook_ogp_images + photobook 状態 + image_variants(kind='ogp')
+// を JOIN して、Workers proxy が必要な (status, version, storage_key) を返す。
+//
+// 配信判定:
+//   - photobook が published / visibility='public' / hidden_by_operator=false で **無い**場合
+//     → 呼び出し側で fallback（status を「公開不可」として扱う）
+//   - status='generated' かつ image_id != NULL かつ image_variants(kind='ogp') が存在
+//     → storage_key を返す
+//   - それ以外は storage_key NULL
+func (q *Queries) GetOgpDeliveryByPhotobookID(ctx context.Context, photobookID pgtype.UUID) (GetOgpDeliveryByPhotobookIDRow, error) {
+	row := q.db.QueryRow(ctx, getOgpDeliveryByPhotobookID, photobookID)
+	var i GetOgpDeliveryByPhotobookIDRow
+	err := row.Scan(
+		&i.OgpStatus,
+		&i.OgpVersion,
+		&i.PhotobookStatus,
+		&i.PhotobookVisibility,
+		&i.HiddenByOperator,
+		&i.OgpStorageKey,
 	)
 	return i, err
 }

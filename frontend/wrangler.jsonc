@@ -24,6 +24,16 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  // PR33c: OGP 配信経路。R2 bucket `vrcpb-images` への read 用 binding。
+  // bucket 自体は public OFF を維持し、Workers Route `/ogp/<id>` から
+  // R2 binding 経由で GetObject して image/png を返す（ADR-0001 / OGP plan §5.3）。
+  // Secret は不要（IAM で完結）。
+  "r2_buckets": [
+    {
+      "binding": "OGP_BUCKET",
+      "bucket_name": "vrcpb-images"
+    }
+  ],
   "observability": {
     "enabled": true
   }

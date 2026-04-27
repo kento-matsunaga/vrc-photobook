@@ -51,6 +51,12 @@ export type PublicPage = {
 
 /** Public Viewer の photobook 全体。 */
 export type PublicPhotobook = {
+  /**
+   * 公開識別子（業務知識 v4 §3.5）。OGP URL `/ogp/<photobookId>?v=<n>` の解決に使う。
+   */
+  photobookId: string;
+  /** public_url_slug（公開済の場合のみ非空）。 */
+  slug: string;
   type: string;
   title: string;
   description?: string;
@@ -124,6 +130,8 @@ type ApiPage = {
 };
 
 type ApiPublicPhotobookPayload = {
+  photobook_id: string;
+  slug: string;
   type: string;
   title: string;
   description?: string;
@@ -155,6 +163,8 @@ function mapVariantSet(v: ApiVariantSet): PublicVariantSet {
 
 function mapPublicPayload(p: ApiPublicPhotobookPayload): PublicPhotobook {
   return {
+    photobookId: p.photobook_id,
+    slug: p.slug,
     type: p.type,
     title: p.title,
     description: p.description,

@@ -59,6 +59,8 @@ type GetPublicPhotobookInput struct {
 
 // PublicPhotobookView は API レスポンスに対応する read view。
 type PublicPhotobookView struct {
+	PhotobookID        string // public 識別子（業務知識 v4 §3.5）。OGP URL 解決に使う
+	Slug               string // public_url_slug（公開済の場合のみ非空）
 	Type               string
 	Title              string
 	Description        *string
@@ -212,7 +214,13 @@ func (u *GetPublicPhotobook) Execute(
 		}
 	}
 
+	pubSlug := ""
+	if s := pb.PublicUrlSlug(); s != nil {
+		pubSlug = s.String()
+	}
 	view := PublicPhotobookView{
+		PhotobookID:        pb.ID().String(),
+		Slug:               pubSlug,
 		Type:               pb.Type().String(),
 		Title:              pb.Title(),
 		Description:        pb.Description(),

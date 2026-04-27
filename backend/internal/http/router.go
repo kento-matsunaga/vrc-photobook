@@ -28,6 +28,7 @@ import (
 	authmiddleware "vrcpb/backend/internal/auth/session/middleware"
 	"vrcpb/backend/internal/health"
 	imageuploadhttp "vrcpb/backend/internal/imageupload/interface/http"
+	ogphttp "vrcpb/backend/internal/ogp/interface/http"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 )
@@ -40,6 +41,7 @@ type RouterConfig struct {
 	PhotobookManageHandlers    *photobookhttp.ManageHandlers
 	PhotobookEditHandlers      *photobookhttp.EditHandlers
 	PhotobookPublishHandlers   *photobookhttp.PublishHandlers
+	OgpPublicHandlers          *ogphttp.PublicHandlers
 	ImageUploadHandlers        *imageuploadhttp.Handlers
 	UploadVerificationHandlers *uvhttp.Handlers
 	DraftSessionValidator      authmiddleware.Validator
@@ -87,6 +89,13 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	// 公開 Viewer endpoint（認可不要、slug ベース）。
 	if cfg.PhotobookPublicHandlers != nil {
 		r.Get("/api/public/photobooks/{slug}", cfg.PhotobookPublicHandlers.GetPublicPhotobook)
+	}
+
+	// OGP lookup endpoint（公開、photobook_id ベース）。Workers proxy / Frontend
+	// generateMetadata から呼ばれる。draft / private / hidden / deleted は
+	// status='not_public' を返し、image_url_path は default OGP に倒す。
+	if cfg.OgpPublicHandlers != nil {
+		r.Get("/api/public/photobooks/{photobookId}/ogp", cfg.OgpPublicHandlers.GetOgp)
 	}
 
 	// 管理ページ read endpoint。manage session middleware を chain。

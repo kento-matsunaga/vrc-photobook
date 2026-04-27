@@ -1,8 +1,8 @@
 // UseCase の DB + fake R2 統合テスト。
 //
-// 本 PR では UseCase が renderer + R2 PUT までで停止し、status='generated' への
-// 遷移は行わないため、test 期待値も「Rendered=true / Uploaded=true / Generated=false」
-// で確認する。
+// PR33c で UseCase は完了化（images row 作成 + image_variants + MarkGenerated）まで
+// 実施するため、test 期待値は「Rendered=true / Uploaded=true / Generated=true /
+// status='generated'」で確認する。
 package usecase_test
 
 import (
@@ -149,11 +149,9 @@ func TestGenerate_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !out.Rendered || !out.Uploaded {
-		t.Errorf("Rendered=%v Uploaded=%v want both true", out.Rendered, out.Uploaded)
-	}
-	if out.Generated {
-		t.Errorf("PR33b では Generated=false 期待（PR33c で images row 作成 + MarkGenerated）")
+	if !out.Rendered || !out.Uploaded || !out.Generated {
+		t.Errorf("Rendered=%v Uploaded=%v Generated=%v want all true",
+			out.Rendered, out.Uploaded, out.Generated)
 	}
 	if len(r2c.puts) != 1 {
 		t.Fatalf("R2 PutObject 呼び出し回数 %d != 1", len(r2c.puts))
@@ -176,8 +174,14 @@ func TestGenerate_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FindByPhotobookID: %v", err)
 	}
-	if !row.Status().IsPending() {
-		t.Errorf("status=%s want pending（PR33b は MarkGenerated しない）", row.Status().String())
+	if !row.Status().IsGenerated() {
+		t.Errorf("status=%s want generated", row.Status().String())
+	}
+	if row.ImageID() == nil {
+		t.Errorf("image_id must be set when status='generated'")
+	}
+	if row.GeneratedAt() == nil {
+		t.Errorf("generated_at must be set when status='generated'")
 	}
 }
 
