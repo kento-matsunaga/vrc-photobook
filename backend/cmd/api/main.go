@@ -79,10 +79,13 @@ func main() {
 	// pool 未設定（DATABASE_URL 空）時は handler nil で渡して endpoint 自体を作らない。
 	var photobookHandlers *photobookhttp.Handlers
 	var photobookManageHandlers *photobookhttp.ManageHandlers
+	var photobookPublishHandlers *photobookhttp.PublishHandlers
 	if pool != nil {
 		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
 		// PR25a: 管理ページ read endpoint（pool だけで完結）
 		photobookManageHandlers = wireup.BuildManageReadHandlers(pool)
+		// PR28: publish endpoint（既存 PublishFromDraft UseCase の HTTP 化）
+		photobookPublishHandlers = wireup.BuildPublishHandlers(pool)
 	}
 
 	// PR21: R2 が configured かつ pool 利用可能なときに imageupload endpoint を組み立てる。
@@ -136,6 +139,7 @@ func main() {
 		PhotobookPublicHandlers:    photobookPublicHandlers,
 		PhotobookManageHandlers:    photobookManageHandlers,
 		PhotobookEditHandlers:      photobookEditHandlers,
+		PhotobookPublishHandlers:   photobookPublishHandlers,
 		ImageUploadHandlers:        imageUploadHandlers,
 		UploadVerificationHandlers: uvHandlers,
 		AllowedOrigins:             cfg.AllowedOrigins,

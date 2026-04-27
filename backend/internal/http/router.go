@@ -38,6 +38,7 @@ type RouterConfig struct {
 	PhotobookPublicHandlers    *photobookhttp.PublicHandlers
 	PhotobookManageHandlers    *photobookhttp.ManageHandlers
 	PhotobookEditHandlers      *photobookhttp.EditHandlers
+	PhotobookPublishHandlers   *photobookhttp.PublishHandlers
 	ImageUploadHandlers        *imageuploadhttp.Handlers
 	UploadVerificationHandlers *uvhttp.Handlers
 	DraftSessionValidator      authmiddleware.Validator
@@ -96,6 +97,7 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	}
 
 	// PR27: 編集 UI 本格化 endpoint。draft session middleware を chain（manage Cookie では不可）。
+	// PR28: publish endpoint も同 group に追加（draft Cookie 必須）。
 	if cfg.PhotobookEditHandlers != nil && cfg.DraftSessionValidator != nil {
 		r.Route("/api/photobooks/{id}", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireDraftSession(cfg.DraftSessionValidator, photobookIDFromURL))
@@ -108,6 +110,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			sub.Delete("/photos/{photoId}", cfg.PhotobookEditHandlers.RemovePhoto)
 			sub.Patch("/cover-image", cfg.PhotobookEditHandlers.SetCoverImage)
 			sub.Delete("/cover-image", cfg.PhotobookEditHandlers.ClearCoverImage)
+			if cfg.PhotobookPublishHandlers != nil {
+				sub.Post("/publish", cfg.PhotobookPublishHandlers.Publish)
+			}
 		})
 	}
 	return r

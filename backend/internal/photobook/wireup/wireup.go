@@ -65,6 +65,21 @@ func BuildManageReadHandlers(pool *pgxpool.Pool) *photobookhttp.ManageHandlers {
 	return photobookhttp.NewManageHandlers(uc)
 }
 
+// BuildPublishHandlers は publish 用 HTTP Handlers を組み立てる（PR28）。
+//
+// pool が nil なら nil を返す。
+func BuildPublishHandlers(pool *pgxpool.Pool) *photobookhttp.PublishHandlers {
+	if pool == nil {
+		return nil
+	}
+	return photobookhttp.NewPublishHandlers(usecase.NewPublishFromDraft(
+		pool,
+		session_adapter.NewPhotobookTxRepositoryFactory(),
+		session_adapter.NewDraftRevokerFactory(),
+		usecase.NewMinimalSlugGenerator(),
+	))
+}
+
 // BuildEditHandlers は編集 UI 本格化（PR27）用の HTTP Handlers を組み立てる。
 //
 // r2Client は edit-view の display/thumbnail presigned URL 発行に必要。

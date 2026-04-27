@@ -8,7 +8,9 @@ import type { EditSettings } from "@/lib/editPhotobook";
 type Props = {
   initial: EditSettings;
   disabled?: boolean;
+  publishDisabledReason?: string;
   onSave: (next: EditSettings) => Promise<void>;
+  onPublish?: () => Promise<void>;
 };
 
 const TYPES = ["event", "daily", "portfolio", "avatar", "world", "memory", "free"] as const;
@@ -16,9 +18,16 @@ const LAYOUTS = ["simple", "magazine", "card", "large"] as const;
 const OPENING = ["light", "cover_first_view"] as const;
 const VISIBILITY = ["public", "unlisted", "private"] as const;
 
-export function PublishSettingsPanel({ initial, disabled, onSave }: Props) {
+export function PublishSettingsPanel({
+  initial,
+  disabled,
+  publishDisabledReason,
+  onSave,
+  onPublish,
+}: Props) {
   const [draft, setDraft] = useState<EditSettings>(initial);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [savedFlash, setSavedFlash] = useState<"none" | "saved" | "error">("none");
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 
@@ -140,16 +149,43 @@ export function PublishSettingsPanel({ initial, disabled, onSave }: Props) {
         <SaveFlash state={savedFlash} />
       </div>
 
-      <div className="border-t border-divider pt-4">
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          className="w-full cursor-not-allowed rounded-md border border-divider bg-surface-soft px-4 py-3 text-sm font-medium text-ink-soft"
-          data-testid="publish-button-placeholder"
-        >
-          公開へ進む（PR28 で実装予定）
-        </button>
+      <div className="space-y-2 border-t border-divider pt-4">
+        {onPublish ? (
+          <>
+            <button
+              type="button"
+              disabled={Boolean(publishDisabledReason) || disabled || publishing || dirty}
+              onClick={async () => {
+                if (!onPublish) return;
+                setPublishing(true);
+                try {
+                  await onPublish();
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+              className="w-full rounded-md bg-brand-teal px-4 py-3 text-sm font-medium text-white hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="publish-button"
+            >
+              {publishing ? "公開中…" : "公開へ進む"}
+            </button>
+            {publishDisabledReason && (
+              <p className="text-xs text-ink-medium">{publishDisabledReason}</p>
+            )}
+            {dirty && !publishDisabledReason && (
+              <p className="text-xs text-ink-medium">変更を保存してから公開してください。</p>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            className="w-full cursor-not-allowed rounded-md border border-divider bg-surface-soft px-4 py-3 text-sm font-medium text-ink-soft"
+          >
+            公開へ進む
+          </button>
+        )}
       </div>
     </section>
   );

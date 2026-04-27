@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { TurnstileWidget } from "@/components/TurnstileWidget";
+import { CompleteView } from "@/components/Complete/CompleteView";
 import { CoverPanel } from "@/components/Edit/CoverPanel";
 import { PhotoGrid } from "@/components/Edit/PhotoGrid";
 import { PublishSettingsPanel } from "@/components/Edit/PublishSettingsPanel";
@@ -31,6 +32,11 @@ import {
   type EditSettings,
   type EditView,
 } from "@/lib/editPhotobook";
+import {
+  publishPhotobook,
+  isPublishApiError,
+  type PublishResult,
+} from "@/lib/publishPhotobook";
 import {
   completeUpload,
   issueUploadIntent,
@@ -72,6 +78,7 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   const [view, setView] = useState<EditView>(initial);
   const [conflict, setConflict] = useState<ConflictState>("ok");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
 
   // Upload widget の state
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -218,6 +225,31 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
     [view.photobookId, view.version, handleApiError],
   );
 
+  // === publish ===
+  const onPublish = useCallback(async () => {
+    try {
+      const res = await publishPhotobook(view.photobookId, view.version);
+      setPublishResult(res);
+      setErrorMsg(null);
+      setConflict("ok");
+    } catch (e) {
+      if (isPublishApiError(e)) {
+        if (e.kind === "version_conflict") {
+          setConflict("conflict");
+          setErrorMsg("公開条件に合致しません。最新を取得して再度確認してください。");
+          return;
+        }
+        if (e.kind === "unauthorized") {
+          setErrorMsg("認可セッションが切れました。draft URL から入り直してください。");
+          return;
+        }
+        setErrorMsg(`公開に失敗しました（${e.kind}）。`);
+        return;
+      }
+      setErrorMsg("公開に失敗しました。");
+    }
+  }, [view.photobookId, view.version]);
+
   // === page 追加 ===
   const onAddPage = useCallback(async () => {
     try {
@@ -282,6 +314,31 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   };
 
   const isBusy = conflict === "conflict";
+  const appBaseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+  const totalAvailablePhotos = view.pages.reduce((n, p) => n + p.photos.length, 0);
+  const publishDisabledReason =
+    totalAvailablePhotos === 0
+      ? "公開には最低 1 枚の写真が必要です。"
+      : view.processingCount > 0
+        ? "処理中の写真があります。完了してから公開してください。"
+        : undefined;
+
+  if (publishResult) {
+    return (
+      <CompleteView
+        appBaseUrl={appBaseUrl}
+        publicUrlPath={publishResult.publicUrlPath}
+        manageUrlPath={publishResult.manageUrlPath}
+        onBackToEdit={() => {
+          // 公開済になったため edit-view fetch は 409 になる。
+          // ユーザーが「編集に戻る」を押した場合は manage URL で入り直してもらう想定。
+          // 本リリースでは draft session が revoke されているので「編集ページに戻る」=
+          // 一覧トップへの遷移にとどめる。
+          window.location.href = "/";
+        }}
+      />
+    );
+  }
 
   return (
     <main className="mx-auto max-w-screen-md space-y-6 p-4 sm:p-6">
@@ -411,7 +468,9 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
       <PublishSettingsPanel
         initial={view.settings}
         disabled={isBusy}
+        publishDisabledReason={publishDisabledReason}
         onSave={onSaveSettings}
+        onPublish={onPublish}
       />
 
       <div className="flex justify-end pt-2">
