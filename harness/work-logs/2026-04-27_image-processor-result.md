@@ -146,11 +146,67 @@ stdout / stderr / log を grep して以下が含まれないことを確認:
 - 完全な `storage_key` 値（log には `image_id` / `photobook_id` のみ）
 - raw token / Cookie 値
 
-## 次にやること
+## Cloud Run revision 更新（2026-04-27、PR23 締め）
 
-1. backend image をビルドして Artifact Registry に push（api / image-processor 同梱）
-2. Cloud Run の API revision 更新（image-processor は同 image だが API 起動には影響なし）
-3. PR23 commit + push（**Cloud Run Jobs は本 PR には含めない、PR24 以降で対応**）
+### 目的（重要: API 機能追加ではない）
+
+- 本番 `vrcpb-api` image を PR23 commit `609b1f2` に揃える
+- image 内に `/usr/local/bin/image-processor` binary が同梱されたことを実環境で確認する
+- 後続 PR（PR24 以降）の Cloud Run Jobs / Scheduler で同じ image を流用できる準備
+- **PR23 では Cloud Run Jobs / Scheduler は作らない**（計画書 §2 / §3 の方針を踏襲）
+
+### 手順
+
+```
+docker build -f backend/Dockerfile -t asia-northeast1-docker.pkg.dev/<PROJ>/vrcpb/vrcpb-api:609b1f2 backend
+docker run --rm <IMAGE> /usr/local/bin/image-processor --help   # 同梱確認
+docker push <IMAGE>
+gcloud run services update vrcpb-api --image=<IMAGE> --region=asia-northeast1 --project=<PROJ>
+```
+
+`gcloud run services update --image=...` を使い、env / secret refs / scaling 設定は
+変更しない（明示的 noop の保証）。
+
+### Rollback tag
+
+- **rollback image**: `asia-northeast1-docker.pkg.dev/<PROJ>/vrcpb/vrcpb-api:8928be8`
+- **rollback revision**: `vrcpb-api-00006-wdg`
+- 万一不具合が出たら次の単発コマンドで戻せる:
+  ```
+  gcloud run services update-traffic vrcpb-api --to-revisions=vrcpb-api-00006-wdg=100 --region=asia-northeast1
+  ```
+
+### 確認結果
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | docker build 成功 | ✓（28.1MB, distroless static + nonroot 維持） |
+| 2 | docker push 成功 | ✓ digest `sha256:295868abab804bbbb89a99db05333c8b5b0d64d338503fd375b8b8013b16071a` |
+| 3 | Cloud Run revision で image=`vrcpb-api:609b1f2` | ✓ revision `vrcpb-api-00007-8dv`、100% traffic |
+| 4 | `/health` 200 | ✓ `{"status":"ok"}` |
+| 5 | `/readyz` 200 | ✓ `{"status":"ready"}`（DB pool 接続も維持されている） |
+| 6 | upload-verifications Cookie なし → 401 | ✓ `{"status":"unauthorized"}` |
+| 6 | `/api/photobooks/{id}/images/upload-intent` Cookie なし → 401 | ✓ `{"status":"unauthorized"}`（旧 work-log では path 表記が `upload-intent` 短縮形だったが、実際は `/images/upload-intent` 配下） |
+| 7 | env: DATABASE_URL / R2_* / TURNSTILE_SECRET_KEY が secretKeyRef で維持 | ✓ 全 7 件保持、APP_ENV / ALLOWED_ORIGINS も保持 |
+| 8 | image 内に `/usr/local/bin/image-processor` 存在 | ✓ `docker run --rm <image> /usr/local/bin/image-processor --help` で flag 一覧表示確認 |
+| 9 | Cloud Run logs に Secret / R2 credentials / token / Cookie / storage_key 完全値が出ない | ✓ 起動 log は "turnstile configured" / "r2 configured" / "db pool configured" の名前のみ。値は無し |
+
+### やらなかったこと（PR23 締め時点）
+
+- Cloud Run Jobs / Scheduler 作成
+- Outbox 作成
+- Public 化
+- Cloud SQL 削除 / spike 削除
+- 既存 spike images / 古い revision の削除（運用定着後にまとめて）
+
+## 次にやること（PR24 以降）
+
+PR23 は image 同梱まで完了。次のサイクル候補:
+
+1. **PR24（候補）: 公開 Viewer の display variant 配信** または **Outbox + Cloud Run Jobs**
+2. PR25 で R2 orphan Reconcile（display/thumbnail PUT 成功 → DB 失敗 / failed image の original 残存 / DELETE 失敗の orphan を 7 日後に cleanup）
+3. PR23 で見つかった `dry-run` の仕様（同 row が claim され続けるため `seen` map で break）は、
+   multi-worker 化を扱う PR で claim 用 column を追加するタイミングで再設計
 
 > **Cloud Run Jobs / Scheduler は次 PR（PR24 以降）の作業**。
 > 本 PR では CLI を image に同梱するまで。Cloud Run Jobs spec / IAM service account /
