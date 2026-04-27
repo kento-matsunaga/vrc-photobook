@@ -93,7 +93,14 @@
 - R2 orphan Reconcile（display/thumbnail PUT 成功 → DB 失敗、failed image の original 残存等を 7 日後に cleanup）
 
 #### 運用 / インフラ
-- Backend CI/CD（Cloud Build / Artifact Registry → Cloud Run deploy 自動化）
+- Backend CI/CD: PR29 で `gcloud builds submit` 経由の **manual submit 方式**を導入済。
+  以下は **PR29 で先送り**、PR40 / PR41+ で扱う:
+  - Cloud Build trigger オブジェクト（GCP Console からワンクリック起動）→ PR40
+  - GitHub App / Cloud Build GitHub connection（2nd gen）→ PR38 + PR40
+  - tag trigger（`release-*` push で自動）→ PR40 / PR41+
+  - main push 自動 deploy → PR41+
+  - Artifact Registry retention policy → PR40
+- **Frontend Workers deploy 自動化**（現状 `npm run cf:build` + `wrangler deploy` 手動）→ PR41+
 - 本番 Cloud SQL への移行（または `vrcpb-api-verify` の rename / 本番化）
 - spike 環境削除（spike Cloud Run / Workers / Artifact Registry / R2 bucket）
 - Public repo 化判断 + 履歴 secret scan
@@ -448,9 +455,9 @@
 - **完了条件**: 新 DB に traffic 移行 / 旧 DB 廃止 / Budget Alert 動作
 - **次 PR への引き継ぎ**: ローンチ前最終チェック
 
-### PR40: ローンチ前チェック + spike 削除
+### PR40: ローンチ前チェック + spike 削除 + Cloud Build trigger 化
 
-- **目的**: ローンチ前の総点検と環境クリーンアップ
+- **目的**: ローンチ前の総点検と環境クリーンアップ + PR29 で先送りした deploy 自動化の整備
 - **実装するもの**:
   - spike Cloud Run / Workers / Artifact Registry / R2 bucket 削除判断
   - 旧 secret 整理
@@ -458,13 +465,18 @@
   - macOS Safari / iPhone Safari / Chrome / iPad / Edge / Firefox 確認
   - OGP（X / Slack / Discord）プレビュー確認
   - ローンチ告知準備（X 投稿テキスト等）
-- **実装しないもの**: ローンチ後改善（PR41+）
+  - **PR29 先送り項目の整備**:
+    - Cloud Build trigger オブジェクト作成（GCP Console からワンクリック起動）
+    - GitHub App / Cloud Build GitHub connection（PR38 Public repo 化と統合可）
+    - tag trigger（`release-*` push で発動）の評価
+    - Artifact Registry retention policy（過去 image 自動 cleanup）
+- **実装しないもの**: main push 自動 deploy（PR41+）/ Frontend Workers deploy 自動化（PR41+）/ ローンチ後改善
 - **参照すべき design 資産**: なし
-- **参照すべき docs**: 業務知識 v4 §ローンチ
-- **実リソース操作の有無**: spike 環境削除（**ユーザー判断**）
+- **参照すべき docs**: 業務知識 v4 §ローンチ / `docs/plan/m2-backend-deploy-automation-plan.md` §6 / `docs/runbook/backend-deploy.md` §6
+- **実リソース操作の有無**: spike 環境削除 / Cloud Build trigger 作成 / GitHub App 接続（**ユーザー判断**）
 - **Secret が絡むか**: 旧 secret の削除（誤って現役 secret を消さない）
 - **Safari 確認が必要か**: **全画面**
-- **完了条件**: チェックリスト 100% / spike 削除 / コスト降下確認
+- **完了条件**: チェックリスト 100% / spike 削除 / コスト降下確認 / Cloud Build trigger 動作確認
 - **次 PR への引き継ぎ**: ローンチ実行
 
 ### PR41+: ローンチ後改善
@@ -478,6 +490,10 @@
 - 24h / 7 日 / 30 日 ITP 観察結果の運用反映
 - R2 orphan Reconcile（display/thumbnail PUT 成功 → DB 失敗 / failed image の original / DELETE 失敗の orphan を 7 日後 cleanup）
 - multi-worker 化と claim 用 column 追加（PR23 で見つかった dry-run の挙動を re-design）
+- **PR29 先送り項目（PR40 で扱わない分）**:
+  - main push 自動 deploy（e2e test 充実後に評価）
+  - Frontend Workers deploy 自動化（OpenNext build + wrangler deploy の自動化）
+  - Cloud Build machineType 昇格（速度改善必要時）
 
 ---
 

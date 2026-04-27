@@ -252,12 +252,16 @@ timeout: 1200s  # 20 分
 | **C: manual trigger のみ**（推奨） | 最も安全、初期段階の事故防止 | 完全自動化ではない |
 | D: GitHub Actions → Cloud Build 呼び出し | GH Actions 一本化 | OIDC / WIF 設定が増える |
 
-### 6.2 推奨: **案 C（manual trigger）+ 後続段階で B に拡張**
+### 6.2 推奨: **案 C を更に絞り「manual submit」採用**（PR29 実装で確定）
 
-- **PR29 後の初期実装**: manual trigger のみ
-  - GCP Console / `gcloud builds triggers run` で都度起動
-  - 「何を deploy したか」が明示的になる
-- **後続段階（M2 中盤〜後半）**: tag trigger に拡張
+- **PR29 実装で採用**: trigger オブジェクトすら作らず、ローカル CLI から
+  `gcloud builds submit --config=cloudbuild.yaml --service-account=<SA>` で都度 invoke
+  - 計画書 §6.3「Cloud Build の GitHub App 連携は不要」と整合
+  - 永続 trigger / source 接続を持たないため、最小構成
+  - GCP Console からのワンクリック起動はできない（CLI 必須）
+- **後続段階（PR40）**: trigger オブジェクトを作って GCP Console からも起動可能に
+  - GitHub App 接続は必要時に評価（Public repo 化 PR38 と統合）
+- **後続段階（PR40 / PR41+）**: tag trigger に拡張
   - `release-*` tag push で発動
   - tag 運用ルールを runbook に追加
 - **本格自動化（M2 完了後 / PR41+）**: main push trigger を検討
@@ -265,9 +269,22 @@ timeout: 1200s  # 20 分
 
 ### 6.3 GitHub 連携
 
-- Cloud Build の GitHub App 連携は **不要**（manual trigger なら）
+- Cloud Build の GitHub App 連携は **不要**（manual submit なら）
 - 後続段階で tag trigger に移行する際に GitHub App を接続する判断
 - 既存 `backend-ci.yml` は **vet / build / test 担当**として継続。deploy は Cloud Build 側に分離
+
+### 6.4 PR29 で先送りした項目（忘れないこと）
+
+| 項目 | 後で検討する PR |
+|---|---|
+| Cloud Build trigger オブジェクト作成 | PR40 |
+| GitHub App / Cloud Build GitHub connection | PR38 + PR40 |
+| tag trigger（`release-*`） | PR40 / PR41+ |
+| main push 自動 deploy | PR41+ |
+| Frontend Workers deploy 自動化 | PR41+ |
+| WIF / branch protection 整備 | PR38 |
+
+これらは新正典 §3 PR40 / PR41+ にも追記する（§17 履歴で本書 v2 として更新済）。
 
 ---
 
