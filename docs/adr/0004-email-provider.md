@@ -2,6 +2,23 @@
 
 ## ステータス
 
+**Superseded by [ADR-0006](./0006-email-provider-and-manage-url-delivery.md)（2026-04-28）**
+
+> 2026-04-28 時点で **SendGrid Japan は個人 / 個人事業主 / 任意団体は契約不可**であることが
+> 判明（SendGrid 公式 FAQ「個人でも契約可能ですか？」）。VRC PhotoBook の運用主体は個人の
+> ため SendGrid は採用不可。同時に AWS SES の production access 申請も不通過のままであり、
+> 本 ADR の第一候補・第二候補が共に MVP では運用不可となった。
+>
+> ADR-0006 で **MVP のメール送信機能を必須要件から外す**判断（Complete 画面で 1 度だけ
+> 表示する方式を MVP 標準）を行ったため、本 ADR は Superseded。
+>
+> **本 ADR は過去の選定経緯としてのみ参照**してください。MVP の方針は ADR-0006、
+> 後続のメール Provider 候補も ADR-0006 §4.4 を参照。
+
+---
+
+## 旧ステータス（2026-04-25 時点、参考）
+
 **Accepted（MVP プロバイダ選定として、2026-04-25 再選定）**
 
 MVP では **SendGrid を第一候補、Mailgun を第二候補**として採用する。

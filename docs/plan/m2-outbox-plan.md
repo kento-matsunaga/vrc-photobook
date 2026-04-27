@@ -186,16 +186,23 @@ PR30 では **`pending` のみ**を application 層で扱う。worker / retry / 
 
 ### 4.2 PR30 で **入れない** event（後続 PR）
 
-| event_type | 担当 PR |
-|---|---|
-| `ManageUrlReissued` | PR32（SendGrid 連携時） |
-| `PhotobookHidden` / `PhotobookUnhidden` | PR34（Moderation） |
-| `PhotobookSoftDeleted` / `PhotobookRestored` / `PhotobookPurged` | PR34 |
-| `PhotobookUpdated` | PR41+（公開済 photobook の編集が始まったら） |
-| `ReportSubmitted` | PR35 |
-| `OGPRegenerationRequested` | PR33 |
-| `UsageLimit*` | PR36 |
-| `ManageUrlDeliveryRequested` | PR32 |
+| event_type | 担当 PR | メモ |
+|---|---|---|
+| `ManageUrlReissued` | **メール Provider 確定後**（ADR-0006）| MVP メール送信は ADR-0006 で必須要件から外した。Provider 採用 ADR が確定するまで本 event は追加しない |
+| `ManageUrlDeliveryRequested` | **メール Provider 確定後**（ADR-0006）| 同上 |
+| `PhotobookHidden` / `PhotobookUnhidden` | PR34（Moderation） | |
+| `PhotobookSoftDeleted` / `PhotobookRestored` / `PhotobookPurged` | PR34 | |
+| `PhotobookUpdated` | PR41+（公開済 photobook の編集が始まったら） | |
+| `ReportSubmitted` | PR35 | |
+| `OGPRegenerationRequested` | PR33 | |
+| `UsageLimit*` | PR36 | |
+
+> **メール Provider 関連の補足（ADR-0006）**:
+> SendGrid は個人 / 個人事業主は契約不可、AWS SES の production access も不通過のため、
+> ADR-0004 は Superseded。MVP のメール送信機能は **必須要件から外す**判断（Complete 画面で
+> 1 度表示する PR28 経路を MVP 標準）。本計画 PR30 では `ManageUrlReissued` /
+> `ManageUrlDelivery*` event は **設計検討も含めて全て後送り**し、PR30 / PR31 を
+> メール非依存の Outbox 基盤として完結させる。
 
 ### 4.3 ProcessImage に Outbox INSERT を入れるか
 
@@ -516,8 +523,8 @@ PR31 で実装する:
 
 - `cmd/outbox-worker/main.go`
 - worker UseCase（`ListPendingOutboxEventsForUpdate` + handler dispatch）
-- handler:
-  - `PhotobookPublished` → 当面 no-op + log（OGP は PR33、SendGrid は PR32）
+- handler（**ADR-0006 によりメール送信は MVP 必須要件外、当面 no-op + log のみ**）:
+  - `PhotobookPublished` → no-op + log（OGP 自動生成は PR33、メール送信は ADR-0006 後続）
   - `ImageBecameAvailable` → no-op + log（OGP は PR33）
   - `ImageFailed` → no-op + log（cleanup は PR41+ Reconcile）
 - retry / dead letter 遷移
@@ -531,7 +538,9 @@ PR30 でやらない:
 - Scheduler
 - retry 実行
 - dead letter 処理
-- 各 event の副作用本実装（OGP / SendGrid / Reconcile）
+- 各 event の副作用本実装（OGP は PR33、メール送信は ADR-0006 後続、Reconcile は PR41+）
+- **メール送信に依存する event 種別の追加**（`ManageUrlReissued` / `ManageUrlDelivery*`、
+  ADR-0006 で Provider 確定まで保留）
 
 ---
 

@@ -84,7 +84,11 @@
 - Outbox table + 同一 TX INSERT（PhotobookPublished / ManageUrlReissued / ImageBecameAvailable / ImageFailed 等）
 - `cmd/outbox-worker`（pending event poll → 実行 → mark done）
 - Cloud Run Jobs（image-processor / outbox-worker のスケジューリング）
-- SendGrid 接続 + ManageUrlDelivery 集約（再発行メール送信）
+- **メール Provider 再選定 + ManageUrlDelivery 集約**
+  - ADR-0006（2026-04-28）で **MVP のメール送信機能を必須要件から外す**ことを確定
+    （SendGrid 個人不可 / SES 申請不通過のため）
+  - MVP は Complete 画面で 1 度だけ表示する方式（PR28 で実装済）が標準
+  - 後続 PR32 で個人契約可能な Provider を再選定し、採用確定後にメール送信を再開
 - Moderation 集約 + `cmd/ops`（hide / unhide / softDelete / restore / purge / reissueManageUrl）
 - Report 集約（通報受付 + 運営対応）
 - UsageLimit 集約（公開数制限 / abuse 抑止）
@@ -289,42 +293,65 @@
 
 ### PR31: outbox-worker + Cloud Run Jobs / Scheduler 化
 
-- **目的**: outbox-worker と image-processor を Cloud Run Jobs として運用する
+- **目的**: outbox-worker と image-processor を Cloud Run Jobs として運用する。
+  メール送信は ADR-0006 で MVP 必須要件から外したため、worker handler は当面 **no-op + log のみ**
 - **実装するもの**:
   - `cmd/outbox-worker`（pending event poll → 種別ごと handler 実行 → mark done / failed）
   - Cloud Run Jobs spec（image-processor / outbox-worker）
   - Cloud Scheduler（定期 trigger、業務知識 v4 §運用 SLO に沿う頻度）
   - retry / dead letter（同 row の retry 上限と stuck 検出）
-- **実装しないもの**: SendGrid 連携本体（PR32）
+  - 各 event handler は **no-op + structured log**（ADR-0006、メール送信なし MVP）
+- **実装しないもの**: メール送信本実装（**ADR-0006 後続**、Provider 確定後）/ OGP 自動生成本実装（PR33）
 - **参照すべき design 資産**: なし
 - **参照すべき docs**:
-  - 旧 `2026-04-27_post-deploy-final-roadmap.md` PR26
+  - **ADR-0006**（メール送信を MVP 必須から外す根拠）
+  - `docs/plan/m2-outbox-plan.md` §12 引き継ぎ
   - `docs/plan/m2-image-processor-plan.md` §10〜§17
 - **実リソース操作の有無**: **Cloud Run Jobs + Cloud Scheduler 作成（課金影響あり）** / IAM service account 権限
-- **Secret が絡むか**: 既存 R2 / DATABASE_URL を Jobs にも secretKeyRef で注入
+- **Secret が絡むか**: 既存 R2 / DATABASE_URL を Jobs にも secretKeyRef で注入。メール
+  Provider 関連 Secret は**当面追加しない**（ADR-0006）
 - **Safari 確認が必要か**: なし
-- **完了条件**: image-processor / outbox-worker が Jobs 経由で動く / dead letter 経路あり
-- **次 PR への引き継ぎ**: SendGrid 経由のメール送信 handler（PR32）
+- **完了条件**: image-processor / outbox-worker が Jobs 経由で動く / dead letter 経路あり /
+  各 handler が no-op log を出すこと
+- **次 PR への引き継ぎ**: メール Provider 再選定（PR32 / ADR-0006）/ OGP 自動生成（PR33）
 
-### PR32: SendGrid + ManageUrlDelivery 集約
+### PR32: Email Provider 再選定 + Manage URL Delivery 再設計
 
-- **目的**: manage URL 再発行や ManageUrlReissued イベントをトリガに SendGrid でメール送信
+> **2026-04-28 ADR-0006 で本 PR の範囲を変更**。
+> SendGrid Japan は個人 / 個人事業主 / 任意団体は契約不可、AWS SES の production
+> access も不通過のため、ADR-0004 は Superseded。MVP のメール送信機能は必須要件から
+> 外し、Complete 画面で 1 度だけ表示する方式（PR28 で実装済）が MVP 標準。
+>
+> 本 PR はメール送信実装ではなく、**Provider 再選定タスク + ManageUrlDelivery 集約の
+> 再設計**を担う。実 API 接続 / 実装 / Outbox handler 実装は後続 PR で扱う。
+
+- **目的**: 個人 / 個人事業主でも契約可能なメール Provider を再選定し、確定後の
+  ManageUrlDelivery 設計を更新する。MVP リリース直前までに採用 Provider を確定できれば
+  「manage URL 再発行 → メール送信」を後続 PR で乗せる
 - **実装するもの**:
-  - SendGrid API Key 取得（**ユーザー操作**）
-  - DKIM / SPF レコードを Cloudflare DNS に追加（**ユーザー操作**）
-  - ManageUrlDelivery 集約 + `internal/notification/`
-  - Outbox handler（`ManageUrlReissued` / `PhotobookPublished` 等）
-  - email template
-- **実装しないもの**: 通常の運用通知 / abuse 通知（後続）
+  - 候補 Provider の **個人契約可否の実確認**（ADR-0006 §4.4 候補表）
+    - Resend / Mailgun / Brevo / Postmark / ZeptoMail / Zoho / Cloudflare 系 / 独自 SMTP
+  - 採用候補 1〜2 個に絞った PoC（API key 発行 + 1 通テスト送信）
+  - 新 ADR で採用確定（or「メール送信は ローンチ後対応」を確定）
+  - 採用確定時のみ `ManageUrlDelivery` 集約 / `internal/notification/` の設計を確定
+    （実装は採用後の別 PR）
+- **実装しないもの**: メール送信本実装 / Outbox handler の実装 / Cloud Run Jobs 統合
+  （いずれも採用 Provider 確定後の **PR32 後続 PR**で扱う）
 - **参照すべき design 資産**: なし
 - **参照すべき docs**:
-  - 業務知識 v4 §通知 / §ManageUrlDelivery
-  - `docs/adr/0004-email-provider.md`
-- **実リソース操作の有無**: **SendGrid アカウント / API Key / DNS レコード（課金影響あり、無料枠 100通/日）**
-- **Secret が絡むか**: SENDGRID_API_KEY を Secret Manager に登録 + Cloud Run Jobs に注入
-- **Safari 確認が必要か**: なし（メール送信のみ）
-- **完了条件**: 受信者でメール到達確認 / DKIM / SPF / DMARC pass / 失敗時の dead letter
-- **次 PR への引き継ぎ**: OGP 自動生成（PR33）
+  - **ADR-0006**（本 PR の根拠）
+  - ADR-0004（Superseded、過去経緯参照のみ）
+  - 業務知識 v4 §6 manage URL / §通知
+- **実リソース操作の有無**: 候補 Provider のアカウント開設は **ユーザー判断**
+  （採用前 PoC 段階では trial / sandbox を使用）
+- **Secret が絡むか**: 採用確定時のみ `<PROVIDER>_API_KEY` を Secret Manager に登録
+- **Safari 確認が必要か**: なし
+- **完了条件**:
+  - 採用 Provider の確定 ADR が Accepted、または
+  - 「ローンチ後対応」を ADR で明記し、MVP は Complete 画面 1 度表示で受け入れる方針を確定
+- **次 PR への引き継ぎ**:
+  - 採用 Provider 確定: 後続 PR で ManageUrlDelivery 集約実装 + Outbox handler 実装
+  - ローンチ後対応: PR41+ にメール対応をルーチン化
 
 ### PR33: OGP 独立管理
 
