@@ -390,21 +390,39 @@ PR32 は段階分割:
 
 ### PR33: OGP 独立管理
 
-- **目的**: 公開ページの OGP 画像を後追いで自動生成し、独立 table で管理
-- **実装するもの**:
-  - migration `photobook_ogp_images`
-  - OGP 生成 UseCase（cover / type / title から合成）
-  - Cloud Run Jobs での非同期生成
-  - public viewer の `<meta og:image>` を生成済み URL に切替
-- **実装しないもの**: PR25 で入れた placeholder OGP の置き換えのみ
-- **参照すべき design 資産**:
-  - `design/mockups/concept-images/`（type 別キービジュアル）
-- **参照すべき docs**: `docs/design/cross-cutting/` の OGP 設計
-- **実リソース操作の有無**: Cloud Run Jobs 追加 / R2 prefix `photobooks/{pid}/ogp/`
-- **Secret が絡むか**: なし（既存 R2 credentials を流用）
-- **Safari 確認が必要か**: **必須**（OGP の Twitter / X / Slack プレビュー含む）
-- **完了条件**: viewer の og:image が生成 URL を返す / Twitter card validator OK
-- **次 PR への引き継ぎ**: 運用整備（Moderation / Report）
+> **2026-04-28 PR33a で計画書化**。`docs/plan/m2-ogp-generation-plan.md` で段階分割
+> （PR33a/b/c/d/e）と公開配信経路（**Cloudflare Workers proxy** + R2 binding、R2 public OFF
+> 維持）を確定。Email Provider と独立して進められる。
+
+PR33 は段階分割:
+
+| 段階 | 内容 |
+|---|---|
+| **PR33a**（本書時点で完了） | 計画書 + 新正典更新 + outbox-plan 補追（コード変更なし）|
+| PR33b | migration `photobook_ogp_images` + OGP renderer（Go image/draw + Noto Sans JP） + Repository + UseCase + `cmd/ogp-generator` CLI + unit test。STOP α: Cloud SQL migration 適用 / STOP β: Cloud Build deploy（image 同梱）/ STOP γ: ローカル CLI で R2 PUT PoC |
+| PR33c | Backend `/api/public/photobooks/<id>/ogp` endpoint + Frontend `generateMetadata` 更新 + Cloudflare Workers R2 binding + `/ogp/<id>` route。STOP δ: Workers redeploy / STOP ε: Backend deploy。SNS validator（X / Discord / Slack）+ Safari 実機確認 |
+| PR33d | Outbox handler `photobook.published` を no-op → OGP 生成に置換 + Cloud Run Jobs 作成。STOP ζ: 副作用 handler 初回稼働 / 過去 pending event 戦略確定（推奨: 全件 consume でバックフィル）/ STOP η: Cloud Scheduler は別 STOP |
+| PR33e（任意）| Reconcile（自動 stale_ogp_enqueue / 手動 ogp_stale.sh）。STOP θ: cron 化 |
+
+- **目的**: 公開ページの OGP 画像を後追いで自動生成し、独立 table で管理。SNS 共有時に
+  photobook title / cover / ブランドが出るようにする
+- **実装するもの（PR33a 範囲）**: 計画書 / 新正典 §3 PR33 段階分割反映 / outbox-plan 補追
+- **実装しないもの（PR33a 範囲）**: コード / migration / R2 object / Cloud Build deploy /
+  Workers redeploy / Cloud Run Jobs / Scheduler / SNS validator 実機確認
+- **参照すべき docs**:
+  - **`docs/plan/m2-ogp-generation-plan.md`**（PR33a 成果物、§5 配信経路 / §15 ユーザー判断事項）
+  - `docs/design/cross-cutting/ogp-generation.md`（DB / 状態遷移の上流設計）
+  - 業務知識 v4 §3.2 / §3.8 / §6.17（OGP 失敗でも公開成功 / 独立管理）
+  - ADR-0001（Cloudflare R2 / Workers）/ ADR-0005（storage_key 命名）
+- **実リソース操作の有無（PR33a）**: なし。PR33b 以降は STOP α〜η で停止ポイント
+- **Secret が絡むか（PR33a）**: なし。後続 PR でも既存 R2 credentials を流用、新規 Secret 追加なし
+- **Safari 確認が必要か**: **必須**（PR33c で OGP 反映時、X / Discord / Slack / LINE プレビュー含む）
+- **完了条件（PR33a）**: 計画書 + 新正典 + outbox-plan の整合確認 / PR closeout 通過
+- **次 PR への引き継ぎ**:
+  - PR33b（renderer + CLI 手動 generate）
+  - PR33c（Workers proxy 配信 + Frontend metadata 更新）
+  - PR33d（Outbox handler + Cloud Run Jobs、副作用 handler 初回稼働 STOP）
+  - PR33e（Reconcile、任意）
 
 ### PR34: Moderation / Ops
 

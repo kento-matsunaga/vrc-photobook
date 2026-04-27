@@ -623,3 +623,4 @@ PR31 への引き継ぎ事項は §12。
 |------|------|
 | 2026-04-28 | 初版作成。cross-cutting/outbox.md を上流正典として参照、PR30 MVP 範囲を 3 イベントに絞る |
 | 2026-04-28 | PR31 完了。`cmd/outbox-worker` CLI 実装 + image 同梱 + Cloud Build deploy 完了。**Cloud Run Jobs / Scheduler 作成は本 PR で実施せず**、副作用 handler（OGP / 通知 / cleanup / email）が固まった後続独立 PR で再検討。詳細は `harness/work-logs/2026-04-28_outbox-worker-result.md` |
+| 2026-04-28 | PR33a で `docs/plan/m2-ogp-generation-plan.md` を作成。**Cloud Run Jobs の初回稼働は PR33d（OGP handler を `photobook.published` の副作用 handler として実装するタイミング）**で扱う方針を確定。Cloud Scheduler はさらに別 STOP（PR33d STOP η）。pending event のバックフィル戦略（全件 consume / SQL で過去分 fix のいずれか）も PR33d 着手前にユーザー判断 |
