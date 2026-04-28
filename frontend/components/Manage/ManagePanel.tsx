@@ -10,6 +10,7 @@
 
 import type { ManagePhotobook } from "@/lib/managePhotobook";
 import { UrlRow } from "@/components/UrlRow";
+import { HiddenByOperatorBanner } from "@/components/Manage/HiddenByOperatorBanner";
 
 type Props = {
   photobook: ManagePhotobook;
@@ -43,6 +44,12 @@ export function ManagePanel({ photobook, appBaseUrl }: Props) {
           )}
         </p>
       </header>
+
+      {photobook.hiddenByOperator && (
+        <div className="mt-6">
+          <HiddenByOperatorBanner />
+        </div>
+      )}
 
       <section className="mt-6 space-y-4">
         {fullPublicUrl ? (
