@@ -48,15 +48,21 @@ gcloud run revisions list \
 ```bash
 SHORT=$(git rev-parse --short=7 HEAD)
 
-# source は backend/ ディレクトリのみアップロード（context 最小化）
+# source は **repo root** をアップロードする。`.gcloudignore` で frontend / docs /
+# harness 等の不要ディレクトリを除外して context を最小化する（PR29 commit `50f940c`、
+# 実測 10 MiB / 約 300 files）。
 # --service-account= で vrcpb-cloud-build@... を明示（default SA を使わない）
-gcloud builds submit /home/erenoa6621/dev/vrc_photobook/backend \
+gcloud builds submit /home/erenoa6621/dev/vrc_photobook \
   --config=/home/erenoa6621/dev/vrc_photobook/cloudbuild.yaml \
   --substitutions=SHORT_SHA=${SHORT} \
   --service-account=projects/${PROJ}/serviceAccounts/${SA_EMAIL} \
   --project=${PROJ}
 ```
 
+> **source は backend/ ではなく repo root**。`cloudbuild.yaml` の build step は
+> `-f backend/Dockerfile` + context `backend` を参照するため、submit する source の
+> 最上位に `backend/` ディレクトリが見える必要がある（§5.8 参照）。
+>
 > `--service-account=` は **必須**。指定しないと Cloud Build default SA（過剰権限）が
 > 使われる。
 >
@@ -321,6 +327,32 @@ gcloud run services update-traffic vrcpb-api \
 - deploy 完了報告では **`status.latestReadyRevisionName == status.traffic[0].revisionName`**
   を必須チェック項目とする
 - build SUCCESS だけで「deploy 成功」とみなさない（false positive 防止）
+
+### 5.8 build step #0 が `unable to prepare context: path "backend" not found` で失敗
+
+`harness/failure-log/2026-04-29_runbook-backend-deploy-section-outdated.md`、
+PR29 work-log §「修正 2」と同事象。
+
+#### 症状
+
+```
+Cloud Build <BUILD_ID> FAILURE
+Step #0 - "build": unable to prepare context: path "backend" not found
+```
+
+#### 原因
+
+`gcloud builds submit` の source として `<repo-root>/backend/` ディレクトリだけを
+渡したケース。`cloudbuild.yaml` の build step は `-f backend/Dockerfile` + context
+`backend` を参照するため、submit する source の最上位に `backend/` が見える必要
+がある（§1.2）。
+
+#### 対処
+
+- §1.2 のサンプル通り **repo root から submit**:
+  `gcloud builds submit /home/erenoa6621/dev/vrc_photobook \ --config=/home/erenoa6621/dev/vrc_photobook/cloudbuild.yaml \ ...`
+- `.gcloudignore` で frontend / docs / harness 等を除外しているため、repo root submit
+  でも upload は最小化される（PR29 commit `50f940c`）
 
 ---
 

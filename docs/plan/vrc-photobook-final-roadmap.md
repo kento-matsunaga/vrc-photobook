@@ -52,19 +52,18 @@
 
 ---
 
-## 1. 現在地（2026-04-28 PR33d 締め時点）
+## 1. 現在地（2026-04-29 PR34b 締め時点）
 
 ### 1.1 commit / revision
 
-- **最新 commit**: `f09e6c8 docs(work-log): record PR33d outbox handler wiring and Cloud Run Job execution`
-- **直前の機能 commit**: `8e8441f feat(backend): add CreateAndPublishForCLI wireup helper`
-- **PR33d 本体 commit（image 同梱）**: `fe19ab5 feat(ogp): generate OGP images from outbox events`
-- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00016-9ln`（image: `vrcpb-api:fe19ab5`）
-- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:fe19ab5`、`asia-northeast1`、
+- **最新 commit**: PR34b closeout commit（feat backend moderation foundation `5576656` / feat backend moderation usecases and cli `0db0d7c` / docs work-log `d6e479e` / feat frontend banner / docs work-log moderation ops result の連続 commit）
+- **PR34b 本体 commit（backend image 同梱）**: `0db0d7c feat(backend): add moderation ops usecases and cli`
+- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00017-hbg`（image: `vrcpb-api:0db0d7c`、PR34b）
+- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:0db0d7c`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
   **手動 execute 運用**（Cloud Scheduler 未作成）
-- **Cloud Workers Frontend Worker version**: `b966c234-2605-4343-b03a-1ca6cbb0c534`（PR33c で OGP route + R2 binding 追加）
-- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**、本番化 / rename はローンチ前運用整備で再判断）
+- **Cloud Workers Frontend Worker version**: `e97148fe-283f-4c64-9765-37ad10bdd29e`（PR34b で manage UI banner 追加）
+- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**、本番化 / rename はローンチ前運用整備で再判断）。migration v15（00014 moderation_actions + 00015 outbox event_type CHECK 拡張、PR34b で適用）
 
 ### 1.2 実装済み（重要なものから）
 
@@ -113,15 +112,19 @@
 | 機能 | `/p/<SLUG>` の `generateMetadata`（og:image 1200×630 絶対 URL / twitter:card=summary_large_image / og:image:width/height） | PR33c |
 | 機能 | outbox-worker `photobook.published` handler を OGP 生成に接続（contract package で internal package boundary を解決） | PR33d / `2026-04-28_ogp-outbox-handler-result.md` |
 | インフラ | Cloud Run Job `vrcpb-outbox-worker` 作成 + 手動 execute 運用（cloudsql-instances annotation 必須を `harness/failure-log/2026-04-28_cloud-run-job-missing-cloudsql-annotation.md` に明文化） | PR33d |
+| ドメイン | Moderation 集約（`moderation_actions` append-only audit log + 6 ActionKind / 9 ActionReason / OperatorLabel 正規表現 / immutable entity） | PR34b / `2026-04-28_moderation-ops-result.md` |
+| 機能 | 運営による hide / unhide（同 TX 4 要素: photobooks UPDATE + moderation_actions INSERT + outbox_events INSERT、worker handler は no-op + log）/ show / list-hidden | PR34b |
+| 機能 | `cmd/ops`（photobook show / list-hidden / hide / unhide、`--dry-run` 既定 + `--execute` + 確認プロンプト + `--actor` 必須、Cloud Run Job 化なし、Web admin UI なし） | PR34b |
+| 機能 | Frontend manage UI に「運営により非公開中」banner（既存 `hiddenByOperator` を消費、編集 / 再発行はブロックしない） | PR34b |
+| Runbook | `docs/runbook/ops-moderation.md`（cmd/ops 運用、reason 許容セット、rollback、Secret 漏洩確認、よくある失敗）| PR34b |
 
 ### 1.3 未実装（公開ローンチまでに必要）
 
 #### 運営機能（次の PR ライン）
-- **Moderation 集約 + `cmd/ops`**（hide / unhide / softDelete / restore / purge / reissueManageUrl）→ **次の PR34**
-  - hidden_by_operator は DB column としては存在し効果も検証済（PR33d STOP κ 後検証）。
-    UseCase / `cmd/ops` 側の経路は未実装で、現状は直接 SQL 操作のみ
-- Report 集約（通報受付 + 運営対応）→ PR35
+- **Report 集約**（通報受付 + 運営対応 + Moderation 自動連動）→ **次の PR35**
 - UsageLimit 集約（公開数制限 / abuse 抑止）→ PR36
+- Moderation 拡張（`soft_delete` / `restore`（論理復元） / `purge` UseCase）→ PR34 拡張または別 PR（CHECK 制約は既に 6 種受け入れ済、追加コスト小）
+- `reissue_manage_url`（管理URL 再発行 + Session revoke + ManageUrlDelivery）→ Email Provider 確定後（PR32c 以降）
 
 #### LP / 法務 / 公開判定
 - LP (`/`) / `/terms` / `/privacy` / `/about` → PR37
@@ -468,8 +471,8 @@ PR34 は段階分割（計画書 → MVP 実装、それ以降は別 PR）:
 | 段階 | 内容 |
 |---|---|
 | **PR34a**（完了、2026-04-28） | 計画書 `docs/plan/m2-moderation-ops-plan.md`。MVP スコープ確定 + ユーザー判断事項 10 件 |
-| PR34b（次） | hide / unhide / show / list-hidden の実装 + migration（`moderation_actions`）+ `cmd/ops` + tests + runbook |
-| PR34 拡張（後続）| `soft_delete` / `restore`（論理復元） / `purge` の追加 |
+| **PR34b**（完了、2026-04-29） | hide / unhide / show / list-hidden 実装 + migration 00014 / 00015 + `internal/moderation/` + `cmd/ops` + Outbox 同 TX INSERT + outbox-worker no-op handler + Frontend manage UI banner（案 b）+ runbook `docs/runbook/ops-moderation.md` + 本番 Cloud SQL 適用 + `vrcpb-api:0db0d7c` deploy（rev `vrcpb-api-00017-hbg`）+ Workers redeploy（version `e97148fe-...`）+ 本番 cmd/ops smoke（hide → unhide → hide で復元）+ Job no-op handler 動作確認。**Safari / iPhone Safari 実機 manage UI 表示確認のみ後続持ち越し**（raw manage URL が必要、reissue_manage_url 実装後または運用フェーズで実施）。Cloud Build 初回失敗 → runbook §1.2 古い記述が原因 → repo root submit に修正 + failure-log 起票（`harness/failure-log/2026-04-29_runbook-backend-deploy-section-outdated.md`） |
+| PR34 拡張（後続）| `soft_delete` / `restore`（論理復元） / `purge` の追加。CHECK 制約は既に 6 種を最初から受け入れているため migration 不要、UseCase 追加と cmd/ops サブコマンド追加だけで足りる |
 
 - **目的（PR34a）**: 公開導線が動いている本番環境で、運営が安全に「隠す（hide）・戻す（unhide）・確認する（show / list-hidden）」CLI 経路を整備する設計を計画書化
 - **実装するもの（PR34a）**: 計画書 / 新正典 PR34 章更新
