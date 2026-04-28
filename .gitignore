@@ -37,3 +37,8 @@ Thumbs.db
 # ※ レビュー後にgit addする運用
 __pycache__/
 *.pyc
+
+# 検証用一時 cmd（公開 photobook を UseCase 経由で作る等）。commit せずローカル使用、
+# 検証後削除する想定の場所。`backend/internal/photobook/wireup.CreateAndPublishForCLI`
+# を呼び出す temp main を置くときに使う。
+/backend/cmd/_test-publish-public/

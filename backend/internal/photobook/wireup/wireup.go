@@ -12,11 +12,16 @@
 package wireup
 
 import (
+	"context"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vrcpb/backend/internal/imageupload/infrastructure/r2"
+	openingstyle "vrcpb/backend/internal/photobook/domain/vo/opening_style"
+	pblayout "vrcpb/backend/internal/photobook/domain/vo/photobook_layout"
+	pbtype "vrcpb/backend/internal/photobook/domain/vo/photobook_type"
+	pbvisibility "vrcpb/backend/internal/photobook/domain/vo/visibility"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/infrastructure/session_adapter"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
@@ -72,12 +77,104 @@ func BuildPublishHandlers(pool *pgxpool.Pool) *photobookhttp.PublishHandlers {
 	if pool == nil {
 		return nil
 	}
-	return photobookhttp.NewPublishHandlers(usecase.NewPublishFromDraft(
+	return photobookhttp.NewPublishHandlers(BuildPublishFromDraft(pool))
+}
+
+// BuildCreateDraftPhotobook は CreateDraftPhotobook UseCase を組み立てる（CLI / batch
+// 用途で再利用できるように export）。
+func BuildCreateDraftPhotobook(pool *pgxpool.Pool) *usecase.CreateDraftPhotobook {
+	repo := photobookrdb.NewPhotobookRepository(pool)
+	return usecase.NewCreateDraftPhotobook(repo)
+}
+
+// BuildPublishFromDraft は PublishFromDraft UseCase を組み立てる（HTTP handler 用 +
+// CLI / batch 用に再利用できるよう export）。
+func BuildPublishFromDraft(pool *pgxpool.Pool) *usecase.PublishFromDraft {
+	return usecase.NewPublishFromDraft(
 		pool,
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
-	))
+	)
+}
+
+// CreateAndPublishCLIInput は CLI / batch 経由で publish-ready な photobook を 1 件
+// 作成するときの入力。HTTP layer を経由せず UseCase を直接呼ぶ用途。
+type CreateAndPublishCLIInput struct {
+	Type               pbtype.PhotobookType
+	Title              string
+	Layout             pblayout.PhotobookLayout
+	OpeningStyle       openingstyle.OpeningStyle
+	Visibility         pbvisibility.Visibility
+	CreatorDisplayName string
+	RightsAgreed       bool
+	Now                time.Time
+}
+
+// CreateAndPublishCLIOutput は CLI に返す最小サマリ。raw token は含めない。
+type CreateAndPublishCLIOutput struct {
+	PhotobookID        string
+	Slug               string
+	OutboxPendingCount int
+}
+
+// CreateAndPublishForCLI は draft 作成 → publish を 1 関数で実行する（CLI / batch 用、
+// 例: 検証用に公開済 photobook を 1 件用意したいとき）。
+//
+// 通常運用では HTTP / UseCase を別々に呼ぶが、本 helper は UseCase を直接呼んで
+// outbox event INSERT を含む正規パイプラインを **1 プロセス内で完結**させる。
+// raw token はこの helper 内で使い切り、戻り値には含めない。
+func CreateAndPublishForCLI(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	in CreateAndPublishCLIInput,
+) (CreateAndPublishCLIOutput, error) {
+	createUC := BuildCreateDraftPhotobook(pool)
+	createOut, err := createUC.Execute(ctx, usecase.CreateDraftPhotobookInput{
+		Type:               in.Type,
+		Title:              in.Title,
+		Layout:             in.Layout,
+		OpeningStyle:       in.OpeningStyle,
+		Visibility:         in.Visibility,
+		CreatorDisplayName: in.CreatorDisplayName,
+		RightsAgreed:       in.RightsAgreed,
+		Now:                in.Now,
+	})
+	if err != nil {
+		return CreateAndPublishCLIOutput{}, err
+	}
+	pid := createOut.Photobook.ID()
+	_ = createOut.RawDraftToken // 破棄
+
+	publishUC := BuildPublishFromDraft(pool)
+	publishOut, err := publishUC.Execute(ctx, usecase.PublishFromDraftInput{
+		PhotobookID:     pid,
+		ExpectedVersion: 0,
+		Now:             in.Now,
+	})
+	if err != nil {
+		return CreateAndPublishCLIOutput{}, err
+	}
+	_ = publishOut.RawManageToken // 破棄
+
+	slug := ""
+	if s := publishOut.Photobook.PublicUrlSlug(); s != nil {
+		slug = s.String()
+	}
+
+	var outboxCount int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*)::int FROM outbox_events WHERE aggregate_id=$1::uuid AND event_type='photobook.published' AND status='pending'",
+		pid.String(),
+	).Scan(&outboxCount); err != nil {
+		return CreateAndPublishCLIOutput{}, err
+	}
+
+	return CreateAndPublishCLIOutput{
+		PhotobookID:        pid.String(),
+		Slug:               slug,
+		OutboxPendingCount: outboxCount,
+	}, nil
 }
 
 // BuildEditHandlers は編集 UI 本格化（PR27）用の HTTP Handlers を組み立てる。
