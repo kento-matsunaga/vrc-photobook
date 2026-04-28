@@ -650,3 +650,5 @@ PR33a 完了報告に以下のチェックリストを含める。
 | 日付 | 変更 |
 |------|------|
 | 2026-04-28 | 初版（PR33a）。OGP 自動生成の段階分割（renderer / 配信 / Outbox / Reconcile）と公開配信経路（Cloudflare Workers proxy 推奨）を確定。R2 public OFF 維持、Cloud Run Jobs 作成は副作用 handler 初回稼働と組で停止ポイント |
+| 2026-04-28 | PR33b 完了。renderer + Repository + UseCase + CLI + Dockerfile 同梱 + Cloud SQL migration 13 適用 + Cloud Build deploy（vrcpb-api-00014-9sk）+ ローカル CLI で R2 PUT PoC + cleanup |
+| 2026-04-28 | PR33c 完了（一部）。Backend `/api/public/photobooks/<id>/ogp` endpoint + GenerateOgp 完了化（images/image_variants + MarkGenerated）+ Frontend metadata + Workers R2 binding + `/ogp/<id>` proxy route + default OGP placeholder 実装 + STOP δ (Workers redeploy) / ε (Backend deploy vrcpb-api-00015-j8t) 完了。**STOP ζ はスキップ**（published+visibility=public な photobook が本番 DB に 0 件、unlisted 強制公開は不採用、テスト photobook 新規作成は PR33c 範囲外と判断）。**generated OGP の public 配信実機確認 / SNS validator / Safari 実機確認は PR33d 持ち越し** |

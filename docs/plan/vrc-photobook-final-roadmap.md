@@ -398,10 +398,10 @@ PR33 は段階分割:
 
 | 段階 | 内容 |
 |---|---|
-| **PR33a**（本書時点で完了） | 計画書 + 新正典更新 + outbox-plan 補追（コード変更なし）|
-| PR33b | migration `photobook_ogp_images` + OGP renderer（Go image/draw + Noto Sans JP） + Repository + UseCase + `cmd/ogp-generator` CLI + unit test。STOP α: Cloud SQL migration 適用 / STOP β: Cloud Build deploy（image 同梱）/ STOP γ: ローカル CLI で R2 PUT PoC |
-| PR33c | Backend `/api/public/photobooks/<id>/ogp` endpoint + Frontend `generateMetadata` 更新 + Cloudflare Workers R2 binding + `/ogp/<id>` route。STOP δ: Workers redeploy / STOP ε: Backend deploy。SNS validator（X / Discord / Slack）+ Safari 実機確認 |
-| PR33d | Outbox handler `photobook.published` を no-op → OGP 生成に置換 + Cloud Run Jobs 作成。STOP ζ: 副作用 handler 初回稼働 / 過去 pending event 戦略確定（推奨: 全件 consume でバックフィル）/ STOP η: Cloud Scheduler は別 STOP |
+| **PR33a**（完了、2026-04-28） | 計画書 + 新正典更新 + outbox-plan 補追（コード変更なし）|
+| **PR33b**（完了、2026-04-28） | migration `photobook_ogp_images` + OGP renderer（Go image/draw + Noto Sans JP） + Repository + UseCase + `cmd/ogp-generator` CLI + unit test。STOP α (migration 13 適用) / β (Cloud Build deploy) / γ (ローカル CLI R2 PUT PoC + cleanup) すべて完了 |
+| **PR33c**（完了、2026-04-28） | Backend `/api/public/photobooks/<id>/ogp` endpoint + GenerateOgp 完了化（images / image_variants + MarkGenerated）+ Frontend `generateMetadata` 更新 + Cloudflare Workers R2 binding + `/ogp/<id>` route + default OGP placeholder。STOP δ (Workers redeploy) / ε (Backend deploy `vrcpb-api-00015-j8t`) 完了。**STOP ζ（実 OGP 生成 + public 取得 PoC）はスキップ**（本番 DB に published+visibility=public が 0 件、unlisted 強制公開は作成者意図とズレるため避け、テスト photobook 新規作成は PR33c 範囲として過剰と判断）。**generated OGP の public 配信実機確認は PR33d 持ち越し** |
+| PR33d | Outbox handler `photobook.published` を no-op → OGP 生成に置換 + Cloud Run Jobs 作成。STOP ζ: 副作用 handler 初回稼働 / 過去 pending event 戦略確定（推奨: 全件 consume でバックフィル）/ STOP η: Cloud Scheduler は別 STOP。**PR33c から持ち越した generated OGP public 配信実機確認**（publish 経路またはテスト photobook 新規作成）も併せて実施。SNS validator（X Card Validator / Discord / Slack）/ Safari 実機確認も PR33d で実施 |
 | PR33e（任意）| Reconcile（自動 stale_ogp_enqueue / 手動 ogp_stale.sh）。STOP θ: cron 化 |
 
 - **目的**: 公開ページの OGP 画像を後追いで自動生成し、独立 table で管理。SNS 共有時に
