@@ -6,6 +6,8 @@
 //   - URL に raw token を出さない（route 側で担保済み）
 //   - 編集 URL / draft URL / manage URL を表示しない（業務知識 v4）
 
+import Link from "next/link";
+
 import type { PublicPhotobook } from "@/lib/publicPhotobook";
 import { PhotoGrid } from "./PhotoGrid";
 
@@ -57,7 +59,16 @@ export function ViewerLayout({ photobook }: Props) {
       </div>
 
       <footer className="mt-12 border-t border-divider-soft pt-6 text-center text-xs text-ink-soft">
-        VRC PhotoBook（非公式ファンメイドサービス）
+        <p>VRC PhotoBook（非公式ファンメイドサービス）</p>
+        <p className="mt-2">
+          <Link
+            href={`/p/${photobook.slug}/report`}
+            className="underline hover:text-ink-medium"
+            data-testid="viewer-report-link"
+          >
+            このフォトブックを通報
+          </Link>
+        </p>
       </footer>
     </main>
   );
