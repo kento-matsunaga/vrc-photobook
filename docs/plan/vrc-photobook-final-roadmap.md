@@ -457,20 +457,42 @@ PR33 は段階分割:
 
 ### PR34: Moderation / Ops
 
-- **目的**: 運営の手動操作（hide / unhide / softDelete / restore / purge / reissueManageUrl）の経路と履歴を整える
-- **実装するもの**:
-  - `internal/moderation/`（集約）
-  - `cmd/ops`（CLI、ADR-0002 準拠）
-  - `ModerationAction` 履歴
-  - 必要なら Backend HTTP endpoint（運営限定、IP allowlist 等）
-- **実装しないもの**: Report 集約（PR35）
+> **2026-04-28 PR34a で計画書化**。`docs/plan/m2-moderation-ops-plan.md` で MVP スコープ
+> （hide / unhide / show のみ）と v4 完全設計（6 ActionKind + Report 連携）の差分を整理。
+> `moderation_actions` テーブル新設（案 B）/ trigger なし append-only / `cmd/ops` の
+> dry-run + 確認プロンプト + `--actor` 必須 / Outbox 同 TX INSERT（worker handler は no-op）
+> をユーザー判断事項として整理。
+
+PR34 は段階分割（計画書 → MVP 実装、それ以降は別 PR）:
+
+| 段階 | 内容 |
+|---|---|
+| **PR34a**（完了、2026-04-28） | 計画書 `docs/plan/m2-moderation-ops-plan.md`。MVP スコープ確定 + ユーザー判断事項 10 件 |
+| PR34b（次） | hide / unhide / show / list-hidden の実装 + migration（`moderation_actions`）+ `cmd/ops` + tests + runbook |
+| PR34 拡張（後続）| `soft_delete` / `restore`（論理復元） / `purge` の追加 |
+
+- **目的（PR34a）**: 公開導線が動いている本番環境で、運営が安全に「隠す（hide）・戻す（unhide）・確認する（show / list-hidden）」CLI 経路を整備する設計を計画書化
+- **実装するもの（PR34a）**: 計画書 / 新正典 PR34 章更新
+- **実装しないもの（PR34a）**: コード / migration / Cloud SQL 適用 / Backend deploy / Workers redeploy
+- **実装するもの（PR34b、計画通り）**:
+  - `internal/moderation/`（domain / VO / Repository / UseCase）
+  - migration `moderation_actions`（append-only、設計書 §3 通り）
+  - `cmd/ops`（`photobook show / list-hidden / hide / unhide`）
+  - Outbox 同 TX INSERT（`PhotobookHidden` / `PhotobookUnhidden`、worker handler は no-op）
+  - tests + runbook（`docs/runbook/ops-moderation.md`）
+  - Frontend manage UI に「運営により非公開中」banner（案 b 採用時）
+- **実装しないもの（PR34）**:
+  - `soft_delete` / `restore`（論理削除復元） / `purge` / `reissue_manage_url`
+  - Report 集約 / 自動連動（PR35）
+  - Web admin UI / dashboard / HTTP endpoint
+  - 作成者通知メール（Email Provider 確定後、PR32c 以降）
 - **参照すべき design 資産**: なし（運営者のみ）
-- **参照すべき docs**: `docs/design/aggregates/moderation/` / 業務知識 v4 §運営
-- **実リソース操作の有無**: 運用ロール作成 / IAM
-- **Secret が絡むか**: 運営用認可は別系（Cookie ではなく ops CLI の short-lived credential）
-- **Safari 確認が必要か**: なし
-- **完了条件**: hide / unhide / softDelete / restore / purge / reissueManageUrl が CLI で動く
-- **次 PR への引き継ぎ**: Report 受付の運営対応経路
+- **参照すべき docs**: [`docs/plan/m2-moderation-ops-plan.md`](./m2-moderation-ops-plan.md) / `docs/design/aggregates/moderation/` / 業務知識 v4 §5.4 / §6.19 / §7.3 / §7.4 / [ADR-0002](../adr/0002-ops-execution-model.md)
+- **実リソース操作の有無**: PR34a なし。PR34b は migration goose up（**Cloud SQL 適用 STOP**）+ Backend deploy（runbook 通り）+ Workers redeploy（案 b 時）
+- **Secret が絡むか**: なし（DATABASE_URL / R2_* / Turnstile を新規追加せず、既存 Secret を env で参照、cmd/ops で値を出さない）
+- **Safari 確認が必要か**: PR34a なし。PR34b は manage UI 案 b 採用時に **必須**（banner 表示の Cookie / redirect / モバイル UI 影響、`.agents/rules/safari-verification.md`）
+- **完了条件（PR34a）**: 計画書 review 通過、PR34b スコープが PR 単位に分割可能なところまで具体化
+- **次 PR への引き継ぎ**: PR34b で確定した DB 設計（案 A / B）/ reason 許容セット / version 不変方針 / R2 削除しない方針
 
 ### PR35: Report 集約
 
