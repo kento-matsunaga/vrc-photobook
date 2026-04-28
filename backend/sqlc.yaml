@@ -135,3 +135,19 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
+
+  # PR34b: Moderation Action 集約 (moderation_actions)。FK は持たず、
+  # photobook_id / source_report_id は緩い参照（v4 設計書 §4）。
+  # photobooks の query は本 set に含めない（型混入防止）。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00014_create_moderation_actions.sql"
+    queries: "internal/moderation/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/moderation/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
