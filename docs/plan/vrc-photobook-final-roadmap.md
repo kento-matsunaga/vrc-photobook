@@ -41,6 +41,14 @@
     pr-closeout.md §6 のチェックリスト（コメント整合 / 残した TODO / 先送り記録 /
     generated 反映 / Secret grep）を含める。コメント整理が広範囲に及ぶ場合は、次 PR に
     入る前に独立した小 PR で処理する
+13. **Cloud Run Jobs を新規作成するときは `--set-cloudsql-instances` を必ず指定する**。
+    Cloud Run service と異なり、Job は当該 annotation が無いと
+    `/cloudsql/<INSTANCE>/.s.PGSQL.5432` の Unix socket が mount されず、Job 実行が
+    DB 接続エラー (`dial unix ... no such file or directory`) で即落ちる。Job 作成 / 更新
+    後は `gcloud run jobs describe --format=export` で
+    `metadata.annotations."run.googleapis.com/cloudsql-instances"` / image / args / SA /
+    Secret refs / max-retries / parallelism / task-count を必ず確認する。詳細テンプレ:
+    [`harness/failure-log/2026-04-28_cloud-run-job-missing-cloudsql-annotation.md`](../../harness/failure-log/2026-04-28_cloud-run-job-missing-cloudsql-annotation.md)
 
 ---
 
@@ -401,8 +409,8 @@ PR33 は段階分割:
 | **PR33a**（完了、2026-04-28） | 計画書 + 新正典更新 + outbox-plan 補追（コード変更なし）|
 | **PR33b**（完了、2026-04-28） | migration `photobook_ogp_images` + OGP renderer（Go image/draw + Noto Sans JP） + Repository + UseCase + `cmd/ogp-generator` CLI + unit test。STOP α (migration 13 適用) / β (Cloud Build deploy) / γ (ローカル CLI R2 PUT PoC + cleanup) すべて完了 |
 | **PR33c**（完了、2026-04-28） | Backend `/api/public/photobooks/<id>/ogp` endpoint + GenerateOgp 完了化（images / image_variants + MarkGenerated）+ Frontend `generateMetadata` 更新 + Cloudflare Workers R2 binding + `/ogp/<id>` route + default OGP placeholder。STOP δ (Workers redeploy) / ε (Backend deploy `vrcpb-api-00015-j8t`) 完了。**STOP ζ（実 OGP 生成 + public 取得 PoC）はスキップ**（本番 DB に published+visibility=public が 0 件、unlisted 強制公開は作成者意図とズレるため避け、テスト photobook 新規作成は PR33c 範囲として過剰と判断）。**generated OGP の public 配信実機確認は PR33d 持ち越し** |
-| PR33d | Outbox handler `photobook.published` を no-op → OGP 生成に置換 + Cloud Run Jobs 作成。STOP ζ: 副作用 handler 初回稼働 / 過去 pending event 戦略確定（推奨: 全件 consume でバックフィル）/ STOP η: Cloud Scheduler は別 STOP。**PR33c から持ち越した generated OGP public 配信実機確認**（publish 経路またはテスト photobook 新規作成）も併せて実施。SNS validator（X Card Validator / Discord / Slack）/ Safari 実機確認も PR33d で実施 |
-| PR33e（任意）| Reconcile（自動 stale_ogp_enqueue / 手動 ogp_stale.sh）。STOP θ: cron 化 |
+| **PR33d**（完了、2026-04-28） | Outbox handler `photobook.published` を no-op → OGP 生成に接続。`internal/outbox/contract` package 新設で internal package boundary を解決。Cloud Run Jobs `vrcpb-outbox-worker` を asia-northeast1 に作成。STOP θ（Job 作成）/ STOP ι（UseCase 経由のテスト用 public photobook 作成、CLI helper を `photobook/wireup` に追加、raw token は破棄）/ STOP κ（Job 実行 + 公開配信実機検証 + 公開停止後検証）すべて完了。**1 回目失敗 → `--set-cloudsql-instances` annotation 不足が原因 → patch + 再実行で SUCCESS**（副作用ゼロで復旧、`harness/failure-log/2026-04-28_cloud-run-job-missing-cloudsql-annotation.md` に記録）。OGP 1200×630 PNG 生成 / 公開配信 200 + Cache-Control 86400 / `/p/<SLUG>` HTML の og:image / twitter:card 全て検証。**SNS validator / Safari 実機確認は公開 photobook 初出時（運用フェーズ）に持ち越し**（テスト用 photobook は検証直後に `hidden_by_operator=true` で公開停止、event / OGP rows / R2 object は履歴保持）。**Cloud Scheduler は STOP λ で要否判断、本 PR33d は手動 Job execute 運用** |
+| PR33e（任意）| Reconcile（自動 stale_ogp_enqueue / 手動 ogp_stale.sh）。STOP θ: cron 化。**PR33d で持ち越した運用検証**（SNS validator 実機 / Safari 実機 / Scheduler 要否判断 STOP λ / 過去 pending バックフィル戦略）を併せて消化 |
 
 - **目的**: 公開ページの OGP 画像を後追いで自動生成し、独立 table で管理。SNS 共有時に
   photobook title / cover / ブランドが出るようにする
