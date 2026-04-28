@@ -78,6 +78,10 @@ func NewRunner(pool *pgxpool.Pool, cfg Config, logger *slog.Logger) Runner {
 	}
 	registry.Register(event_type.ImageBecameAvailable().String(), handlers.NewImageBecameAvailableHandler(logger))
 	registry.Register(event_type.ImageFailed().String(), handlers.NewImageFailedHandler(logger))
+	// PR34b: moderation hide/unhide event の no-op handler。
+	// 副作用（CDN purge / OGP cache invalidation）は後続 PR で追加する。
+	registry.Register(event_type.PhotobookHidden().String(), handlers.NewPhotobookHiddenHandler(logger))
+	registry.Register(event_type.PhotobookUnhidden().String(), handlers.NewPhotobookUnhiddenHandler(logger))
 
 	worker := outboxusecase.NewWorker(pool, registry, outboxusecase.WorkerConfig{
 		WorkerID:    cfg.WorkerID,

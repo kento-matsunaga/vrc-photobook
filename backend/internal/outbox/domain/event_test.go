@@ -23,6 +23,8 @@ func TestEventTypeParse(t *testing.T) {
 		wantErrIs   error
 	}{
 		{name: "正常_photobook_published", description: "photobook.published を許可", in: "photobook.published"},
+		{name: "正常_photobook_hidden", description: "photobook.hidden を許可（PR34b）", in: "photobook.hidden"},
+		{name: "正常_photobook_unhidden", description: "photobook.unhidden を許可（PR34b）", in: "photobook.unhidden"},
 		{name: "正常_image_became_available", description: "image.became_available を許可", in: "image.became_available"},
 		{name: "正常_image_failed", description: "image.failed を許可", in: "image.failed"},
 		{name: "異常_unknown", description: "未対応値は ErrInvalidEventType", in: "photobook.deleted", wantErrIs: event_type.ErrInvalidEventType},

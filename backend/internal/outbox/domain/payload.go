@@ -53,3 +53,33 @@ type ImageFailedPayload struct {
 	PhotobookID   string    `json:"photobook_id"`
 	FailureReason string    `json:"failure_reason"`
 }
+
+// PhotobookHiddenPayload は photobook.hidden event の payload（PR34b）。
+//
+// 例:
+//   { "event_version": 1, "occurred_at": "2026-04-28T...Z",
+//     "photobook_id": "...", "action_id": "...",
+//     "reason": "policy_violation_other", "actor_label": "ops-1" }
+//
+// セキュリティ:
+//   - manage_url_token / draft_edit_token / Cookie / storage_key は **入れない**
+//   - reason は moderation の 9 種 enum、actor_label は VO で個人情報非含有を保証済
+type PhotobookHiddenPayload struct {
+	EventVersion int       `json:"event_version"`
+	OccurredAt   time.Time `json:"occurred_at"`
+	PhotobookID  string    `json:"photobook_id"`
+	ActionID     string    `json:"action_id"`
+	Reason       string    `json:"reason"`
+	ActorLabel   string    `json:"actor_label"`
+}
+
+// PhotobookUnhiddenPayload は photobook.unhidden event の payload（PR34b）。
+type PhotobookUnhiddenPayload struct {
+	EventVersion  int       `json:"event_version"`
+	OccurredAt    time.Time `json:"occurred_at"`
+	PhotobookID   string    `json:"photobook_id"`
+	ActionID      string    `json:"action_id"`
+	Reason        string    `json:"reason"`
+	ActorLabel    string    `json:"actor_label"`
+	CorrelationID *string   `json:"correlation_id,omitempty"`
+}

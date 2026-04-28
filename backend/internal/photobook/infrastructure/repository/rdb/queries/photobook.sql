@@ -159,3 +159,56 @@ UPDATE photobooks
  WHERE id      = $1
    AND status  IN ('published', 'deleted')
    AND version = $3;
+
+-- name: SetPhotobookHiddenByOperator :execrows
+-- PR34b: 運営による hide / unhide 操作。
+-- 計画書 §5.6 / ユーザー判断 #5 で version は上げない方針。published のみ対象。
+-- 0 行更新は呼び出し側で「対象が published でない or 既に目的状態」として扱う。
+UPDATE photobooks
+   SET hidden_by_operator = $2,
+       updated_at         = $3
+ WHERE id                 = $1
+   AND status             = 'published'
+   AND hidden_by_operator = $4;
+
+-- name: ListHiddenPhotobooksForOps :many
+-- PR34b: hidden_by_operator=true な published photobook の一覧（cmd/ops list-hidden 用）。
+-- raw token / hash 系は返さない（呼び出し側で出さなくてよい列のみ select）。
+SELECT
+    id,
+    public_url_slug,
+    title,
+    creator_display_name,
+    visibility,
+    status,
+    version,
+    published_at,
+    updated_at
+FROM photobooks
+WHERE hidden_by_operator = true
+ORDER BY updated_at DESC
+LIMIT $1
+OFFSET $2;
+
+-- name: GetPhotobookForOps :one
+-- PR34b: cmd/ops show 用。raw token / hash 系は返さない。
+SELECT
+    id,
+    type,
+    title,
+    description,
+    layout,
+    opening_style,
+    visibility,
+    creator_display_name,
+    creator_x_id,
+    cover_title,
+    public_url_slug,
+    status,
+    hidden_by_operator,
+    version,
+    published_at,
+    created_at,
+    updated_at
+FROM photobooks
+WHERE id = $1;
