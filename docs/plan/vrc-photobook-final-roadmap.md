@@ -499,22 +499,49 @@ PR34 は段階分割（計画書 → MVP 実装、それ以降は別 PR）:
 
 ### PR35: Report 集約
 
-- **目的**: 通報受付（公開 viewer 上）+ 運営対応フロー
-- **実装するもの**:
-  - 通報受付 endpoint（公開）
-  - Report 集約（`internal/report/`）
-  - 運営側 cmd/ops 連携
-  - Frontend 通報 UI（viewer から）
-- **実装しないもの**: UsageLimit（PR36）
+> **2026-04-29 PR35a で計画書化**。`docs/plan/m2-report-plan.md` で MVP スコープ
+> （SubmitReport + cmd/ops report list/show + photobook hide --source-report-id
+> 連動）と v4 完全設計（5 ReportStatus + 90 日 reconciler + email 通知）の差分を整理。
+> Turnstile 必須 / IP hash 保存 / 同 TX 5 要素連動 / Frontend 別ページ / Outbox no-op handler
+> をユーザー判断事項として整理。
+
+PR35 は段階分割（計画書 → MVP 実装、それ以降は別 PR）:
+
+| 段階 | 内容 |
+|---|---|
+| **PR35a**（完了、2026-04-29） | 計画書 `docs/plan/m2-report-plan.md`。MVP スコープ確定 + ユーザー判断事項 11 件 |
+| PR35b（次） | reports table + `internal/report/` + 公開 endpoint + Frontend 通報フォーム + cmd/ops report list/show + photobook hide --source-report-id 連動 + Outbox no-op handler + runbook 追記 |
+| PR35 拡張（後続）| `report mark-reviewed` / `report dismiss` / `report resolve-without-action` UseCase + 90 日 NULL 化 reconciler + Email 通知（Email Provider 確定後）|
+
+- **目的（PR35a）**: 公開導線で受付られる通報基盤の MVP 設計を計画書化
+- **実装するもの（PR35a）**: 計画書 / 新正典 PR35 章更新
+- **実装しないもの（PR35a）**: コード / migration / Cloud SQL 適用 / Backend deploy / Workers redeploy / Secret 登録
+- **実装するもの（PR35b、計画通り）**:
+  - migration `00016_create_reports.sql` + `00017_relax_outbox_event_type_check.sql`
+  - `internal/report/`（domain entity / VO 6 種 / Repository / SubmitReport UseCase / GetReportForOps / ListReportsForOps）
+  - 公開 endpoint `POST /api/public/photobooks/{slug}/reports`（Cookie 不要、Turnstile 必須、Origin 検証、`X-Robots-Tag: noindex,nofollow`）
+  - Outbox `report.submitted` event + no-op handler（minor_safety_concern は Warn 以上 log）
+  - `cmd/ops report list / show`（minor_safety_concern 優先表示、Secret 出力ホワイトリスト）
+  - `cmd/ops photobook hide --source-report-id <RID>` 拡張（同 TX 5 要素で reports.status='resolved_action_taken' 自動遷移）
+  - Frontend `/p/[slug]/report` 通報フォーム（reason select / detail textarea / contact / Turnstile widget）
+  - `REPORT_IP_HASH_SALT_V1` Secret 登録 + Cloud Run env 注入
+  - `docs/runbook/ops-moderation.md` § Report 連携 追記
+  - tests（domain / usecase / handler / cmd / frontend / Safari 実機）
+- **実装しないもの（PR35）**:
+  - Email 通知（Email Provider 確定後、PR32c 以降）
+  - Web admin dashboard / UI
+  - 自動 moderation
+  - 90 日後 reporter_contact / source_ip_hash NULL 化 reconciler（PR33e / PR39 系）
+  - UsageLimit（rate-limit、abuse 自動検知）→ PR36
 - **参照すべき design 資産**:
   - `design/mockups/prototype/screens-b.jsx` の `Report`
   - `design/mockups/prototype/pc-screens-b.jsx` の `PCReport`
-- **参照すべき docs**: 業務知識 v4 §Report / §通報
-- **実リソース操作の有無**: なし（既存 Cloud Run 上で動く）
-- **Secret が絡むか**: なし
-- **Safari 確認が必要か**: **必須**（通報フォーム送信 / 確認画面）
-- **完了条件**: 通報 → 運営 cmd/ops で対応 → 状態変更 → 通報者向け表示
-- **次 PR への引き継ぎ**: abuse 抑止（UsageLimit）
+- **参照すべき docs**: [`docs/plan/m2-report-plan.md`](./m2-report-plan.md) / `docs/design/aggregates/report/` / 業務知識 v4 §3.6 / §3.7 / §5.4 / §6.11 / §7.2 / §7.3 / §7.4 / [ADR-0002](../adr/0002-ops-execution-model.md)
+- **実リソース操作の有無**: PR35a なし。PR35b は migration goose up（**Cloud SQL 適用 STOP**）+ Secret 登録（**STOP**）+ Backend deploy + Cloud Run Job image 更新 + Workers redeploy
+- **Secret が絡むか**: 新規 `REPORT_IP_HASH_SALT_V1` を Secret Manager に登録（PR35b STOP）。Turnstile secret-key は既存 `TURNSTILE_SECRET_KEY` を流用（共通可否は PR35b で確認）
+- **Safari 確認が必要か**: PR35a なし。PR35b は **必須**（通報フォーム / textarea / select / Turnstile widget の Safari 実機）
+- **完了条件（PR35a）**: 計画書 review 通過、PR35b スコープが PR 単位に分割可能なところまで具体化
+- **次 PR への引き継ぎ**: PR36 UsageLimit が `source_ip_hash` を共有して rate-limit / abuse 検知
 
 ### PR36: UsageLimit 集約
 
