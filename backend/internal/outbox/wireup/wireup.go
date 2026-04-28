@@ -11,9 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"vrcpb/backend/internal/outbox/contract"
+	"vrcpb/backend/internal/outbox/domain/vo/event_type"
 	outboxusecase "vrcpb/backend/internal/outbox/internal/usecase"
 	"vrcpb/backend/internal/outbox/internal/usecase/handlers"
-	"vrcpb/backend/internal/outbox/domain/vo/event_type"
 )
 
 // RunInput / RunOutput は CLI から渡す薄い表現。
@@ -44,23 +45,37 @@ type runnerImpl struct {
 }
 
 // Config は Runner 組み立て時の設定。
+//
+// PR33d 以降:
+//   - OgpGenerator が nil の場合、photobook.published handler は **登録されない**
+//     （OGP 機能未配線の環境で worker を動かしても event を消費しない、安全側）
 type Config struct {
-	WorkerID    string
-	MaxAttempts int
-	Backoff     time.Duration
-	MaxBackoff  time.Duration
+	WorkerID     string
+	MaxAttempts  int
+	Backoff      time.Duration
+	MaxBackoff   time.Duration
+	OgpGenerator contract.OgpGenerator
 }
 
-// NewRunner は HandlerRegistry に現状の 3 種 handler を登録した Worker を組み立てる。
+// NewRunner は HandlerRegistry に handler を登録した Worker を組み立てる。
 //
 // 後続で event 種が増えたら、本関数の Register 呼び出しに追加し、同時に
 // migrations で event_type CHECK を緩める。
+//
+// PR33d: photobook.published は副作用 handler（OGP 生成）に切り替わった。
+// cfg.OgpGenerator が nil の場合は handler 自体を登録せず、event はそのまま
+// pending / failed に滞留する（pending event を意図せず processed に進めないため）。
 func NewRunner(pool *pgxpool.Pool, cfg Config, logger *slog.Logger) Runner {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	registry := outboxusecase.NewHandlerRegistry()
-	registry.Register(event_type.PhotobookPublished().String(), handlers.NewPhotobookPublishedHandler(logger))
+	if cfg.OgpGenerator != nil {
+		registry.Register(
+			event_type.PhotobookPublished().String(),
+			handlers.NewPhotobookPublishedHandler(cfg.OgpGenerator, logger),
+		)
+	}
 	registry.Register(event_type.ImageBecameAvailable().String(), handlers.NewImageBecameAvailableHandler(logger))
 	registry.Register(event_type.ImageFailed().String(), handlers.NewImageFailedHandler(logger))
 

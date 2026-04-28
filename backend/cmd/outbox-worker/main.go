@@ -38,6 +38,8 @@ import (
 
 	"vrcpb/backend/internal/config"
 	"vrcpb/backend/internal/database"
+	"vrcpb/backend/internal/imageupload/infrastructure/r2"
+	ogpwireup "vrcpb/backend/internal/ogp/wireup"
 	outboxwireup "vrcpb/backend/internal/outbox/wireup"
 	"vrcpb/backend/internal/shared"
 )
@@ -84,9 +86,37 @@ func main() {
 	if workerID == "" {
 		workerID = generateWorkerID()
 	}
-	runner := outboxwireup.NewRunner(pool, outboxwireup.Config{
+
+	// OGP generator 組み立て（photobook.published handler に渡す）。
+	// R2 secrets が無い場合は OgpGenerator=nil で wireup に渡し、handler 登録を skip
+	// する（pending event を意図せず processed に進めないための安全側）。
+	cfgRunner := outboxwireup.Config{
 		WorkerID: workerID,
-	}, logger)
+	}
+	if cfg.IsR2Configured() {
+		r2Client, err := r2.NewAWSClient(r2.AWSConfig{
+			AccountID:       cfg.R2AccountID,
+			AccessKeyID:     cfg.R2AccessKeyID,
+			SecretAccessKey: cfg.R2SecretAccessKey,
+			BucketName:      cfg.R2BucketName,
+			Endpoint:        cfg.R2Endpoint,
+		})
+		if err != nil {
+			logger.Error("r2 client init failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		gen, err := ogpwireup.BuildOutboxOgpAdapter(pool, r2Client, cfg.R2BucketName, logger)
+		if err != nil {
+			logger.Error("ogp adapter init failed", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+		cfgRunner.OgpGenerator = gen
+		logger.Info("outbox-worker: ogp generator wired (photobook.published will trigger OGP generation)")
+	} else {
+		logger.Warn("outbox-worker: R2 not configured; photobook.published handler is not registered (events stay pending)")
+	}
+
+	runner := outboxwireup.NewRunner(pool, cfgRunner, logger)
 
 	// release-stale-locks モード: 救出だけ実施して終了。
 	if *releaseStaleFlag > 0 {
