@@ -82,6 +82,9 @@ func NewRunner(pool *pgxpool.Pool, cfg Config, logger *slog.Logger) Runner {
 	// 副作用（CDN purge / OGP cache invalidation）は後続 PR で追加する。
 	registry.Register(event_type.PhotobookHidden().String(), handlers.NewPhotobookHiddenHandler(logger))
 	registry.Register(event_type.PhotobookUnhidden().String(), handlers.NewPhotobookUnhiddenHandler(logger))
+	// PR35b: report.submitted event の no-op handler（minor_safety_concern は Warn 以上）。
+	// Email / Slack 等の実通知は ADR-0006 後続。
+	registry.Register(event_type.ReportSubmitted().String(), handlers.NewReportSubmittedHandler(logger))
 
 	worker := outboxusecase.NewWorker(pool, registry, outboxusecase.WorkerConfig{
 		WorkerID:    cfg.WorkerID,

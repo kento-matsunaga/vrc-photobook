@@ -30,6 +30,7 @@ var (
 	ErrInvalidStatusForHide = usecase.ErrInvalidStatusForHide
 	ErrAlreadyHidden        = usecase.ErrAlreadyHidden
 	ErrAlreadyUnhidden      = usecase.ErrAlreadyUnhidden
+	ErrSourceReportTerminal = usecase.ErrSourceReportTerminal
 )
 
 // Handlers は cmd/ops が使う UseCase 群の facade。

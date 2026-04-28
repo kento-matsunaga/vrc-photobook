@@ -49,6 +49,8 @@ import (
 	moderationwireup "vrcpb/backend/internal/moderation/wireup"
 	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
 	"vrcpb/backend/internal/photobook/domain/vo/slug"
+	"vrcpb/backend/internal/report/domain/vo/report_id"
+	reportwireup "vrcpb/backend/internal/report/wireup"
 )
 
 const usage = `cmd/ops: 運営オペレーション CLI（Moderation MVP）
@@ -79,6 +81,8 @@ func main() {
 	switch os.Args[1] {
 	case "photobook":
 		runPhotobook(os.Args[2:])
+	case "report":
+		runReport(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Fprint(os.Stdout, usage)
 		os.Exit(0)
@@ -132,6 +136,33 @@ func mustHandlers(ctx context.Context) (*moderationwireup.Handlers, func()) {
 	h := moderationwireup.BuildHandlers(pool)
 	if h == nil {
 		fmt.Fprintln(os.Stderr, "moderation handlers nil")
+		os.Exit(1)
+	}
+	return h, func() { pool.Close() }
+}
+
+// mustReportHandlers は cmd/ops report list / show 用の Report wireup を返す。
+//
+// SubmitReport は cmd/ops では使わないため、Config{} で組み立てる。
+// （Turnstile verifier が nil でも List / Show には影響しない）
+func mustReportHandlers(ctx context.Context) (*reportwireup.Handlers, func()) {
+	cfg := config.Load()
+	if cfg.DatabaseURL == "" {
+		fmt.Fprintln(os.Stderr, "DATABASE_URL not set (export via env, do not pass on CLI)")
+		os.Exit(1)
+	}
+	pool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db connect failed: %v\n", err)
+		os.Exit(1)
+	}
+	if pool == nil {
+		fmt.Fprintln(os.Stderr, "db pool is nil (DSN unset)")
+		os.Exit(1)
+	}
+	h := reportwireup.BuildHandlers(pool, reportwireup.Config{}, nil)
+	if h == nil {
+		fmt.Fprintln(os.Stderr, "report handlers nil")
 		os.Exit(1)
 	}
 	return h, func() { pool.Close() }
@@ -275,16 +306,17 @@ func cmdListHidden(args []string) {
 // ---------------------------------------------------------------------------
 
 type mutationFlags struct {
-	id          string
-	reason      string
-	actor       string
-	detail      string
-	correlation string // unhide のみ
-	execute     bool
-	yes         bool
+	id             string
+	reason         string
+	actor          string
+	detail         string
+	correlation    string // unhide のみ
+	sourceReportID string // hide のみ（PR35b、通報起点 hide で reports.status='resolved_action_taken' 自動遷移）
+	execute        bool
+	yes            bool
 }
 
-func parseMutationFlags(name string, args []string, withCorrelation bool) mutationFlags {
+func parseMutationFlags(name string, args []string, withCorrelation bool, withSourceReportID bool) mutationFlags {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	out := mutationFlags{}
 	fs.StringVar(&out.id, "id", "", "photobook UUID (required)")
@@ -293,6 +325,9 @@ func parseMutationFlags(name string, args []string, withCorrelation bool) mutati
 	fs.StringVar(&out.detail, "detail", "", "internal detail note (optional, ≤ 2000 char)")
 	if withCorrelation {
 		fs.StringVar(&out.correlation, "correlation", "", "correlated action_id (optional)")
+	}
+	if withSourceReportID {
+		fs.StringVar(&out.sourceReportID, "source-report-id", "", "source report UUID (optional, link Report → Moderation 同 TX)")
 	}
 	fs.BoolVar(&out.execute, "execute", false, "execute (default is dry-run)")
 	fs.BoolVar(&out.yes, "yes", false, "skip confirmation prompt (CI / non-interactive)")
@@ -361,11 +396,25 @@ func parseHideInputs(mf mutationFlags) (
 // ---------------------------------------------------------------------------
 
 func cmdHide(args []string) {
-	mf := parseMutationFlags("hide", args, false)
+	mf := parseMutationFlags("hide", args, false, true)
 	pid, actor, reason, detail, _, err := parseHideInputs(mf)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(2)
+	}
+	var sourceReportID *report_id.ReportID
+	if mf.sourceReportID != "" {
+		u, perr := uuid.Parse(mf.sourceReportID)
+		if perr != nil {
+			fmt.Fprintln(os.Stderr, "invalid --source-report-id:", perr)
+			os.Exit(2)
+		}
+		rid, rerr := report_id.FromUUID(u)
+		if rerr != nil {
+			fmt.Fprintln(os.Stderr, rerr.Error())
+			os.Exit(2)
+		}
+		sourceReportID = &rid
 	}
 
 	ctx, cancel := newContext()
@@ -386,8 +435,12 @@ func cmdHide(args []string) {
 	fmt.Println("[current state]")
 	printOpsView(view)
 	fmt.Println("---")
-	fmt.Printf("[plan] kind=hide reason=%s actor=%s detail=%q\n",
-		reason.String(), actor.String(), detail.String())
+	srcReportStr := "<none>"
+	if sourceReportID != nil {
+		srcReportStr = sourceReportID.String()
+	}
+	fmt.Printf("[plan] kind=hide reason=%s actor=%s detail=%q source_report_id=%s\n",
+		reason.String(), actor.String(), detail.String(), srcReportStr)
 
 	if !mf.execute {
 		fmt.Println("[dry-run] no DB change. Re-run with --execute to apply.")
@@ -401,11 +454,12 @@ func cmdHide(args []string) {
 	}
 
 	out, err := h.Hide(ctx, moderationwireup.HideInput{
-		PhotobookID: pid,
-		ActorLabel:  actor,
-		Reason:      reason,
-		Detail:      detail,
-		Now:         time.Now().UTC(),
+		PhotobookID:    pid,
+		ActorLabel:     actor,
+		Reason:         reason,
+		Detail:         detail,
+		SourceReportID: sourceReportID,
+		Now:            time.Now().UTC(),
 	})
 	if err != nil {
 		switch {
@@ -418,6 +472,9 @@ func cmdHide(args []string) {
 		case errors.Is(err, moderationwireup.ErrAlreadyHidden):
 			fmt.Println("already hidden (no-op).")
 			return
+		case errors.Is(err, moderationwireup.ErrSourceReportTerminal):
+			fmt.Fprintln(os.Stderr, "source report is already terminal or not found; hide rolled back")
+			os.Exit(1)
 		default:
 			fmt.Fprintf(os.Stderr, "hide failed: %v\n", err)
 			os.Exit(1)
@@ -432,7 +489,7 @@ func cmdHide(args []string) {
 // ---------------------------------------------------------------------------
 
 func cmdUnhide(args []string) {
-	mf := parseMutationFlags("unhide", args, true)
+	mf := parseMutationFlags("unhide", args, true, false)
 	pid, actor, reason, detail, corr, err := parseHideInputs(mf)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -500,4 +557,145 @@ func cmdUnhide(args []string) {
 	}
 	fmt.Printf("[ok] unhidden. action_id=%s photobook_id=%s unhidden_at=%s\n",
 		out.ActionID.String(), out.PhotobookID.String(), out.UnhiddenAt.UTC().Format(time.RFC3339))
+}
+
+// ---------------------------------------------------------------------------
+// report list / show（PR35b）
+// ---------------------------------------------------------------------------
+
+func runReport(args []string) {
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "list":
+		cmdReportList(args[1:])
+	case "show":
+		cmdReportShow(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: report %s\n%s", args[0], usage)
+		os.Exit(2)
+	}
+}
+
+func cmdReportList(args []string) {
+	fs := flag.NewFlagSet("report list", flag.ExitOnError)
+	statusFilter := fs.String("status", "", "filter by status (e.g. submitted)")
+	reasonFilter := fs.String("reason", "", "filter by reason (e.g. minor_safety_concern)")
+	limit := fs.Int("limit", 20, "max rows (≤ 200)")
+	offset := fs.Int("offset", 0, "offset")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	ctx, cancel := newContext()
+	defer cancel()
+	h, closer := mustReportHandlers(ctx)
+	defer closer()
+
+	out, err := h.List(ctx, reportwireup.ListReportsForOpsInput{
+		Status: *statusFilter,
+		Reason: *reasonFilter,
+		Limit:  int32(*limit),
+		Offset: int32(*offset),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "list failed: %v\n", err)
+		os.Exit(1)
+	}
+	if len(out.Reports) == 0 {
+		fmt.Println("(no reports)")
+		return
+	}
+	for _, v := range out.Reports {
+		fmt.Printf("report_id=%s reason=%s status=%s submitted_at=%s target_photobook_id=%s slug_snapshot=%s\n",
+			v.ID.String(), v.Reason.String(), v.Status.String(),
+			v.SubmittedAt.UTC().Format(time.RFC3339),
+			v.TargetPhotobookID.String(),
+			v.TargetSnapshot.PublicURLSlug())
+	}
+}
+
+func cmdReportShow(args []string) {
+	fs := flag.NewFlagSet("report show", flag.ExitOnError)
+	idFlag := fs.String("id", "", "report UUID (required)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if *idFlag == "" {
+		fmt.Fprintln(os.Stderr, "--id is required")
+		os.Exit(2)
+	}
+	u, err := uuid.Parse(*idFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid --id:", err)
+		os.Exit(2)
+	}
+	rid, err := report_id.FromUUID(u)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(2)
+	}
+
+	ctx, cancel := newContext()
+	defer cancel()
+	h, closer := mustReportHandlers(ctx)
+	defer closer()
+
+	out, err := h.Show(ctx, reportwireup.GetReportForOpsInput{ReportID: rid})
+	if err != nil {
+		if errors.Is(err, reportwireup.ErrReportNotFound) {
+			fmt.Fprintln(os.Stderr, "report not found")
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "show failed: %v\n", err)
+		os.Exit(1)
+	}
+	v := out.Report
+	creatorStr := "<anonymous>"
+	if cn := v.TargetSnapshot.CreatorDisplayName(); cn != nil {
+		creatorStr = *cn
+	}
+	fmt.Printf("report_id:                   %s\n", v.ID.String())
+	fmt.Printf("status:                      %s\n", v.Status.String())
+	fmt.Printf("reason:                      %s\n", v.Reason.String())
+	fmt.Printf("submitted_at:                %s\n", v.SubmittedAt.UTC().Format(time.RFC3339))
+	fmt.Printf("target_photobook_id:         %s\n", v.TargetPhotobookID.String())
+	fmt.Printf("target_slug_snapshot:        %s\n", v.TargetSnapshot.PublicURLSlug())
+	fmt.Printf("target_title_snapshot:       %s\n", v.TargetSnapshot.Title())
+	fmt.Printf("target_creator_snapshot:     %s\n", creatorStr)
+	if v.ReporterContact.Present() {
+		fmt.Printf("reporter_contact:            %s\n", v.ReporterContact.String())
+	} else {
+		fmt.Println("reporter_contact:            <none>")
+	}
+	if v.Detail.Present() {
+		fmt.Println("detail:")
+		fmt.Println(v.Detail.String())
+	} else {
+		fmt.Println("detail:                      <none>")
+	}
+	// source_ip_hash は **先頭 4 byte hex のみ** 表示（PR35a §16 #9 確定、計画書 §9.2）。
+	// 完全値は同一作成元判定の手がかり程度に絞り、log / chat への露出を最小化。
+	if len(v.SourceIPHash) > 0 {
+		n := 4
+		if len(v.SourceIPHash) < n {
+			n = len(v.SourceIPHash)
+		}
+		fmt.Printf("source_ip_hash_prefix4:      %x\n", v.SourceIPHash[:n])
+	} else {
+		fmt.Println("source_ip_hash_prefix4:      <none>")
+	}
+	if v.ReviewedAt != nil {
+		fmt.Printf("reviewed_at:                 %s\n", v.ReviewedAt.UTC().Format(time.RFC3339))
+	}
+	if v.ResolvedAt != nil {
+		fmt.Printf("resolved_at:                 %s\n", v.ResolvedAt.UTC().Format(time.RFC3339))
+	}
+	if v.ResolvedByModerationActionID != nil {
+		fmt.Printf("resolved_by_moderation_action_id: %s\n", v.ResolvedByModerationActionID.String())
+	}
+	if v.ResolutionNote != nil {
+		fmt.Printf("resolution_note: %s\n", *v.ResolutionNote)
+	}
 }

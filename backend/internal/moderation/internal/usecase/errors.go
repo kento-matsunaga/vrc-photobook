@@ -28,4 +28,8 @@ var (
 
 	// ErrAlreadyUnhidden は既に hidden=false の photobook を unhide しようとしたとき。
 	ErrAlreadyUnhidden = errors.New("moderation: photobook is already not hidden")
+
+	// ErrSourceReportTerminal は --source-report-id 指定の Report が既に終端 / 不在で
+	// resolved_action_taken に遷移できないとき（PR35b 連動）。
+	ErrSourceReportTerminal = errors.New("moderation: source report already terminal or not found")
 )

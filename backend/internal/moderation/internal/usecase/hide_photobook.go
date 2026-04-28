@@ -23,6 +23,8 @@ import (
 	outboxrdb "vrcpb/backend/internal/outbox/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
+	"vrcpb/backend/internal/report/domain/vo/report_id"
+	reportrdb "vrcpb/backend/internal/report/infrastructure/repository/rdb"
 )
 
 // HideInput は HidePhotobookByOperator の入力。
@@ -31,7 +33,11 @@ type HideInput struct {
 	ActorLabel  operator_label.OperatorLabel
 	Reason      action_reason.ActionReason
 	Detail      action_detail.ActionDetail
-	Now         time.Time
+	// SourceReportID は通報起点の hide で指定する。指定すると同 TX で
+	// reports.status='resolved_action_taken' / resolved_by_moderation_action_id /
+	// resolved_at を更新する（v4 P0-5 / P0-19 / P0-20）。PR34b 時は常に nil で OK。
+	SourceReportID *report_id.ReportID
+	Now            time.Time
 }
 
 // HideOutput は CLI / caller への戻り。raw token / hash 系は返さない。
@@ -97,14 +103,26 @@ func (u *HidePhotobookByOperator) Execute(ctx context.Context, in HideInput) (Hi
 		}
 
 		// 3) moderation_actions append
+		// SourceReportID（report_id）が指定された場合は moderation entity に渡す。
+		// moderation entity は *action_id.ActionID 型を保持するため、UUID を経由した
+		// 型変換で適合させる（実際の参照対象は reports.id）。
+		var sourceForModeration *action_id.ActionID
+		if in.SourceReportID != nil {
+			conv, err := action_id.FromUUID(in.SourceReportID.UUID())
+			if err != nil {
+				return fmt.Errorf("source_report_id convert: %w", err)
+			}
+			sourceForModeration = &conv
+		}
 		ma, err := entity.New(entity.NewParams{
-			ID:         aid,
-			Kind:       action_kind.Hide(),
-			TargetID:   in.PhotobookID,
-			ActorLabel: in.ActorLabel,
-			Reason:     in.Reason,
-			Detail:     in.Detail,
-			ExecutedAt: in.Now,
+			ID:             aid,
+			Kind:           action_kind.Hide(),
+			TargetID:       in.PhotobookID,
+			SourceReportID: sourceForModeration,
+			ActorLabel:     in.ActorLabel,
+			Reason:         in.Reason,
+			Detail:         in.Detail,
+			ExecutedAt:     in.Now,
 		})
 		if err != nil {
 			return fmt.Errorf("build moderation action: %w", err)
@@ -114,17 +132,23 @@ func (u *HidePhotobookByOperator) Execute(ctx context.Context, in HideInput) (Hi
 		}
 
 		// 4) Outbox INSERT (PhotobookHidden, no-op handler)
+		var sourceReportIDStr *string
+		if in.SourceReportID != nil {
+			s := in.SourceReportID.String()
+			sourceReportIDStr = &s
+		}
 		ev, err := outboxdomain.NewPendingEvent(outboxdomain.NewPendingEventParams{
 			AggregateType: aggregate_type.Photobook(),
 			AggregateID:   in.PhotobookID.UUID(),
 			EventType:     event_type.PhotobookHidden(),
 			Payload: outboxdomain.PhotobookHiddenPayload{
-				EventVersion: outboxdomain.EventVersion,
-				OccurredAt:   in.Now.UTC(),
-				PhotobookID:  in.PhotobookID.String(),
-				ActionID:     aid.String(),
-				Reason:       in.Reason.String(),
-				ActorLabel:   in.ActorLabel.String(),
+				EventVersion:   outboxdomain.EventVersion,
+				OccurredAt:     in.Now.UTC(),
+				PhotobookID:    in.PhotobookID.String(),
+				ActionID:       aid.String(),
+				Reason:         in.Reason.String(),
+				ActorLabel:     in.ActorLabel.String(),
+				SourceReportID: sourceReportIDStr,
 			},
 			Now: in.Now.UTC(),
 		})
@@ -133,6 +157,20 @@ func (u *HidePhotobookByOperator) Execute(ctx context.Context, in HideInput) (Hi
 		}
 		if err := outboxRepo.Create(ctx, ev); err != nil {
 			return fmt.Errorf("outbox create photobook.hidden: %w", err)
+		}
+
+		// 5) PR35b: SourceReportID が指定されたら reports.status='resolved_action_taken'
+		// に同 TX で遷移させる（v4 P0-20）。0 行 UPDATE は ErrSourceReportTerminal で
+		// 全 TX rollback。
+		if in.SourceReportID != nil {
+			reportRepo := reportrdb.NewReportRepository(tx)
+			updated, err := reportRepo.MarkResolvedActionTaken(ctx, *in.SourceReportID, aid, in.Now)
+			if err != nil {
+				return fmt.Errorf("mark report resolved: %w", err)
+			}
+			if !updated {
+				return ErrSourceReportTerminal
+			}
 		}
 
 		out = HideOutput{ActionID: aid, PhotobookID: in.PhotobookID, HiddenAt: in.Now}

@@ -59,18 +59,21 @@ type ImageFailedPayload struct {
 // 例:
 //   { "event_version": 1, "occurred_at": "2026-04-28T...Z",
 //     "photobook_id": "...", "action_id": "...",
-//     "reason": "policy_violation_other", "actor_label": "ops-1" }
+//     "reason": "policy_violation_other", "actor_label": "ops-1",
+//     "source_report_id": "..." }
 //
 // セキュリティ:
 //   - manage_url_token / draft_edit_token / Cookie / storage_key は **入れない**
 //   - reason は moderation の 9 種 enum、actor_label は VO で個人情報非含有を保証済
+//   - source_report_id は通報起点の hide 時のみ存在（PR35b）。Report 集約の id 参照のみ
 type PhotobookHiddenPayload struct {
-	EventVersion int       `json:"event_version"`
-	OccurredAt   time.Time `json:"occurred_at"`
-	PhotobookID  string    `json:"photobook_id"`
-	ActionID     string    `json:"action_id"`
-	Reason       string    `json:"reason"`
-	ActorLabel   string    `json:"actor_label"`
+	EventVersion   int       `json:"event_version"`
+	OccurredAt     time.Time `json:"occurred_at"`
+	PhotobookID    string    `json:"photobook_id"`
+	ActionID       string    `json:"action_id"`
+	Reason         string    `json:"reason"`
+	ActorLabel     string    `json:"actor_label"`
+	SourceReportID *string   `json:"source_report_id,omitempty"`
 }
 
 // PhotobookUnhiddenPayload は photobook.unhidden event の payload（PR34b）。
@@ -82,4 +85,20 @@ type PhotobookUnhiddenPayload struct {
 	Reason        string    `json:"reason"`
 	ActorLabel    string    `json:"actor_label"`
 	CorrelationID *string   `json:"correlation_id,omitempty"`
+}
+
+// ReportSubmittedPayload は report.submitted event の payload（PR35b）。
+//
+// セキュリティ:
+//   - reporter_contact / detail / source_ip_hash は **入れない**（漏洩リスク回避、
+//     v4 設計書 §7 / PR35a 計画書 §11.2）
+//   - HasContact は bool フラグのみ（reporter_contact が存在することを示す、本文は含めない）
+//   - reason は report_reason の 6 値、外部応答に出る可能性があるため列挙値のみで完結
+type ReportSubmittedPayload struct {
+	EventVersion      int       `json:"event_version"`
+	OccurredAt        time.Time `json:"occurred_at"`
+	ReportID          string    `json:"report_id"`
+	TargetPhotobookID string    `json:"target_photobook_id"`
+	Reason            string    `json:"reason"`
+	HasContact        bool      `json:"has_contact"`
 }

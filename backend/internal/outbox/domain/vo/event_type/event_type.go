@@ -11,9 +11,10 @@
 //   - photobook.unhidden      (PR34b / 同上)
 //   - image.became_available  (PR30 / no-op)
 //   - image.failed            (PR30 / no-op)
+//   - report.submitted        (PR35b / handler は no-op + minor_safety_concern Warn 以上 log)
 //
-// CHECK 制約と一致（migration 00012 + 00015）。後続 PR で event を追加する都度、
-// migration で CHECK を緩める同時に本 VO の値域も追加する。
+// CHECK 制約と一致（migration 00012 + 00015 + 00017）。後続 PR で event を追加する
+// 都度、migration で CHECK を緩める同時に本 VO の値域も追加する。
 //
 // セキュリティ:
 //   - event_type は外部に出る（API response / log）が、token / Cookie / Secret は含まない
@@ -38,6 +39,7 @@ const (
 	rawPhotobookUnhidden    = "photobook.unhidden"
 	rawImageBecameAvailable = "image.became_available"
 	rawImageFailed          = "image.failed"
+	rawReportSubmitted      = "report.submitted"
 )
 
 func PhotobookPublished() EventType   { return EventType{v: rawPhotobookPublished} }
@@ -45,15 +47,17 @@ func PhotobookHidden() EventType      { return EventType{v: rawPhotobookHidden} 
 func PhotobookUnhidden() EventType    { return EventType{v: rawPhotobookUnhidden} }
 func ImageBecameAvailable() EventType { return EventType{v: rawImageBecameAvailable} }
 func ImageFailed() EventType          { return EventType{v: rawImageFailed} }
+func ReportSubmitted() EventType      { return EventType{v: rawReportSubmitted} }
 
 // Parse は DB / 入力からの文字列を EventType に復元する。
 //
-// 値域は 5 種（migration 00012 + 00015 の CHECK と一致）。後続 PR で event を追加する
-// 際は本関数の switch / 上記 const を拡張し、同時に migration で event_type CHECK を緩める。
+// 値域は 6 種（migration 00012 + 00015 + 00017 の CHECK と一致）。後続 PR で event を
+// 追加する際は本関数の switch / 上記 const を拡張し、同時に migration で event_type
+// CHECK を緩める。
 func Parse(s string) (EventType, error) {
 	switch s {
 	case rawPhotobookPublished, rawPhotobookHidden, rawPhotobookUnhidden,
-		rawImageBecameAvailable, rawImageFailed:
+		rawImageBecameAvailable, rawImageFailed, rawReportSubmitted:
 		return EventType{v: s}, nil
 	default:
 		return EventType{}, fmt.Errorf("%w: %q", ErrInvalidEventType, s)

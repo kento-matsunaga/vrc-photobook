@@ -34,6 +34,8 @@ import (
 	ogpwireup "vrcpb/backend/internal/ogp/wireup"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/wireup"
+	reporthttp "vrcpb/backend/internal/report/interface/http"
+	reportwireup "vrcpb/backend/internal/report/wireup"
 	"vrcpb/backend/internal/shared"
 	"vrcpb/backend/internal/turnstile"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
@@ -149,6 +151,23 @@ func main() {
 	}
 	if pool != nil {
 		routerCfg.OgpPublicHandlers = ogpwireup.BuildPublicHandlers(pool)
+	}
+	// PR35b: 通報受付 endpoint。Turnstile + REPORT_IP_HASH_SALT_V1 が両方揃ったときだけ有効化。
+	// salt 未注入の Cloud Run environment では endpoint を出さない（誤って IP hash 不能で受付しない安全策）。
+	if pool != nil && cfg.TurnstileSecretKey != "" && cfg.ReportIPHashSaltV1 != "" {
+		reportVerifier := turnstile.NewCloudflareVerifier(turnstile.CloudflareConfig{
+			Secret: cfg.TurnstileSecretKey,
+		})
+		reportHandlers := reportwireup.BuildHandlers(pool, reportwireup.Config{
+			TurnstileVerifier: reportVerifier,
+			TurnstileHostname: cfg.TurnstileHostname,
+			TurnstileAction:   "report-submit",
+			IPHashSalt:        cfg.ReportIPHashSaltV1,
+		}, logger)
+		routerCfg.ReportPublicHandlers = reporthttp.NewPublicHandlers(reportHandlers)
+		logger.Info("report endpoint enabled (turnstile + ip_hash_salt configured)")
+	} else if pool != nil {
+		logger.Info("report endpoint disabled (turnstile or REPORT_IP_HASH_SALT_V1 not configured)")
 	}
 	// session validator は draft / manage 共通（session_type は middleware が渡す）。
 	if imageUploadHandlers != nil || uvHandlers != nil || photobookManageHandlers != nil || photobookEditHandlers != nil {

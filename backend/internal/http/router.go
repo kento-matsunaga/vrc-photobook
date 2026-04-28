@@ -30,6 +30,7 @@ import (
 	imageuploadhttp "vrcpb/backend/internal/imageupload/interface/http"
 	ogphttp "vrcpb/backend/internal/ogp/interface/http"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
+	reporthttp "vrcpb/backend/internal/report/interface/http"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 )
 
@@ -44,6 +45,7 @@ type RouterConfig struct {
 	OgpPublicHandlers          *ogphttp.PublicHandlers
 	ImageUploadHandlers        *imageuploadhttp.Handlers
 	UploadVerificationHandlers *uvhttp.Handlers
+	ReportPublicHandlers       *reporthttp.PublicHandlers
 	DraftSessionValidator      authmiddleware.Validator
 	ManageSessionValidator     authmiddleware.Validator
 	AllowedOrigins             string
@@ -89,6 +91,12 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	// 公開 Viewer endpoint（認可不要、slug ベース）。
 	if cfg.PhotobookPublicHandlers != nil {
 		r.Get("/api/public/photobooks/{slug}", cfg.PhotobookPublicHandlers.GetPublicPhotobook)
+	}
+
+	// 通報受付 endpoint（認可不要、Turnstile 必須、PR35b）。
+	// Cookie / session middleware は経由しない。
+	if cfg.ReportPublicHandlers != nil {
+		r.Post("/api/public/photobooks/{slug}/reports", cfg.ReportPublicHandlers.SubmitReport)
 	}
 
 	// OGP lookup endpoint（公開、photobook_id ベース）。Workers proxy / Frontend

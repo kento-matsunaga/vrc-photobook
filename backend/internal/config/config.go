@@ -39,6 +39,10 @@ type Config struct {
 	TurnstileSecretKey string
 	TurnstileHostname  string
 	TurnstileAction    string
+	// PR35b: Report の source_ip_hash 用ソルト（Secret Manager 経由）。
+	// 値はログに出さない。version 番号付き（V1 = 第 1 世代、ローテーション可能）。
+	// UsageLimit（PR36）が同じソルトポリシーを共有する想定（v4 §3.7 / 計画書 §4.4）。
+	ReportIPHashSaltV1 string
 }
 
 // Load は環境変数から Config を組み立てる。値の有無はここでは厳密に検査しない。
@@ -56,6 +60,7 @@ func Load() *Config {
 		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
 		TurnstileHostname:  getOrDefault("TURNSTILE_HOSTNAME", "app.vrc-photobook.com"),
 		TurnstileAction:    getOrDefault("TURNSTILE_ACTION", "upload"),
+		ReportIPHashSaltV1: os.Getenv("REPORT_IP_HASH_SALT_V1"),
 	}
 }
 
