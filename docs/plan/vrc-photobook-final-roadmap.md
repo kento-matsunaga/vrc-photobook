@@ -52,18 +52,18 @@
 
 ---
 
-## 1. 現在地（2026-04-29 PR34b 締め時点）
+## 1. 現在地（2026-04-29 PR35b commit 3 時点、Backend deploy 完了 / Frontend 未実装）
 
 ### 1.1 commit / revision
 
-- **最新 commit**: PR34b closeout commit（feat backend moderation foundation `5576656` / feat backend moderation usecases and cli `0db0d7c` / docs work-log `d6e479e` / feat frontend banner / docs work-log moderation ops result の連続 commit）
-- **PR34b 本体 commit（backend image 同梱）**: `0db0d7c feat(backend): add moderation ops usecases and cli`
-- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00017-hbg`（image: `vrcpb-api:0db0d7c`、PR34b）
-- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:0db0d7c`、`asia-northeast1`、
+- **PR35b 本体 commit（backend image 同梱）**: `f4427b1 feat(backend): add report submission and ops commands`
+- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00019-jkj`（image: `vrcpb-api:f4427b1`、PR35b）
+- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:f4427b1`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
-  **手動 execute 運用**（Cloud Scheduler 未作成）
-- **Cloud Workers Frontend Worker version**: `e97148fe-283f-4c64-9765-37ad10bdd29e`（PR34b で manage UI banner 追加）
-- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**、本番化 / rename はローンチ前運用整備で再判断）。migration v15（00014 moderation_actions + 00015 outbox event_type CHECK 拡張、PR34b で適用）
+  **手動 execute 運用**（Cloud Scheduler 未作成）。`REPORT_IP_HASH_SALT_V1` は **Job に注入せず**（PR35b 案 A、SubmitReport は Backend HTTP service 側で salt を使うため）
+- **Cloud Workers Frontend Worker version**: `e97148fe-283f-4c64-9765-37ad10bdd29e`（PR34b、PR35b 未反映 / Frontend `/p/[slug]/report` 未実装）
+- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v17**（00014 moderation_actions + 00015 outbox CHECK + 00016 reports + 00017 outbox CHECK 拡張、PR34b/PR35b で適用）
+- **Secret Manager**: 既存 7 + 新規 `REPORT_IP_HASH_SALT_V1`（PR35b STOP β、runtime SA に secretAccessor 付与済、Cloud Run service `vrcpb-api` の secretKeyRef 10 件）
 
 ### 1.2 実装済み（重要なものから）
 
