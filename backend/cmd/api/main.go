@@ -35,7 +35,7 @@ import (
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/wireup"
 	"vrcpb/backend/internal/shared"
-	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	"vrcpb/backend/internal/turnstile"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 	uvwireup "vrcpb/backend/internal/uploadverification/wireup"
 )

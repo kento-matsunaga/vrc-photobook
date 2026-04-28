@@ -23,7 +23,7 @@ import (
 	"vrcpb/backend/internal/uploadverification/domain/vo/verification_session_id"
 	"vrcpb/backend/internal/uploadverification/domain/vo/verification_session_token"
 	"vrcpb/backend/internal/uploadverification/domain/vo/verification_session_token_hash"
-	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	"vrcpb/backend/internal/turnstile"
 )
 
 // 共通エラー（外部に出す業務エラー）。

@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vrcpb/backend/internal/uploadverification/infrastructure/repository/rdb"
-	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	"vrcpb/backend/internal/turnstile"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 	"vrcpb/backend/internal/uploadverification/internal/usecase"
 )

@@ -32,7 +32,7 @@ import (
 	photobookdomaintests "vrcpb/backend/internal/photobook/domain/tests"
 	photobookmarshaller "vrcpb/backend/internal/photobook/infrastructure/repository/rdb/marshaller"
 	photobooksqlc "vrcpb/backend/internal/photobook/infrastructure/repository/rdb/sqlcgen"
-	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	"vrcpb/backend/internal/turnstile"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 	uvwireup "vrcpb/backend/internal/uploadverification/wireup"
 	uvtests "vrcpb/backend/internal/uploadverification/tests"

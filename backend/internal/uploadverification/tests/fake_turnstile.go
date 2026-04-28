@@ -8,7 +8,7 @@ package tests
 import (
 	"context"
 
-	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	"vrcpb/backend/internal/turnstile"
 )
 
 // FakeTurnstile は Verify 関数を差し替え可能にした test double。

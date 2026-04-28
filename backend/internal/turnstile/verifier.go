@@ -1,7 +1,12 @@
-// Package turnstile は Cloudflare Turnstile siteverify の抽象。
+// Package turnstile は Cloudflare Turnstile siteverify の抽象（共通 package）。
+//
+// 利用元:
+//   - upload-verification（action="upload-intent"、`internal/uploadverification`）
+//   - report submission（action="report-submit"、`internal/report`）
 //
 // 設計参照:
 //   - docs/plan/m2-upload-verification-plan.md §5
+//   - docs/plan/m2-report-plan.md §8
 //   - docs/adr/0005-image-upload-flow.md §Turnstile 検証
 //
 // セキュリティ:

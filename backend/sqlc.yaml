@@ -151,3 +151,19 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
+
+  # PR35b: Report 集約 (reports)。FK は持たず、target_photobook_id /
+  # resolved_by_moderation_action_id は緩い参照（v4 §3.6 P0-11）。
+  # snapshot 3 カラム保持で Photobook purge 後も証跡を残す。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00016_create_reports.sql"
+    queries: "internal/report/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/report/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false

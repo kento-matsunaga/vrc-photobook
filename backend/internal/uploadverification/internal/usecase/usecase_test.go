@@ -15,7 +15,7 @@ import (
 	photobookmarshaller "vrcpb/backend/internal/photobook/infrastructure/repository/rdb/marshaller"
 	photobooksqlc "vrcpb/backend/internal/photobook/infrastructure/repository/rdb/sqlcgen"
 	"vrcpb/backend/internal/uploadverification/domain/vo/intent_count"
-	"vrcpb/backend/internal/uploadverification/infrastructure/turnstile"
+	"vrcpb/backend/internal/turnstile"
 	"vrcpb/backend/internal/uploadverification/internal/usecase"
 	uvtests "vrcpb/backend/internal/uploadverification/tests"
 	uploadrdb "vrcpb/backend/internal/uploadverification/infrastructure/repository/rdb"
