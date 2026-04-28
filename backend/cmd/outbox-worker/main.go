@@ -13,8 +13,10 @@
 //                      他の処理は行わない。
 //
 // 起動形態:
-//   現状は CLI として image に同梱し、ローカル CLI / Cloud SQL Auth Proxy 経由で実行する。
-//   Cloud Run Jobs / Scheduler 化は未実施（運用判断待ち、新正典ロードマップ参照）。
+//   CLI として image に同梱され、Cloud Run Job `vrcpb-outbox-worker`（asia-northeast1）
+//   から `--once --max-events 1 --timeout 60s` で起動する運用が標準。Cloud Scheduler は
+//   未作成のため、現状は **手動 execute**（`gcloud run jobs execute`）。
+//   ローカルでは Cloud SQL Auth Proxy 経由で同じ CLI を直接実行できる。
 //
 // セキュリティ:
 //   - DATABASE_URL 等の Secret は env 経由（値そのものはログに出さない、shared/logging.go

@@ -52,18 +52,23 @@
 
 ---
 
-## 1. 現在地（2026-04-27 PR23 締め時点）
+## 1. 現在地（2026-04-28 PR33d 締め時点）
 
 ### 1.1 commit / revision
 
-- **最新 commit**: `1dcdf09 docs(work-log): record PR23 cloud run revision update result`
-- **直前の機能 commit**: `609b1f2 feat(backend): add image processor for generated variants`
-- **Cloud Run vrcpb-api revision**: `vrcpb-api-00007-8dv`（image: `vrcpb-api:609b1f2`、100% traffic）
-- **Cloud Run vrcpb-api rollback**: `vrcpb-api-00006-wdg`（image: `vrcpb-api:8928be8`）
-- **Cloud Workers Frontend deployment**: `6860b721-4ddb-456d-9f2d-be7f9d62bbe7`
-- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）
+- **最新 commit**: `f09e6c8 docs(work-log): record PR33d outbox handler wiring and Cloud Run Job execution`
+- **直前の機能 commit**: `8e8441f feat(backend): add CreateAndPublishForCLI wireup helper`
+- **PR33d 本体 commit（image 同梱）**: `fe19ab5 feat(ogp): generate OGP images from outbox events`
+- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00016-9ln`（image: `vrcpb-api:fe19ab5`）
+- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:fe19ab5`、`asia-northeast1`、
+  `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
+  **手動 execute 運用**（Cloud Scheduler 未作成）
+- **Cloud Workers Frontend Worker version**: `b966c234-2605-4343-b03a-1ca6cbb0c534`（PR33c で OGP route + R2 binding 追加）
+- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**、本番化 / rename はローンチ前運用整備で再判断）
 
 ### 1.2 実装済み（重要なものから）
+
+#### M2 前半（PR12〜PR23）
 
 | 領域 | 内容 | 関連 PR / 作業ログ |
 |---|---|---|
@@ -85,75 +90,93 @@
 | 機能 | complete-upload endpoint（HeadObject + processing 遷移） | 同上 |
 | 機能 | image-processor（CLI）: original 取得 → JPEG 再エンコード → display/thumbnail PUT → MarkAvailable / MarkFailed | `m2-image-processor-plan.md` PR23 |
 | 機能 | display / thumbnail variant 生成（plan §10 通り JPEG 統一） | 同上 |
-| 機能 | image-processor binary を `vrcpb-api` image に同梱（PR24+ Cloud Run Jobs での流用準備） | PR23 work-log |
+| 機能 | image-processor binary を `vrcpb-api` image に同梱 | PR23 work-log |
 | Frontend | Next.js skeleton + middleware + Workers deploy | PR13/14/15 |
 | Frontend | `/draft/[token]` / `/manage/token/[token]` Route Handler（token→Cookie 交換） | PR16 |
 | Frontend | `/edit/[photobookId]` upload UI（最小骨格、Turnstile + presigned PUT + complete） | PR22 |
 | Frontend | HEIC 拒否（PR22.5 で content_type / 拡張子で多層ガード） | PR22.5 commit history |
 
+#### M2 後半（PR24〜PR33d）
+
+| 領域 | 内容 | 関連 PR / 作業ログ |
+|---|---|---|
+| 機能 | 公開 Viewer (`/p/[slug]`) + 管理ページ (`/manage/[photobookId]`) 最小骨格 | PR24/25 / `2026-04-27_public-viewer-manage-result.md` |
+| 機能 | 編集 UI 本格化（photo grid / caption / reorder / cover / publish settings） | PR26/27 |
+| 機能 | Publish flow 完成（slug 生成 / Complete 画面 / 公開 URL コピー / manage URL 控え） | PR28 |
+| 機能 | 管理 URL 保存フロー Frontend 改善（Complete 画面で 1 度だけ表示する MVP 標準） | PR32a/PR32b / `2026-04-28_complete-manage-url-save-flow-result.md` |
+| インフラ | Backend deploy 自動化（Cloud Build manual submit、`docs/runbook/backend-deploy.md`、traffic-to-latest step 入り） | PR29 / `2026-04-28_backend-deploy-automation-result.md` + `2026-04-28_cloudbuild-traffic-pin-not-switched.md` |
+| ドメイン | Outbox 集約（`outbox_events` table + 同一 TX INSERT、`photobook.published` / `image.became_available` / `image.failed`） | PR30 / `2026-04-28_outbox-result.md` |
+| 機能 | outbox-worker（CLI、claim TX + FOR UPDATE SKIP LOCKED + exponential backoff + ReleaseStaleLocks）/ image 同梱 | PR31 / `2026-04-28_outbox-worker-result.md` |
+| ADR | ADR-0006: メール送信を MVP 必須から外す（SendGrid 個人不可 / SES 申請不通過、AWS SES rejection 後に SendGrid 再選定 → 廃止 → 再選定中） | `docs/adr/0006-email-provider-and-manage-url-delivery.md` |
+| ドメイン | OGP 集約（`photobook_ogp_images` + renderer + Repository + UseCase + `cmd/ogp-generator` CLI） | PR33b / `2026-04-28_ogp-generator-result.md` |
+| 機能 | OGP 公開配信（Backend `/api/public/photobooks/<id>/ogp` lookup + Cloudflare Workers `/ogp/<id>` proxy + R2 binding、R2 public OFF 維持、default OGP placeholder） | PR33c / `2026-04-28_ogp-public-delivery-result.md` |
+| 機能 | `/p/<SLUG>` の `generateMetadata`（og:image 1200×630 絶対 URL / twitter:card=summary_large_image / og:image:width/height） | PR33c |
+| 機能 | outbox-worker `photobook.published` handler を OGP 生成に接続（contract package で internal package boundary を解決） | PR33d / `2026-04-28_ogp-outbox-handler-result.md` |
+| インフラ | Cloud Run Job `vrcpb-outbox-worker` 作成 + 手動 execute 運用（cloudsql-instances annotation 必須を `harness/failure-log/2026-04-28_cloud-run-job-missing-cloudsql-annotation.md` に明文化） | PR33d |
+
 ### 1.3 未実装（公開ローンチまでに必要）
 
-#### Frontend
-- 公開 Viewer (`/p/[slug]` 等) — display variant の本格表示
-- 管理ページ (`/manage/[photobookId]`) — manage URL 再発行 / 公開設定
-- 編集 UI 本格機能（photo grid / caption 編集 / page-photo 並び替え / cover 設定 / publish settings）
-- Publish flow UI（completion screen / URL コピー / manage URL 控え）
-- LP (`/`) / `/terms` / `/privacy` / `/about`
-- design system 整備（`design/design-system/` への token 抽出、`tailwind.config.ts` への反映）
+#### 運営機能（次の PR ライン）
+- **Moderation 集約 + `cmd/ops`**（hide / unhide / softDelete / restore / purge / reissueManageUrl）→ **次の PR34**
+  - hidden_by_operator は DB column としては存在し効果も検証済（PR33d STOP κ 後検証）。
+    UseCase / `cmd/ops` 側の経路は未実装で、現状は直接 SQL 操作のみ
+- Report 集約（通報受付 + 運営対応）→ PR35
+- UsageLimit 集約（公開数制限 / abuse 抑止）→ PR36
 
-#### Backend
-- Outbox table + 同一 TX INSERT（PhotobookPublished / ManageUrlReissued / ImageBecameAvailable / ImageFailed 等）
-- `cmd/outbox-worker`（pending event poll → 実行 → mark done）
-- Cloud Run Jobs（image-processor / outbox-worker のスケジューリング）
-- **メール Provider 再選定 + ManageUrlDelivery 集約**
-  - ADR-0006（2026-04-28）で **MVP のメール送信機能を必須要件から外す**ことを確定
-    （SendGrid 個人不可 / SES 申請不通過のため）
-  - MVP は Complete 画面で 1 度だけ表示する方式（PR28 で実装済）が標準
-  - 後続 PR32 で個人契約可能な Provider を再選定し、採用確定後にメール送信を再開
-- Moderation 集約 + `cmd/ops`（hide / unhide / softDelete / restore / purge / reissueManageUrl）
-- Report 集約（通報受付 + 運営対応）
-- UsageLimit 集約（公開数制限 / abuse 抑止）
-- OGP 独立管理（`photobook_ogp_images` / 公開ページ OGP 自動生成）
-- HEIC 本対応（libheif + cgo 切替、Dockerfile 改修）
-- R2 orphan Reconcile（display/thumbnail PUT 成功 → DB 失敗、failed image の original 残存等を 7 日後に cleanup）
+#### LP / 法務 / 公開判定
+- LP (`/`) / `/terms` / `/privacy` / `/about` → PR37
+- Public repo 化判断 + 履歴 secret scan → PR38
 
 #### 運用 / インフラ
-- Backend CI/CD: PR29 で `gcloud builds submit` 経由の **manual submit 方式**を導入済。
-  以下は **PR29 で先送り**、PR40 / PR41+ で扱う:
+- Email Provider 再選定 + ManageUrlDelivery 集約（ADR-0006 で MVP 必須から外し済、
+  個人契約可能 Provider 確定後に再開）→ PR32c 以降
+- Cloud Scheduler 作成（outbox-worker 自動回し）→ 当面は手動 Job execute、PR33e で要否判断
+- Reconcile（自動 stale_ogp_enqueue / 手動 ogp_stale.sh / R2 orphan 7 日 cleanup）→ PR33e（任意）
+- HEIC 本対応（libheif + cgo 切替、Dockerfile 改修）→ 任意
+- 本番 Cloud SQL への移行（または `vrcpb-api-verify` の rename / 本番化）→ PR39
+- 本番監視 / Budget Alert 再設計 / Error Reporting → PR39
+- spike 環境削除（spike Cloud Run / Workers / Artifact Registry / R2 bucket）→ PR40
+- Backend CI/CD 自動化の発展形:
   - Cloud Build trigger オブジェクト（GCP Console からワンクリック起動）→ PR40
   - GitHub App / Cloud Build GitHub connection（2nd gen）→ PR38 + PR40
   - tag trigger（`release-*` push で自動）→ PR40 / PR41+
   - main push 自動 deploy → PR41+
   - Artifact Registry retention policy → PR40
-- **Frontend Workers deploy 自動化**（現状 `npm run cf:build` + `wrangler deploy` 手動）→ PR41+
-- 本番 Cloud SQL への移行（または `vrcpb-api-verify` の rename / 本番化）
-- spike 環境削除（spike Cloud Run / Workers / Artifact Registry / R2 bucket）
-- Public repo 化判断 + 履歴 secret scan
-- 本番監視 / Budget Alert 再設計 / Error Reporting
+- Frontend Workers deploy 自動化（現状 `npm run cf:build` + `wrangler deploy` 手動）→ PR41+
+
+#### 運用フェーズで実機確認する項目（PR33d 持ち越し）
+- SNS validator 実機確認（X Card Validator / Discord / Slack / LINE プレビュー）
+- macOS Safari / iPhone Safari 実機確認（generated OGP 表示）
+- 一般ユーザーが `visibility=public` の photobook を初めて publish したタイミング、
+  または運営判断で別途公開 photobook を作成して確認するタイミングで実施
+
+#### Frontend 改善（任意 / 後追い）
+- design system 整備（`design/design-system/` への token 抽出、`tailwind.config.ts` への反映）
 
 ---
 
-## 2. 旧ロードマップとのズレ
+## 2. 旧ロードマップとのズレ（archive）
 
-旧 [`harness/work-logs/2026-04-27_post-deploy-final-roadmap.md`](../../harness/work-logs/2026-04-27_post-deploy-final-roadmap.md)
-の PR 番号体系と実際の進行に **以下のズレ**がある。
+> **本書 §1 / §3 が現在の正典**。本節は M2 前半（PR12〜PR23 完了時点）に旧
+> [`harness/work-logs/2026-04-27_post-deploy-final-roadmap.md`](../../harness/work-logs/2026-04-27_post-deploy-final-roadmap.md)
+> との PR 番号体系のズレを整理した記録。新規 PR の判断は §1.3 / §3 を参照すること。
+
+旧ロードマップの PR 番号体系と実際の進行のズレ（PR23 締め時点で記録した archive）:
 
 | 旧ロードマップ | 実際の進行 |
 |---|---|
-| PR22 = 編集 UI 最小骨格 | **PR22 = upload UI 最小骨格 + Turnstile + Safari 確認**（編集機能本体は未着手） |
-| PR23 = 公開ページ / 管理ページ最小骨格 | **PR23 = image-processor + variant 生成 + Cloud Run image 更新**（公開ページ / 管理ページは未着手） |
-| PR24 = Backend deploy 自動化 | **未着手** |
-| PR25 = Outbox table | **未着手** |
-| PR26 = outbox-worker | **未着手** |
-| PR27 = SendGrid + ManageUrlDelivery | **未着手** |
-| PR28 = Moderation 集約 | **未着手** |
-| PR29 = OGP 独立管理 | **未着手** |
-| PR30 = Report 集約 | **未着手** |
-| PR31 = UsageLimit 集約 | **未着手** |
-| PR32 = LP / terms / privacy / about | **未着手** |
-| PR33 = ローンチ前チェック + spike 削除 | **未着手** |
-
-旧ロードマップの PR23 以降は **進行とズレた状態で「過去の正典」**。今後は本書を参照する。
+| PR22 = 編集 UI 最小骨格 | **PR22 = upload UI 最小骨格 + Turnstile + Safari 確認**（編集機能本体は PR26/27 で完成） |
+| PR23 = 公開ページ / 管理ページ最小骨格 | **PR23 = image-processor + variant 生成 + Cloud Run image 更新**（公開ページ / 管理ページは PR24/25 で完成） |
+| PR24 = Backend deploy 自動化 | **PR29 で実装**（Cloud Build manual submit、`docs/runbook/backend-deploy.md`） |
+| PR25 = Outbox table | **PR30 で実装** |
+| PR26 = outbox-worker | **PR31 で実装** |
+| PR27 = SendGrid + ManageUrlDelivery | **ADR-0006 で MVP 必須から除外**、PR32a/b は完了画面強化、Provider 再選定は PR32c 以降 |
+| PR28 = Moderation 集約 | **新 §3 PR34 で扱う**（未実装） |
+| PR29 = OGP 独立管理 | **PR33a〜PR33d で完了**（renderer / Workers proxy / outbox handler 連携 + Cloud Run Job） |
+| PR30 = Report 集約 | **新 §3 PR35 で扱う**（未実装） |
+| PR31 = UsageLimit 集約 | **新 §3 PR36 で扱う**（未実装） |
+| PR32 = LP / terms / privacy / about | **新 §3 PR37 で扱う**（未実装） |
+| PR33 = ローンチ前チェック + spike 削除 | **新 §3 PR40 で扱う**（未実装） |
 
 ---
 

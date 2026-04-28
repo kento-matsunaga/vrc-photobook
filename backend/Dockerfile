@@ -4,15 +4,17 @@
 # HEIC は unsupported_format 扱い、image-processor 計画書 §4.2）。
 #
 # 同梱バイナリ:
-#   - api             Cloud Run service の HTTP エントリ。CMD で起動。
-#   - image-processor Cloud SQL Auth Proxy + ローカル CLI / 後続で Cloud Run Jobs。
-#   - outbox-worker   outbox_events を消化する CLI / 後続で Cloud Run Jobs。
+#   - api             Cloud Run service `vrcpb-api` の HTTP エントリ。CMD で起動。
+#   - image-processor CLI / Cloud SQL Auth Proxy 経由のローカル実行。Cloud Run Job 化は未実施。
+#   - outbox-worker   outbox_events を消化する CLI。Cloud Run Job `vrcpb-outbox-worker` から
+#                     `--once --max-events 1` で起動する運用（手動 execute、Scheduler 未作成）。
 #   - ogp-generator   photobook_ogp_images の OGP 画像生成 + R2 PUT を行う CLI。
 #                     Noto Sans JP Regular/Bold OTF を go:embed で同梱（OFL 1.1）。
+#                     outbox-worker handler 経由で呼ばれる経路が標準（PR33d）。
 #
 # Cloud Run service は CMD で /usr/local/bin/api を起動する。
 # image-processor / outbox-worker / ogp-generator は image に同梱し、Cloud Run Jobs を
-# 作るときに entrypoint を切り替えて起動する。
+# 作るときに entrypoint を切り替えて起動する（outbox-worker は作成済）。
 
 # === Build stage ===
 FROM golang:1.24-alpine AS build

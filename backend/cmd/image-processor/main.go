@@ -8,8 +8,9 @@
 //   - --timeout    : context timeout（既定 5m）
 //
 // 起動形態:
-//   PR23 単発実行を想定。Cloud Run Jobs は次 PR で導入する。`backend/Dockerfile` で
-//   image に同梱され、entrypoint を変えて起動する。
+//   CLI として image に同梱（`backend/Dockerfile` の同梱バイナリ群、entrypoint を切り替えて
+//   起動する想定）。現状は Cloud Run Job 未作成で、ローカル CLI / Cloud SQL Auth Proxy
+//   経由で実行する。Cloud Run Job 化は実運用で processing 詰まりが顕在化した時点で再判断。
 //
 // セキュリティ:
 //   - Secret（DATABASE_URL / R2_*）は環境変数経由で受け取り、値そのものはログに出さない
