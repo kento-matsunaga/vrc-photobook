@@ -104,6 +104,66 @@ curl -sS -o /dev/null -w "HTTP %{http_code}\n" \
 > build SUCCESS でも traffic は旧 revision のままになり、smoke は旧 revision を見て
 > 200 を返してしまう（実害が遅延発覚する）。最終確認は **revision 名一致**で行うこと。
 
+### 1.4.1 deploy / traffic 切替直後の安定化待ち（必須）
+
+> **`/health` `/readyz` だけを smoke の合格基準にしてはならない。** 公開 Viewer / Report
+> 経路など `/api/public/photobooks/{slug}` の handler 到達まで含めて確認する。
+
+`gcloud builds submit` 直後 / `gcloud run services update-traffic` 直後の Cloud Run は、
+旧 / 新 revision の instance 切替で routing が短時間不安定になることがある（観測例:
+deploy 直後 1〜3 分で `/api/public/photobooks/<slug>` GET が **chi default の plain text
+"404 page not found" を返す**ケース、`harness/failure-log/2026-04-29_public-photobook-route-unregistered-after-report-guard-deploy.md`）。
+
+そのため smoke を始める前に **必ず 5〜10 分待ってから**実施する:
+
+```bash
+# 5〜10 分待ってから次の smoke に進む
+echo "wait 5-10 minutes for Cloud Run routing transient to settle..."
+```
+
+### 1.4.2 public route handler 到達 smoke（必須）
+
+`/health` / `/readyz` が 200 でも、`/api/public/photobooks/{slug}` の **handler に到達して
+JSON 応答が返ること**を確認する。chi default NotFound（plain text）の場合は **failed
+判定**で扱う。
+
+```bash
+# A. 不在 slug（handler から JSON 404 期待）
+RESP=$(curl -s -w "\n%{http_code}" \
+  https://api.vrc-photobook.com/api/public/photobooks/aaaaaaaaaaaaaaaaaa)
+BODY=$(echo "$RESP" | head -n 1)
+CODE=$(echo "$RESP" | tail -n 1)
+echo "bad-slug: HTTP=$CODE body=$BODY"
+# 期待: HTTP=404 body={"status":"not_found"}
+# 失敗例（NG）: HTTP=404 body=404 page not found  ← chi default、route 未到達
+
+# B. hidden 対象 slug がある場合（handler から JSON 410 gone 期待）
+# raw slug は work-log に書かない / コマンド履歴にも残さないように $SLUG 等の env 化
+# RESP=$(curl -s -w "\n%{http_code}" \
+#   "https://api.vrc-photobook.com/api/public/photobooks/${SLUG}")
+# 期待: HTTP=410 body={"status":"gone"}（hidden_by_operator=true 時）
+
+# C. published 対象 slug がある場合（handler から JSON 200 期待）
+# 期待: HTTP=200 + view JSON（slug, title, pages 等）
+```
+
+#### 合否判定
+
+- **OK**: A は `HTTP=404 + {"status":"not_found"}`。B / C があるなら同様に handler JSON
+- **NG（chi default 落ち）**: A が `HTTP=404 + 404 page not found`（plain text、19 bytes）
+  → handler 未到達。**追加操作せず 5 分待って再確認**。それでも NG なら traffic を直前
+  revision に rollback する判断を行う（§2 Rollback）。
+
+#### Secret 漏洩 grep（必須）
+
+deploy / traffic 切替後の **Cloud Build logs + Cloud Run logs（新 revision 名）** に対し、
+`salt` / `secret` / `password` / `cookie` / `manage_url` / `storage_key` / `reporter_contact`
+/ `source_ip_hash` / `turnstile_token` / `DATABASE_URL` の値が出ていないか grep する
+（パターンは `.agents/rules/security-guard.md`）。0 件であることを確認。
+
+> **work-log / commit / chat への記録**: raw slug / raw photobook_id / raw URL / 任意の
+> Secret 値は出さない。redact（先頭 8 文字 + `...` / `<redacted>`）に揃える。
+
 ### 1.5 work-log 記録
 
 `harness/work-logs/YYYY-MM-DD_*.md` に以下を記録:
@@ -133,9 +193,13 @@ gcloud run services update-traffic vrcpb-api \
   --to-revisions=vrcpb-api-00009-wdb=100 \
   --region=asia-northeast1 --project=$PROJ
 
-# 3) smoke
+# 3) smoke（§1.4.1 / §1.4.2 と同条件: 5〜10 分待ち + public route handler 到達確認）
 curl -sS https://api.vrc-photobook.com/health
 curl -sS https://api.vrc-photobook.com/readyz
+# 公開 Viewer 復旧確認（必須）
+curl -s -w "\nHTTP=%{http_code}\n" \
+  https://api.vrc-photobook.com/api/public/photobooks/aaaaaaaaaaaaaaaaaa
+# 期待: HTTP=404 body={"status":"not_found"}（chi default plain text なら failed）
 ```
 
 ### 2.2 rollback 後に新 revision に戻す
@@ -187,9 +251,12 @@ docker push "$IMAGE"
 gcloud run services update vrcpb-api \
   --image="$IMAGE" --region=asia-northeast1 --project=$PROJ
 
-# 4) smoke
+# 4) smoke（§1.4.1 / §1.4.2 と同条件: 5〜10 分待ち + public route handler 到達確認）
 curl -sS https://api.vrc-photobook.com/health
 curl -sS https://api.vrc-photobook.com/readyz
+curl -s -w "\nHTTP=%{http_code}\n" \
+  https://api.vrc-photobook.com/api/public/photobooks/aaaaaaaaaaaaaaaaaa
+# 期待: HTTP=404 body={"status":"not_found"}（chi default plain text なら failed）
 ```
 
 > 緊急時の手動 deploy も work-log に記録すること。
@@ -389,3 +456,4 @@ trigger 化に進むとき:
 |------|------|
 | 2026-04-28 | 初版（PR29）。manual submit 方式 (`gcloud builds submit` + 専用 SA) を採用。trigger / GitHub App / tag trigger / main push auto-deploy / frontend deploy 自動化 は後続タスクとして §6 に記録 |
 | 2026-04-28 | PR30 完了後の独立タスクで `cloudbuild.yaml` に `traffic-to-latest` step を追加。§1.4 deploy 確認に traffic 一致チェックを追記、§2.2 rollback 後の pin 効果を明記、§5.7 の FAQ を追加 |
+| 2026-04-29 | PR35b STOP ε2 で発見した「deploy 直後 transient で `/api/public/photobooks/{slug}` GET が chi default plain text 404 を返す」事象を踏まえ、§1.4.1 安定化待ち（5〜10 分）と §1.4.2 public route handler 到達 smoke を必須化。§2.1 / §3 の rollback / 緊急 deploy 経路にも反映。詳細: `harness/failure-log/2026-04-29_public-photobook-route-unregistered-after-report-guard-deploy.md` |
