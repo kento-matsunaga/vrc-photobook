@@ -1,14 +1,15 @@
-# PR35b Report 集約 / 通報受付 実装結果（2026-04-29、進行中）
+# PR35b Report 集約 / 通報受付 実装結果（2026-04-29、完了）
 
 ## 本書のスコープ
 
-PR35b（Report MVP 実装）の進行記録。本 commit（commit 3）時点では
-**Backend 実装 + Cloud SQL migration 適用 + REPORT_IP_HASH_SALT_V1 Secret 注入 +
-Backend Cloud Build deploy + Cloud Run Job image 更新まで完了**。Frontend
-`/p/[slug]/report` 実装 / Workers redeploy / 本番 Report 送信 smoke / Safari 実機
-確認 / runbook 追記 / closeout は **次セッションの commit 4 以降**で実施する。
+PR35b（Report MVP 実装）の最終結果。Backend 実装 + Cloud SQL migration 適用 +
+Secret 注入 + Backend / Workers deploy + Frontend `/p/[slug]/report` 実装 +
+本番 Report 送信 Safari 実機 smoke 成功 + 監査チェーン (`hide --source-report-id`) 検証 +
+runbook 追記 + closeout まで **完了**。
 
-PR35b 全体は 1 PR のまま維持し、commit 履歴で 1〜5 を順次積む構造。
+PR35b 全体は 1 PR のまま維持し、commit 1〜5（+ 修正・rollback 系 commit）を main に
+積む構造。本書末尾に **STOP α / β / γ / δ / ε / ε2 NG / γ2 / δ2 / ρ / ε3 成功** までの
+全工程を時系列で集約する。
 
 ## 概要
 
@@ -256,8 +257,94 @@ PR35b commit 3 (work-log) push 済み。次は commit 4 から再開する。
 - Cloud Build / Cloud Run logs / Cloud Run Job logs Secret 漏洩 grep: 0 件
 - shell history / tmp file: cleanup 済
 
+## PR35b 全工程まとめ（commit 1〜5 + 修正系 commit、時系列）
+
+| Phase | 結果 | 主要 artifact |
+|---|---|---|
+| commit 1 | OK | migration 00016/00017 + Turnstile 共通化 + Report domain foundation |
+| commit 2 | OK | Repository + SubmitReport UseCase + cmd/ops report list/show + hide --source-report-id 拡張 + Outbox handler |
+| STOP α | OK | Cloud SQL `vrcpb-api-verify` を v15 → v17 に migrate |
+| STOP β | OK | `REPORT_IP_HASH_SALT_V1` Secret 作成（openssl rand -hex 32）+ runtime SA secretAccessor + Cloud Run service `vrcpb-api` に注入 |
+| STOP γ | OK | Backend Cloud Build → image `vrcpb-api:f4427b1` → revision 00019 → traffic 100% |
+| commit 3 | OK | Backend deploy work-log（途中経過） |
+| commit 4 | OK | Frontend `/p/[slug]/report` + ReportForm + Viewer 通報リンク + lib/report.ts + tests |
+| STOP δ | OK | Workers redeploy → version `5838edec-4903-43a8-aa59-05431c150039` |
+| **STOP ε（1 回目 NG）** | NG | Safari 実機 smoke で Turnstile widget bypass（whitespace token + L4 trim 不足）。NG 由来 reports row + outbox を TX で削除済 |
+| STOP ε NG cleanup | OK | reports + outbox `report.submitted` を TX DELETE、photobook.unhidden / hidden を worker no-op processed 化 |
+| 修正 commit `4c95617` | OK | L1-L4 多層 Turnstile ガード適用 + `.agents/rules/turnstile-defensive-guard.md` 新設 + failure-log 起票 + roadmap で upload-verification 横展開を「次の PR ライン最優先」と記載 |
+| STOP γ2 | OK | Backend redeploy → image `vrcpb-api:4c95617` → revision 00020 → traffic 100%。L4 endpoint smoke で blank → 400 / dummy → 403 確認 |
+| STOP δ2 | OK | Workers redeploy → version `5d09172b-5a2a-414f-af7e-27229edc8f04`。L1-L3 chunk 反映確認 |
+| **STOP ε2 NG（route transient + widget loop の 2 種類同時）** | NG | rollback 一時実施（traffic 00019 戻し）→ tag URL 再現確認で binary 正常と判明、Cloud Run deploy 直後 transient と特定。runbook §1.4.1 / §1.4.2 で smoke 強化（commit `f3c5c9c`）。改めて 00020 へ traffic 戻し（5〜10 分待ち + handler JSON 確認 OK）|
+| STOP ρ | OK | runbook 強化 + traffic 復帰。public route smoke 完全 OK |
+| **STOP ε2 やり直し → 再度 NG（widget remount loop で意図せぬ submit 1 件成立）** | NG | TurnstileWidget の useEffect 依存に inline arrow が入り、親 re-render で widget remove → re-render の cycle が走り、ユーザー視点で無限ループ。verify 完了の瞬間に submit が 1 回成立 |
+| STOP ε2 NG cleanup | OK | reports + outbox `report.submitted` を TX DELETE、pending photobook 系を worker no-op processed 化 |
+| 修正 commit `a450037` | OK | TurnstileWidget useRef pattern + error/timeout/expired callback + ReportForm useCallback。`.agents/rules/turnstile-defensive-guard.md` に L0「widget 安定 mount」セクション追加。failure-log `2026-04-29_turnstile-widget-remount-loop.md` 新設 |
+| STOP δ3 | OK | Workers redeploy → version `6da0447b-76eb-4b96-bbdb-a896f751fcb0`。chunk grep で useRef 6 / timeout-callback 2 / useCallback 4 など反映確認。Upload UI chunk も自動更新 |
+| **STOP ε3 成功** | **OK** | iPhone Safari 実機 smoke で widget loop 解消、submit 1 回成立、thanks view、report_id 非表示、レイアウト OK |
+| 監査チェーン本番検証 | OK | reports.status `submitted` → outbox `report.submitted` worker processed → cmd/ops report show（resolved_action_taken 前は確認）→ hide --source-report-id dry-run → execute（confirm prompt yes）→ 同 TX 5 要素 (photobooks.hidden=true / moderation_actions.source_report_id / reports.status=resolved_action_taken / resolved_by_moderation_action_id / resolved_at + outbox `photobook.hidden`) 全部反映確認 → public 410 / OGP fallback / Workers gone view → outbox `photobook.hidden` worker processed → pending(available)=0 |
+
+## 監査チェーン証跡（時刻、redact 済）
+
+- 2026-04-29T10:46:25Z  Safari smoke で submit 成立（reports + outbox `report.submitted` 同一 TX INSERT）
+- 2026-04-29T10:46:25Z  cmd/ops report show: status=submitted, reason=harassment_or_doxxing, has_detail/contact/ip_hash all true, ip_hash 32 bytes, source_ip_hash_prefix4 仕様どおり 4 byte hex のみ表示
+- 2026-04-29T10:48:XXZ  outbox-worker `--once --max-events 1`: photobook.unhidden processed
+- 2026-04-29T10:50:XXZ  outbox-worker `--once --max-events 1`: report.submitted processed（no-op + structured log、reporter_contact / detail / source_ip_hash 完全値 / token / Secret 漏洩なし）
+- 2026-04-29T10:51:55Z  cmd/ops photobook hide --source-report-id `<RID>` --execute（confirm prompt "yes"、--yes 不使用）→ 同一 TX 5 要素反映
+  - photobooks: `hidden_by_operator=true`
+  - moderation_actions: 新 hide 行 + `source_report_id=<RID>`
+  - reports: `status=resolved_action_taken` / `resolved_at=10:51:55Z` / `resolved_by_moderation_action_id` 設定
+  - outbox: `photobook.hidden` pending 1 件作成（同 TX）
+- 2026-04-29T10:52:XXZ  公開挙動: `/api/public/photobooks/<slug>` HTTP 410 `{"status":"gone"}`、`/api/public/photobooks/<id>/ogp` HTTP 200 `{"status":"not_public","image_url_path":"/og/default.png"}`、Workers `/p/<slug>` + `/p/<slug>/report` HTTP 200 + gone view
+- 2026-04-29T10:54:XXZ  outbox-worker: photobook.hidden processed → pending(available)=0
+- 2026-04-29T10:54:XXZ  worker logs Secret 漏洩 grep 0 件
+- 2026-04-29T10:5X:XXZ  cleanup: cloud-sql-proxy 停止、`/tmp/dsn-prod.txt` `/tmp/target-pid.txt` 等の一時ファイル削除、backend/cmd/_tmp* なし
+
+## 関連 commit / artifact ID（最終状態）
+
+- main HEAD（commit 5 push 後）: `<commit 5 SHA>`（push 後にここを更新）
+- Backend image / revision: `vrcpb-api:4c95617` / `vrcpb-api-00020-9jz` / traffic 100%
+- Workers version: `6da0447b-76eb-4b96-bbdb-a896f751fcb0`（rollback 先候補: `5d09172b-...`）
+- Cloud Run Job `vrcpb-outbox-worker`: image `vrcpb-api:4c95617`、`--once --max-events 1 --timeout 60s` 維持（Cloud Scheduler 未作成、手動 execute 運用）
+- Cloud SQL `vrcpb-api-verify`: migration v17（00016 reports + 00017 outbox CHECK 拡張）
+- Secret Manager: 既存 7 + `REPORT_IP_HASH_SALT_V1`（10 secretKeyRef on service、Job には注入せず）
+- target photobook: `hidden_by_operator=true`、reports 1 件 status=resolved_action_taken、監査チェーン保持
+
+## 後回し事項（roadmap / failure-log に記録済）
+
+- **upload-verification への L1-L4 多層 Turnstile ガード横展開**（PR36 以降の最優先、`docs/plan/vrc-photobook-final-roadmap.md` §1.3 運用 / インフラ 冒頭）
+- **`chi.Walk()` route registration test**（CI で route 登録漏れを検出、PR40 ローンチ前チェック付近）
+- Email 通知 / ManageUrlDelivery（ADR-0006 / Email Provider 確定後）
+- Web admin dashboard / report mark-reviewed / dismiss / resolve-without-action（PR36 以降）
+- 90 日後の reports.detail / reporter_contact / source_ip_hash NULL 化 reconciler（PR36 以降）
+- UsageLimit 集約（PR36）
+- LP / `/terms` / `/privacy` / `/about`（PR37）
+- Public repo 化判断 + 履歴 secret scan（PR38）
+- 本番運用整備（Cloud SQL 本番化 / Budget Alert / Error Reporting）（PR39）
+- ローンチ前チェック + spike 削除 + Cloud Build trigger 化（PR40）
+
+## PR closeout 結果
+
+- [x] コメント整合チェック実施（`scripts/check-stale-comments.sh` 結果は本 closeout で実行、結果はチャット報告）
+- [x] 古いコメント修正（該当なし、新規追加コメントは状態ベース + ルール参照のみ）
+- [x] 残した TODO とその理由: upload-verification への L1-L4 横展開（roadmap + failure-log §「次に必ず拾う」に明記、PR36 最優先）
+- [x] 先送り事項記録先: `docs/plan/vrc-photobook-final-roadmap.md` + `harness/failure-log/2026-04-29_*` + `docs/runbook/backend-deploy.md` + `docs/runbook/ops-moderation.md`
+- [x] generated file: 本 PR で sqlcgen / .open-next の差分なし（commit 1 で sqlcgen 反映済、Frontend は `.open-next/` を git ignore）
+- [x] Secret grep: コードベース・Cloud Build logs・Cloud Run logs・Workers chunk いずれも実値 0 件
+
+## Secret 漏洩がないこと（PR35b 全期間）
+
+- DATABASE_URL 完全値: 一時 `/tmp/dsn-prod.txt`（chmod 600）に置いて Go script に渡し、検証完了後ファイル削除。chat / log / work-log / commit に値出力なし
+- `REPORT_IP_HASH_SALT_V1` 値: ユーザー対話シェルで `openssl rand -hex 32` を stdin pipe で Secret Manager に登録。Claude Code は値を一切受け取らず、chat / log / work-log / commit に未含有。Cloud Run logs にも 0 件
+- R2 credentials 実値: 一切扱っていない
+- raw token / Cookie / manage URL / storage_key 完全値: 一切扱わず（cmd/ops 設計時除外）
+- reporter_contact / source_ip_hash 完全値 / detail 実値: 本 work-log / commit には未含有（チャット出力で sed redact 漏れが発生した箇所は work-log には残さず、再発防止のため redact 規則を sed → python へ強化済）
+- raw slug / raw photobook_id / raw report_id / raw moderation_action_id: 本 work-log には未含有（チャット出力で部分的に raw が出てしまった箇所あり、本 work-log には redact 形式 `<redacted>` で記録）
+- Cloud Build / Cloud Run service / Cloud Run Job / Workers chunk のいずれも Secret 漏洩 grep 0 件
+- shell history / tmp file: cleanup 済（`/tmp/dsn-prod.txt` `/tmp/target-pid.txt` `/tmp/*-bin` 削除済）
+
 ## 履歴
 
 | 日付 | 変更 |
 |------|------|
 | 2026-04-29 | 初版（途中経過、commit 3）。STOP α / β / γ 完了 + Cloud Run service / Job image 更新までを記録。Frontend / Workers / smoke / Safari / closeout は次セッション commit 4 以降 |
+| 2026-04-29 | 完成版（commit 5）。STOP δ / ε（1 回目 NG）/ ε2（2 回目 NG）/ ρ / ε3（成功）+ 修正 commit `4c95617` `f3c5c9c` `a450037` + 監査チェーン本番検証 + cleanup + closeout までを集約。後回し事項を roadmap / failure-log と相互リンクで記録 |

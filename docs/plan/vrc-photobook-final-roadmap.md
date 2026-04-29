@@ -52,16 +52,16 @@
 
 ---
 
-## 1. 現在地（2026-04-29 PR35b commit 3 時点、Backend deploy 完了 / Frontend 未実装）
+## 1. 現在地（2026-04-29 PR35b 完了、Safari smoke + 監査チェーン本番検証成功、次は PR36 UsageLimit）
 
 ### 1.1 commit / revision
 
-- **PR35b 本体 commit（backend image 同梱）**: `f4427b1 feat(backend): add report submission and ops commands`
-- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00019-jkj`（image: `vrcpb-api:f4427b1`、PR35b）
+- **PR35b 本体 commit（backend image 同梱）**: `f4427b1 feat(backend): add report submission and ops commands` → 修正 `4c95617 fix(report): apply L1-L4 turnstile defensive guards` → runbook `f3c5c9c docs(runbook): strengthen backend deploy public route smoke` → widget 安定化 `a450037 fix(frontend): stabilize turnstile widget rendering` → closeout `<commit 5>`
+- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00020-9jz`（image: `vrcpb-api:4c95617`、PR35b L1-L4 ガード反映済）
 - **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:f4427b1`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
   **手動 execute 運用**（Cloud Scheduler 未作成）。`REPORT_IP_HASH_SALT_V1` は **Job に注入せず**（PR35b 案 A、SubmitReport は Backend HTTP service 側で salt を使うため）
-- **Cloud Workers Frontend Worker version**: `e97148fe-283f-4c64-9765-37ad10bdd29e`（PR34b、PR35b 未反映 / Frontend `/p/[slug]/report` 未実装）
+- **Cloud Workers Frontend Worker version**: `6da0447b-76eb-4b96-bbdb-a896f751fcb0`（PR35b 完了、Frontend `/p/[slug]/report` + ReportForm + L0 widget 安定 mount + L1-L3 多層ガード反映済、rollback 候補 `5d09172b-...` / `5838edec-...`）
 - **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v17**（00014 moderation_actions + 00015 outbox CHECK + 00016 reports + 00017 outbox CHECK 拡張、PR34b/PR35b で適用）
 - **Secret Manager**: 既存 7 + 新規 `REPORT_IP_HASH_SALT_V1`（PR35b STOP β、runtime SA に secretAccessor 付与済、Cloud Run service `vrcpb-api` の secretKeyRef 10 件）
 
@@ -121,8 +121,10 @@
 ### 1.3 未実装（公開ローンチまでに必要）
 
 #### 運営機能（次の PR ライン）
-- **Report 集約**（通報受付 + 運営対応 + Moderation 自動連動）→ **次の PR35**
-- UsageLimit 集約（公開数制限 / abuse 抑止）→ PR36
+- ~~**Report 集約**（通報受付 + 運営対応 + Moderation 自動連動）→ **次の PR35**~~ → **PR35b 完了**（2026-04-29、Backend + Frontend + cmd/ops + Outbox handler + Safari 実機 smoke + 監査チェーン本番検証）。後続: report list/show 状態遷移系（mark-reviewed / dismiss / resolve-without-action）/ 90 日 NULL 化 reconciler / Web admin dashboard / Email 通知 → PR36 以降
+- **UsageLimit 集約（公開数制限 / abuse 抑止）→ 次の PR36**
+- Report mark-reviewed / dismiss / resolve-without-action（運営対応 UseCase、cmd/ops 拡張）→ PR36 以降
+- 90 日後の reports.detail / reporter_contact / source_ip_hash NULL 化 reconciler → PR36 以降
 - Moderation 拡張（`soft_delete` / `restore`（論理復元） / `purge` UseCase）→ PR34 拡張または別 PR（CHECK 制約は既に 6 種受け入れ済、追加コスト小）
 - `reissue_manage_url`（管理URL 再発行 + Session revoke + ManageUrlDelivery）→ Email Provider 確定後（PR32c 以降）
 
@@ -132,6 +134,8 @@
 
 #### 運用 / インフラ
 - **upload-verification への L1〜L4 多層 Turnstile ガード横展開**（PR35b の対応では Report 経路のみに適用。`backend/internal/uploadverification/interface/http/handler.go` `req.TurnstileToken == ""` を `strings.TrimSpace(...) == ""` に強化 + UseCase 側の同条件追加 + Frontend `lib/upload.ts` の L3 ガード trim 化セルフレビュー + 単体テスト追加 + Safari 実機確認）。**次に着手する PR ライン（PR36 以降）の冒頭で必ず拾う**。同種リスクは既知のため後送りしない。 → PR36 以降の最優先項目
+- **TurnstileWidget 安定 mount（L0 ガード）の upload UI 横展開確認**（PR35b で TurnstileWidget 内部を useRef pattern に変更済、Upload UI も同 widget を使うため自動で恩恵あり。ただし `EditClient.tsx` 側の `useCallback` 化はまだ未実施。L0 検証も含めてセルフレビューする）→ PR36 以降の最優先項目（上記と一括対応推奨）
+- **`backend/internal/http/router_test.go` で `chi.Walk()` route registration テーブル駆動テスト**（CI で route 登録漏れ / chi tree 衝突を検出。PR35b STOP ε2 NG で Cloud Run deploy 直後 transient と切り分けがついた経験から、deploy ではなく単体テストレベルで route 健康性を保証する仕組みを追加）→ PR40 ローンチ前安全性強化タスク
 - Email Provider 再選定 + ManageUrlDelivery 集約（ADR-0006 で MVP 必須から外し済、
   個人契約可能 Provider 確定後に再開）→ PR32c 以降
 - Cloud Scheduler 作成（outbox-worker 自動回し）→ 当面は手動 Job execute、PR33e で要否判断
