@@ -106,6 +106,42 @@ describe("submitReport", () => {
     });
   }
 
+  // L3 多層防御 Turnstile ガード。`.agents/rules/turnstile-defensive-guard.md`。
+  describe("L3_Turnstile_defensive_guard", () => {
+    const guardCases: Array<{ name: string; description: string; token: string }> = [
+      {
+        name: "異常_空文字tokenでturnstile_failed_fetch呼ばれない",
+        description: "Given: turnstileToken='', When: submitReport, Then: turnstile_failed",
+        token: "",
+      },
+      {
+        name: "異常_空白のみtokenでturnstile_failed_fetch呼ばれない",
+        description: "Given: turnstileToken=' ', When: submitReport, Then: turnstile_failed",
+        token: "   ",
+      },
+      {
+        name: "異常_タブ改行のみtokenでturnstile_failed_fetch呼ばれない",
+        description: "Given: turnstileToken='\\t\\n', When: submitReport, Then: turnstile_failed",
+        token: "\t\n",
+      },
+    ];
+    for (const tt of guardCases) {
+      it(tt.name, async () => {
+        const mockFetch = vi.fn(async () => ({ status: 201, json: async () => ({}) }));
+        vi.stubGlobal("fetch", mockFetch);
+        await expect(
+          submitReport({
+            slug: "uqfwfti7glarva5saj",
+            reason: "harassment_or_doxxing",
+            turnstileToken: tt.token,
+          }),
+        ).rejects.toMatchObject({ kind: "turnstile_failed" });
+        // fetch は 1 度も呼ばれていない（Backend に whitespace token を送っていない）
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+    }
+  });
+
   it("異常_network失敗_kindはnetwork", async () => {
     vi.stubGlobal(
       "fetch",

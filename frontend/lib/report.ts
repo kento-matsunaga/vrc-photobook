@@ -42,6 +42,15 @@ export type SubmitReportInput = {
  * Cookie 不要 endpoint（公開機能）。Backend で Turnstile siteverify + Origin 検証。
  */
 export async function submitReport(in_: SubmitReportInput): Promise<void> {
+  // L3: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+  // ReportForm 以外の経路（テスト / 別 client）から呼ばれても Backend に空白
+  // トークンが届かないようにする。
+  if (
+    typeof in_.turnstileToken !== "string" ||
+    in_.turnstileToken.trim() === ""
+  ) {
+    throw { kind: "turnstile_failed" } satisfies SubmitReportError;
+  }
   const url = `${getApiBaseUrl()}/api/public/photobooks/${encodeURIComponent(in_.slug)}/reports`;
   const body = {
     reason: in_.reason,

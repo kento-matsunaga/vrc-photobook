@@ -44,11 +44,23 @@ export function ReportForm({ slug, turnstileSiteKey }: Props) {
   const [formState, setFormState] = useState<FormState>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  const canSubmit = turnstileToken !== "" && formState !== "submitting";
+  // L1: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+  // 空白のみのトークンは未完了扱い（widget 中断 / 古い state 残存対策）。
+  const isTurnstileReady =
+    typeof turnstileToken === "string" && turnstileToken.trim() !== "";
+  const canSubmit = isTurnstileReady && formState !== "submitting";
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!canSubmit) return;
+    // L2: 多層防御 Turnstile ガード（button disable を JS から強制発火された場合の保険）。
+    if (!isTurnstileReady) {
+      setFormState("error");
+      setErrorMessage(
+        "bot 検証が完了していません。Turnstile のチェックが完了してから送信してください。",
+      );
+      return;
+    }
+    if (formState === "submitting") return;
     if (detail.length > MAX_DETAIL_LEN) {
       setFormState("error");
       setErrorMessage("詳細は 2000 文字以内で入力してください。");

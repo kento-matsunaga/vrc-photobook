@@ -106,7 +106,9 @@ func (h *PublicHandlers) SubmitReport(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(bodyInvalidPayload))
 		return
 	}
-	if req.TurnstileToken == "" {
+	// L4: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+	// 空白のみのトークンも UseCase / siteverify に渡さず即拒否。
+	if strings.TrimSpace(req.TurnstileToken) == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(bodyInvalidPayload))
 		return

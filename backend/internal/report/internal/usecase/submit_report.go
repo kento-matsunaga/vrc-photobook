@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -92,7 +93,9 @@ func (u *SubmitReport) Execute(ctx context.Context, in SubmitReportInput) (Submi
 	if u.ipHashSalt == "" {
 		return SubmitReportOutput{}, ErrSaltNotConfigured
 	}
-	if in.TurnstileToken == "" {
+	// L4: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+	// 空白のみのトークンを Cloudflare siteverify に投げない。
+	if strings.TrimSpace(in.TurnstileToken) == "" {
 		return SubmitReportOutput{}, ErrTurnstileTokenMissing
 	}
 

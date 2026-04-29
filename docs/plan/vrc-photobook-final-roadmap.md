@@ -131,6 +131,7 @@
 - Public repo 化判断 + 履歴 secret scan → PR38
 
 #### 運用 / インフラ
+- **upload-verification への L1〜L4 多層 Turnstile ガード横展開**（PR35b の対応では Report 経路のみに適用。`backend/internal/uploadverification/interface/http/handler.go` `req.TurnstileToken == ""` を `strings.TrimSpace(...) == ""` に強化 + UseCase 側の同条件追加 + Frontend `lib/upload.ts` の L3 ガード trim 化セルフレビュー + 単体テスト追加 + Safari 実機確認）。**次に着手する PR ライン（PR36 以降）の冒頭で必ず拾う**。同種リスクは既知のため後送りしない。 → PR36 以降の最優先項目
 - Email Provider 再選定 + ManageUrlDelivery 集約（ADR-0006 で MVP 必須から外し済、
   個人契約可能 Provider 確定後に再開）→ PR32c 以降
 - Cloud Scheduler 作成（outbox-worker 自動回し）→ 当面は手動 Job execute、PR33e で要否判断
