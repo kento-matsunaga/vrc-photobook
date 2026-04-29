@@ -83,6 +83,22 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   // Upload widget の state
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+
+  // Turnstile callback は useCallback で安定参照を維持する。TurnstileWidget 内部は
+  // useRef で最新版を呼ぶため再 mount は起きないが、防御的に親側でも安定化する
+  // （`.agents/rules/turnstile-defensive-guard.md` L0 / PR36-0 横展開）。
+  const handleTurnstileVerify = useCallback((t: string) => {
+    setTurnstileToken(t);
+  }, []);
+  const handleTurnstileError = useCallback(() => {
+    setTurnstileToken(null);
+  }, []);
+  const handleTurnstileExpired = useCallback(() => {
+    setTurnstileToken(null);
+  }, []);
+  const handleTurnstileTimeout = useCallback(() => {
+    setTurnstileToken(null);
+  }, []);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ kind: "idle" });
 
   const reload = useCallback(async () => {
@@ -280,8 +296,14 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
     setUploadStatus({ kind: "selected", file: f });
   };
 
+  // L1+L2: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+  // 空白のみのトークンは未完了扱い（widget 中断 / 古い state 残存対策）。
+  const isTurnstileReady =
+    typeof turnstileToken === "string" && turnstileToken.trim() !== "";
+
   const startUpload = async () => {
-    if (!pendingFile || !turnstileToken) return;
+    // L2: button disable があっても JS 強制発火 / race condition の保険。
+    if (!pendingFile || !isTurnstileReady) return;
     const file = pendingFile;
     const sf = sourceFormatOf(file.type);
     if (!sf) {
@@ -290,7 +312,8 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
     }
     try {
       setUploadStatus({ kind: "verifying" });
-      const uv = await issueUploadVerification(view.photobookId, turnstileToken);
+      // 上の isTurnstileReady ガードで non-empty を保証済み（!== null）
+      const uv = await issueUploadVerification(view.photobookId, turnstileToken!);
       setUploadStatus({ kind: "uploading" });
       const intent = await issueUploadIntent(
         view.photobookId,
@@ -436,13 +459,14 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
             <TurnstileWidget
               sitekey={turnstileSiteKey}
               action="upload"
-              onVerify={(t) => setTurnstileToken(t)}
-              onError={() => setTurnstileToken(null)}
-              onExpired={() => setTurnstileToken(null)}
+              onVerify={handleTurnstileVerify}
+              onError={handleTurnstileError}
+              onExpired={handleTurnstileExpired}
+              onTimeout={handleTurnstileTimeout}
             />
             <button
               type="button"
-              disabled={!turnstileToken || isBusy}
+              disabled={!isTurnstileReady || isBusy}
               onClick={() => void startUpload()}
               className="rounded-md bg-brand-teal px-4 py-2 text-sm font-medium text-white hover:bg-brand-teal-hover disabled:opacity-50"
               data-testid="upload-start"

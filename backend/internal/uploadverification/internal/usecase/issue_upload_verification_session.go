@@ -15,6 +15,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
@@ -84,6 +85,13 @@ func NewIssueUploadVerificationSession(
 //   - turnstile.ErrVerificationFailed / hostname / action / challenge_ts 不一致 → ErrUploadVerificationFailed
 //   - DB INSERT 失敗 → そのまま返す（ログだけは詳細を残す）
 func (u *IssueUploadVerificationSession) Execute(ctx context.Context, in IssueInput) (IssueOutput, error) {
+	// L4: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+	// handler 経由以外の呼び出しでも、空白のみのトークンを Cloudflare siteverify
+	// に渡さない。失敗観点は外部に区別を出さない方針なので
+	// ErrUploadVerificationFailed に集約する（PR36-0 横展開）。
+	if strings.TrimSpace(in.TurnstileToken) == "" {
+		return IssueOutput{}, ErrUploadVerificationFailed
+	}
 	verifyOut, err := u.verifier.Verify(ctx, turnstile.VerifyInput{
 		Token:    in.TurnstileToken,
 		RemoteIP: in.RemoteIP,

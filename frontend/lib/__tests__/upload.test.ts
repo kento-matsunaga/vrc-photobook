@@ -114,6 +114,20 @@ describe("issueUploadVerification", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  // L3 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+  // PR36-0 で whitespace バリエーションを網羅して固定化。
+  it("ガード_whitespace_variations_もfetchせずに_verification_failed", async () => {
+    const mockFetch = vi.fn(async () => new Response("{}", { status: 201 }));
+    vi.stubGlobal("fetch", mockFetch);
+    const tokens = ["\t", "\n", "\t\n", "\r\n", "　"]; // タブ / 改行 / CRLF / 全角空白
+    for (const t of tokens) {
+      await expect(issueUploadVerification("pid", t)).rejects.toMatchObject({
+        kind: "verification_failed",
+      } satisfies UploadError);
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("異常_503で turnstile_unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 503 })));
     await expect(issueUploadVerification("pid", "x")).rejects.toMatchObject({ kind: "turnstile_unavailable" } satisfies UploadError);

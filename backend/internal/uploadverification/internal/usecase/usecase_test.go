@@ -149,6 +149,70 @@ func TestIssueUploadVerificationSession(t *testing.T) {
 	})
 }
 
+// L4 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+// UseCase 入口で空白のみのトークンを `ErrUploadVerificationFailed` で弾き、
+// Cloudflare siteverify に到達しないことを保証する（PR36-0 横展開）。
+func TestIssueUploadVerificationSession_L4_BlankTurnstileToken_Rejected(t *testing.T) {
+	pool := dbPool(t)
+	ctx := context.Background()
+	repo := uploadrdb.NewUploadVerificationSessionRepository(pool)
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name        string
+		description string
+		token       string
+	}{
+		{
+			name:        "異常_空文字tokenでErrUploadVerificationFailed",
+			description: "Given: TurnstileToken=\"\", When: Execute, Then: 即返却 / siteverify 未呼出",
+			token:       "",
+		},
+		{
+			name:        "異常_空白のみtokenでErrUploadVerificationFailed",
+			description: "Given: TurnstileToken=\"   \", When: Execute, Then: 同上",
+			token:       "   ",
+		},
+		{
+			name:        "異常_タブ改行のみtokenでErrUploadVerificationFailed",
+			description: "Given: TurnstileToken=\"\\t\\n\", When: Execute, Then: 同上",
+			token:       "\t\n",
+		},
+		{
+			name:        "異常_全角空白のみtokenでErrUploadVerificationFailed",
+			description: "Given: TurnstileToken=\"　\", When: Execute, Then: 同上",
+			token:       "　",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pid := seedPhotobook(t, pool)
+			called := false
+			fake := &uvtests.FakeTurnstile{
+				VerifyFn: func(ctx context.Context, in turnstile.VerifyInput) (turnstile.VerifyOutput, error) {
+					called = true
+					return turnstile.VerifyOutput{Success: true, Hostname: in.Hostname, Action: in.Action}, nil
+				},
+			}
+			uc := usecase.NewIssueUploadVerificationSession(fake, repo)
+			_, err := uc.Execute(ctx, usecase.IssueInput{
+				PhotobookID:    pid,
+				TurnstileToken: tt.token,
+				Hostname:       "app.vrc-photobook.com",
+				Action:         "upload",
+				Now:            now,
+				Allowed:        intent_count.Default(),
+			})
+			if !errors.Is(err, usecase.ErrUploadVerificationFailed) {
+				t.Fatalf("err = %v want ErrUploadVerificationFailed (token=%q)", err, tt.token)
+			}
+			if called {
+				t.Fatalf("Verify was called for whitespace-only token (token=%q); siteverify must not be reached", tt.token)
+			}
+		})
+	}
+}
+
 func TestConsumeUploadVerificationSession(t *testing.T) {
 	pool := dbPool(t)
 	ctx := context.Background()

@@ -63,6 +63,11 @@
 
 ## 横展開すべき領域（次の PR ラインで必ず拾う）
 
+> **2026-04-29 更新**: PR36-0 で **upload-verification への L0-L4 多層ガード横展開を完了**。
+> 詳細は本ファイル末尾「PR36-0 横展開完了記録」参照。
+
+
+
 > **upload-verification 側の同種リスクは PR35b の修正範囲には含まれていない。**
 > 既知のリスクなので、次に着手する PR ライン（PR36 以降）の冒頭で必ず拾う。
 > 後送り（先送り）にはしない。`docs/plan/vrc-photobook-final-roadmap.md` §1.3 運用 / インフラ 冒頭にも明記済。
@@ -95,3 +100,30 @@
 | 日付 | 変更 |
 |------|------|
 | 2026-04-29 | 初版作成。PR35b STOP ε NG（Turnstile bypass）を契機に L1-L4 多層ガードを正典ルール化 |
+| 2026-04-29 | PR36-0 で upload-verification 経路への横展開を完了（後述「PR36-0 横展開完了記録」） |
+
+## PR36-0 横展開完了記録（2026-04-29）
+
+PR35b で確立した L0-L4 多層 Turnstile ガードを、既存 upload-verification 経路に横展開した（PR36-0）。
+
+### 修正内容
+
+| 層 | 対象ファイル | 修正 |
+|---|---|---|
+| L4 (Backend handler) | `backend/internal/uploadverification/interface/http/handler.go` | `req.TurnstileToken == ""` を `strings.TrimSpace(req.TurnstileToken) == ""` に強化、trim 後 token を UseCase へ渡す |
+| L4 (Backend UseCase) | `backend/internal/uploadverification/internal/usecase/issue_upload_verification_session.go` | Execute 冒頭で `strings.TrimSpace(in.TurnstileToken) == ""` を `ErrUploadVerificationFailed` で早期 return、Cloudflare siteverify に到達させない |
+| L4 tests | `backend/internal/uploadverification/interface/http/handler_test.go` + `internal/usecase/usecase_test.go` | whitespace / tab / newline / 全角空白のケースを追加。`FakeTurnstile.VerifyFn` で `called` フラグを立て、siteverify が呼ばれないことを保証 |
+| L1+L2 (Frontend Form) | `frontend/app/(draft)/edit/[photobookId]/EditClient.tsx` | `isTurnstileReady = trim() !== ""` 判定を追加、startUpload 冒頭で `!isTurnstileReady` 早期 return、submit ボタン disable 条件を `!isTurnstileReady` に変更 |
+| L0 (TurnstileWidget 安定化の親側補強) | 同上 | onVerify / onError / onExpired / onTimeout を `useCallback` で安定化（防御的、TurnstileWidget 内部 useRef との二重 belt） |
+| L3 tests | `frontend/lib/__tests__/upload.test.ts` | whitespace バリエーション（tab / newline / CRLF / 全角空白）を追加し fetch 0 回確認 |
+
+### 確認
+
+- Backend `go test ./internal/uploadverification/...` 全 OK / `go build ./...` OK / `go vet ./...` OK
+- Frontend `npm run typecheck` OK / `vitest run` 113 tests PASS / `npm run build` OK / `npm run cf:build` OK
+- Upload UI の `lib/upload.ts` L3 ガードは PR22 段階で実装済 → 本 PR ではバリエーション網羅の test 追加で固定化
+- TurnstileWidget は PR35b で内部 useRef pattern + error/timeout/expired callback 実装済 → 本 PR では Upload UI 側の親 callback も `useCallback` 化して二重 belt 化
+
+### 残課題
+
+- 実機 Safari smoke による「Upload 画面で widget loop が再発しない / Turnstile 未完了中に upload 開始できない」確認は本 PR では実施せず、判断材料を提示して停止（実画像 upload は本 PR の責務外）。後続 PR / 運用フェーズで確認

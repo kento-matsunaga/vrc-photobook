@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -119,7 +120,10 @@ func (h *Handlers) IssueUploadVerification(w http.ResponseWriter, r *http.Reques
 		writeFixed(w, http.StatusBadRequest, bodyBadRequest)
 		return
 	}
-	if req.TurnstileToken == "" {
+	// L4: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+	// 空白のみのトークンを Cloudflare siteverify / UseCase に渡さず即拒否（PR36-0 横展開）。
+	trimmedToken := strings.TrimSpace(req.TurnstileToken)
+	if trimmedToken == "" {
 		writeFixed(w, http.StatusBadRequest, bodyBadRequest)
 		return
 	}
@@ -129,7 +133,7 @@ func (h *Handlers) IssueUploadVerification(w http.ResponseWriter, r *http.Reques
 
 	out, err := h.issue.Execute(r.Context(), usecase.IssueInput{
 		PhotobookID:    pid,
-		TurnstileToken: req.TurnstileToken,
+		TurnstileToken: trimmedToken,
 		RemoteIP:       remoteIP,
 		Hostname:       h.hostname,
 		Action:         h.action,

@@ -133,8 +133,9 @@
 - Public repo 化判断 + 履歴 secret scan → PR38
 
 #### 運用 / インフラ
-- **upload-verification への L1〜L4 多層 Turnstile ガード横展開**（PR35b の対応では Report 経路のみに適用。`backend/internal/uploadverification/interface/http/handler.go` `req.TurnstileToken == ""` を `strings.TrimSpace(...) == ""` に強化 + UseCase 側の同条件追加 + Frontend `lib/upload.ts` の L3 ガード trim 化セルフレビュー + 単体テスト追加 + Safari 実機確認）。**次に着手する PR ライン（PR36 以降）の冒頭で必ず拾う**。同種リスクは既知のため後送りしない。 → PR36 以降の最優先項目
-- **TurnstileWidget 安定 mount（L0 ガード）の upload UI 横展開確認**（PR35b で TurnstileWidget 内部を useRef pattern に変更済、Upload UI も同 widget を使うため自動で恩恵あり。ただし `EditClient.tsx` 側の `useCallback` 化はまだ未実施。L0 検証も含めてセルフレビューする）→ PR36 以降の最優先項目（上記と一括対応推奨）
+- ~~**upload-verification への L1〜L4 多層 Turnstile ガード横展開**~~ → **PR36-0 完了**（2026-04-29、Backend handler / UseCase の trim 強化 + L4 whitespace テスト追加 + Frontend `lib/upload.ts` L3 テスト網羅 + EditClient L1+L2 trim 強化）
+- ~~**TurnstileWidget 安定 mount（L0 ガード）の upload UI 横展開確認**~~ → **PR36-0 完了**（2026-04-29、`EditClient.tsx` 側 onVerify/onError/onExpired/onTimeout を `useCallback` 化、TurnstileWidget 内部 useRef との二重 belt）
+- 実機 Safari smoke による Upload 画面 widget loop 再発確認 → **後続 PR / 運用フェーズで確認**（PR36-0 ではコード横展開と単体テスト固定化までで停止）
 - **`backend/internal/http/router_test.go` で `chi.Walk()` route registration テーブル駆動テスト**（CI で route 登録漏れ / chi tree 衝突を検出。PR35b STOP ε2 NG で Cloud Run deploy 直後 transient と切り分けがついた経験から、deploy ではなく単体テストレベルで route 健康性を保証する仕組みを追加）→ PR40 ローンチ前安全性強化タスク
 - Email Provider 再選定 + ManageUrlDelivery 集約（ADR-0006 で MVP 必須から外し済、
   個人契約可能 Provider 確定後に再開）→ PR32c 以降

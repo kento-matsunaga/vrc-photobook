@@ -256,6 +256,64 @@ func TestIssueUploadVerification_MissingTurnstileTokenField(t *testing.T) {
 	}
 }
 
+// L4 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
+// 空白のみのトークン（whitespace / tab / newline / 全角空白）を 400 で弾き、
+// Cloudflare siteverify に到達しないことを保証する（PR36-0 横展開）。
+func TestIssueUploadVerification_L4_BlankTurnstileToken_Rejected(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		token       string
+	}{
+		{
+			name:        "異常_空白のみtokenで400",
+			description: "Given: turnstile_token=\"   \", When: POST, Then: 400 invalid_payload",
+			token:       "   ",
+		},
+		{
+			name:        "異常_タブ改行のみtokenで400",
+			description: "Given: turnstile_token=\"\\t\\n\", When: POST, Then: 400 invalid_payload",
+			token:       "\t\n",
+		},
+		{
+			name:        "異常_全角空白のみtokenで400",
+			description: "Given: turnstile_token=\"　\", When: POST, Then: 400 invalid_payload",
+			token:       "　",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := dbPool(t)
+			pid, rawTok := seedPhotobookAndDraftSession(t, pool)
+			// Turnstile siteverify が **呼ばれない**ことを保証するため
+			// VerifyFn 内で called フラグを立て、最後に未呼出を確認する
+			called := false
+			fake := &uvtests.FakeTurnstile{
+				VerifyFn: func(ctx context.Context, in turnstile.VerifyInput) (turnstile.VerifyOutput, error) {
+					called = true
+					return turnstile.VerifyOutput{Success: true, Hostname: in.Hostname, Action: in.Action}, nil
+				},
+			}
+			router := buildRouter(t, pool, fake)
+
+			body, _ := json.Marshal(map[string]string{"turnstile_token": tt.token})
+			req := httptest.NewRequest(http.MethodPost,
+				"/api/photobooks/"+pid.String()+"/upload-verifications/", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			withDraftCookie(req, pid, rawTok)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d want %d (token=%q)", rec.Code, http.StatusBadRequest, tt.token)
+			}
+			if called {
+				t.Fatalf("Verify was called for whitespace-only token (token=%q); siteverify must not be reached", tt.token)
+			}
+		})
+	}
+}
+
 func TestIssueUploadVerification_PhotobookMismatch(t *testing.T) {
 	pool := dbPool(t)
 	pid, rawTok := seedPhotobookAndDraftSession(t, pool)
