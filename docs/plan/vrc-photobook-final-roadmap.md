@@ -52,7 +52,7 @@
 
 ---
 
-## 1. 現在地（2026-04-29 PR35b 完了、Safari smoke + 監査チェーン本番検証成功、次は PR36 UsageLimit）
+## 1. 現在地（2026-04-29 PR35b + PR36-0 完了、PR36 UsageLimit 計画書作成中）
 
 ### 1.1 commit / revision
 
@@ -551,19 +551,31 @@ PR35 は段階分割（計画書 → MVP 実装、それ以降は別 PR）:
 
 ### PR36: UsageLimit 集約
 
-- **目的**: 公開数 / upload 数の上限と abuse 抑止
+- **目的**: 同一作成元の作成レート上限（業務知識 v4 §3.7「1 時間 5 冊」）+ 通報過剰送信抑止 + upload-verification 過剰発行抑止 + abuse fail-closed の MVP 基盤
+- **計画書**: [`docs/plan/m2-usage-limit-plan.md`](./m2-usage-limit-plan.md)（PR36 着手前に必ず参照、§18 ユーザー判断 12 項目を確定してから実装に入る）
 - **実装するもの**:
-  - UsageLimit 集約（`internal/usagelimit/`）
-  - upload-intent / publish 経路に上限チェック追加
-  - abuse 抑止 cleanup
-- **実装しないもの**: LP / 利用規約（PR37）
-- **参照すべき design 資産**: なし
-- **参照すべき docs**: 業務知識 v4 §UsageLimit / §abuse
-- **実リソース操作の有無**: migration 追加
-- **Secret が絡むか**: なし
-- **Safari 確認が必要か**: 上限到達時の UI 確認
-- **完了条件**: 制限到達 → 適切な表示 / 制限解除（時間経過 or 運営）
-- **次 PR への引き継ぎ**: ローンチ前の整備
+  - UsageLimit 集約（`backend/internal/usagelimit/`、entity / VO / Repository / UseCase）
+  - `usage_counters` migration v18（PostgreSQL fixed window、INSERT ON CONFLICT DO UPDATE で race-free）
+  - 既存 UseCase（SubmitReport / IssueUploadVerificationSession / PublishFromDraft）の前段で `CheckAndConsumeUsage` を呼ぶ
+  - HTTP 429 + `Retry-After` header / body `{"status":"rate_limited","retry_after_seconds":N}`
+  - Frontend error mapping（`lib/report.ts` / `lib/upload.ts` / `lib/publishPhotobook.ts` に `kind: "rate_limited"` 追加）+ UI 文言（ReportForm / Upload UI / Publish flow）
+  - `cmd/ops usage list / show`（読み取りのみ、redact 表示）
+  - Backend test（unit + handler 統合 + 実 DB Repository + concurrency）
+  - Frontend test（vitest 既存パターン）
+  - runbook 追記（`docs/runbook/usage-limit.md` 新設候補 or `ops-moderation.md` §拡張）
+- **実装しないもの**:
+  - Redis / 分散 RateLimit（Cloud SQL 単機で完結）
+  - Cloud Armor / 本格 WAF（PR40 / 別 PR）
+  - `cmd/ops usage reset / cleanup --execute`（後続 PR、MVP は手動 SQL）
+  - Cloud Run Job / Cloud Scheduler 化（PR33e / PR41+）
+  - Web admin dashboard（v4 §6.19）
+  - abuse 通知（Email Provider 確定後）
+- **参照すべき docs**: 業務知識 v4 §2.7 / §3.7（IP ハッシュソルト共有 / 作成レート 1 時間 5 冊）/ ADR-0005（Turnstile）/ PR35b 計画 §8 / `.agents/rules/turnstile-defensive-guard.md` / `security-guard.md`
+- **実リソース操作の有無**: migration v18 適用（**STOP α**）+ Backend Cloud Build deploy（**STOP γ**）+ Workers redeploy（**STOP δ**）+ Safari 実機 smoke（**STOP ε**）。Cloud Scheduler は作らない方針継続
+- **Secret が絡むか**: 推奨は **既存 `REPORT_IP_HASH_SALT_V1` 流用**（業務知識 v4 §3.7 整合、Secret 追加なし、STOP β 不要）
+- **Safari 確認が必要か**: **必須**（429 表示 / Retry-After 表示 / Turnstile 状態と区別 / iPhone Safari 主要動線）
+- **完了条件**: 各対象 endpoint で閾値超過 → 429 + UI 文言、cmd/ops で usage 状態確認可能、Safari 実機 smoke OK、PR closeout 完了
+- **次 PR への引き継ぎ**: PR37（LP / terms / privacy / about）→ PR38（Public repo 化）→ PR39（本番運用整備）→ PR40（ローンチ前チェック）
 
 ### PR37: LP / terms / privacy / about
 
