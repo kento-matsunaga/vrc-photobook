@@ -16,7 +16,7 @@
 //   - report_id を表示・URL に出さない
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { TurnstileWidget } from "@/components/TurnstileWidget";
 import {
@@ -43,6 +43,22 @@ export function ReportForm({ slug, turnstileSiteKey }: Props) {
   const [turnstileToken, setTurnstileToken] = useState<string>("");
   const [formState, setFormState] = useState<FormState>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
+
+  // Turnstile callback は useCallback で安定参照を維持する。TurnstileWidget 内部は
+  // useRef で最新版を呼ぶため再 mount は起きないが、防御的に親側でも安定化する
+  // （`harness/failure-log/2026-04-29_turnstile-widget-remount-loop.md`）。
+  const handleTurnstileVerify = useCallback((token: string) => {
+    setTurnstileToken(token);
+  }, []);
+  const handleTurnstileError = useCallback(() => {
+    setTurnstileToken("");
+  }, []);
+  const handleTurnstileExpired = useCallback(() => {
+    setTurnstileToken("");
+  }, []);
+  const handleTurnstileTimeout = useCallback(() => {
+    setTurnstileToken("");
+  }, []);
 
   // L1: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
   // 空白のみのトークンは未完了扱い（widget 中断 / 古い state 残存対策）。
@@ -172,9 +188,10 @@ export function ReportForm({ slug, turnstileSiteKey }: Props) {
         <TurnstileWidget
           sitekey={turnstileSiteKey}
           action="report-submit"
-          onVerify={setTurnstileToken}
-          onError={() => setTurnstileToken("")}
-          onExpired={() => setTurnstileToken("")}
+          onVerify={handleTurnstileVerify}
+          onError={handleTurnstileError}
+          onExpired={handleTurnstileExpired}
+          onTimeout={handleTurnstileTimeout}
         />
       </div>
 
