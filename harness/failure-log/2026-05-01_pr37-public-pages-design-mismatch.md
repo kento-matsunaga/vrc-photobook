@@ -93,6 +93,36 @@ design rebuild PR を起こす場合、最低限以下を STOP α に含める:
 
 仮置き値（運営者表示名 `ERENOA` / 連絡用 X `@Noa_Fortevita` / 準拠法）は user 承認済の **公開対象値**で機密ではないが、本 failure-log では参照のみで再掲不要のため省略。
 
+## 7.5 適用結果（2026-05-01、PR37 design rebuild STOP α / β / δ / ε 完了時点）
+
+本 failure-log §5 の再発防止策（デザインを伴う PR の STOP α に「画面別ワイヤーフレーム + 採用 prototype 画面 ID + 既存ページ温度感整合」の承認を必須化）を、PR37 design rebuild PR に **適用初事例**として運用した結果を記録する。
+
+### 適用された運用
+
+- STOP α で plan メモ（`harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md`）に画面別ワイヤーフレーム + 採用 prototype 画面 ID + 既存ページ温度感整合を提示し、ユーザー承認を取得
+- plan メモを **唯一の正典**として STOP β 実装中に参照
+- 採用しない要素（`pc-header` nav / 装飾 gradient orb / 48px 超見出し）も STOP α で明文化
+- Safari 確認観点 13 項目を STOP α で事前明示
+
+### 結果
+
+- **構造 rebuild は plan 通りに完了**（hero / mock-book / thumb strip / features / cta-block / trust-strip / TOC / notice box / PolicyArticle / 共通 PublicPageFooter / Viewer footer 統一 + 通報リンク extraSlot 維持）
+- 機能・安全面（HTTP 200 / noindex / Referrer-Policy / metadata / 既存経路 regression / Secret + raw 値漏えい 0 件）は要件達成
+- 実装中の plan メモからの逸脱なし（STOP β 報告 §3「plan メモとの差分」: なし）
+- vitest 18 files / 151 tests 全 PASS
+
+### 後続フェーズへの延期
+
+- **最終 visual polish は機能完成後の最終デザイン PR に延期**（user 明示）
+- 後続 PR では `<user-local VRChat photo folder>`（user 許可済、redact 表記のみ）の実画像素材を活用予定
+- 後続 PR でも本 failure-log §5 ルールを継続適用する
+
+### 評価
+
+- 再発防止策は **有効に機能**した。STOP α で見た目方針を明文化することで、構造面の plan / 実装ズレを大幅に削減できた
+- ただし、視覚的な完全な仕上がりは「token 準拠 + prototype 画面参照 + 採用要素明示」だけでは到達しきらず、**機能全体の完成度に合わせた最終デザイン判断は別フェーズが必要**であることが確認された
+- 最終デザイン判断は別フェーズで扱う前提で、本 failure-log §5 のルールは今後のデザインを伴う PR の **STOP α テンプレート**として継続採用する
+
 ## 8. 関連
 
 - [`harness/work-logs/2026-05-01_pr37-public-pages-result.md`](../work-logs/2026-05-01_pr37-public-pages-result.md) §4.3 / §8

@@ -62,7 +62,7 @@
 - **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:773d5cc`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
   **手動 execute 運用**（Cloud Scheduler 未作成）。`REPORT_IP_HASH_SALT_V1` は **Job に注入せず**（PR35b 案 A、SubmitReport は Backend HTTP service 側で salt を使うため）
-- **Cloud Workers Frontend Worker version**: `6f1e82d7-cf57-41ab-99dd-0ede5266a3a5`（PR37 STOP δ 由来、LP / Terms / Privacy / About + 共通 PublicPageFooter / Viewer footer リンク反映済）。rollback 候補 `ac2b884a-7c75-49d3-a21c-5c2a66c462ed`（PR36 STOP δ 由来）
+- **Cloud Workers Frontend Worker version**: `c2d35a6c-9d14-4626-886c-47362b78b8e2`（PR37 design rebuild STOP δ 由来、prototype-aligned structure / 共通コンポーネント MockBook / TrustStrip / PolicyArticle / SectionEyebrow / PublicPageFooter 拡張 / Viewer footer 統一を反映）。rollback 候補 `6f1e82d7-cf57-41ab-99dd-0ede5266a3a5`（PR37 機能編 STOP δ 由来）
 - **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v18**（PR36 STOP α で 00018 `usage_counters` 適用済、以降変更なし）
 - **Secret Manager**: 8 件（`DATABASE_URL` / `R2_*` ×5 / `REPORT_IP_HASH_SALT_V1` / `TURNSTILE_SECRET_KEY`）。Cloud Run service `vrcpb-api` の secretKeyRef も 8 件で完全一致、SubmitReport 緩和では env / Secret 変更なし
 
@@ -142,7 +142,8 @@
 
 #### LP / 法務 / 公開判定
 - ~~LP (`/`) / `/terms` / `/privacy` / `/about` → PR37~~ → **PR37 機能完了**（2026-05-01、commit `5d85af5` / Workers `6f1e82d7-...` 反映済）。**ただし design 品質は user 意図と乖離**しており、後続の design rebuild が必須（[`harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md`](../../harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md) 起票、本書 §1.3 後続候補に積む）
-- **PR37 public pages design rebuild（最優先後続）**: design ファイル群を読んだだけでは user 期待に届かなかった。次回はデザインを伴う PR の STOP α で「画面別ワイヤーフレームまたはスクリーン構成案」を提示してユーザー承認を取る運用に改める。LP / About / Terms / Privacy を `design/mockups/prototype` と `design-system` に沿って再構築する（採用する画面 ID / 採用しない要素 / 既存 Viewer・Help との温度感整合 を STOP α で明示）。詳細は failure-log §5 を参照
+- ~~**PR37 public pages design rebuild（最優先後続）**~~ → **構造 rebuild 完了**（2026-05-01、commit `bf6fdd3` / Workers `c2d35a6c-...` 反映済）。failure-log §5 ルール（plan メモ + 画面別ワイヤーフレーム + 採用 prototype 画面 ID + STOP α 承認）を適用初事例として運用、適用結果は [`harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md`](../../harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md) §7.5 に記録。詳細経緯: [`harness/work-logs/2026-05-01_pr37-design-rebuild-result.md`](../../harness/work-logs/2026-05-01_pr37-design-rebuild-result.md)
+- **機能完成後の最終 visual polish / final design pass（最優先後続）**: 本 PR で構築した prototype-aligned structure / 共通コンポーネント（MockBook / TrustStrip / PolicyArticle / SectionEyebrow / PublicPageFooter 拡張）を土台に、機能全体の完成度に合わせて視覚的な最終仕上げを実施する。採用画像素材として `<user-local VRChat photo folder>` の利用許可を user から受領済（実 Windows ローカルパスは redact 表記のみで commit / docs に書かない）。STOP α で具体採用画像をユーザー承認のうえ着手する。failure-log §5 のルールを継続適用
 - Phase 2 検索エンジン許可判断（業務知識 v4 §7.6、`<meta robots>` を作成者の opt-in で `index, follow` に切り替えるかどうか）→ 後続 PR
 - 法的レビュー後の Terms / Privacy 改訂（ローンチ後）
 - Public repo 化判断 + 履歴 secret scan → PR38
