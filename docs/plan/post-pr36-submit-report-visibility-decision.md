@@ -302,3 +302,4 @@ migration / Secret は **不要**。
 |------|------|
 | 2026-05-01 | 初版作成。3 層（Viewer / Report ページ / SubmitReport）の不整合を整理、案 A/B/C 比較・推奨 B・STOP 設計・必要テスト・rollback 方針を整理。実装には進まない |
 | 2026-05-01 | ユーザー判断で **案 B 採用**で確定（§0 / §11）。raw photobook id_prefix を "public hidden target" / "unlisted smoke candidate" に redact。Safari smoke 注意事項を §7.4 に統合 |
+| 2026-05-01 | **STOP β 実装完了**: `submit_report.go` に `assessReportEligibility` を抽出し `visibility != private` に緩和。`submit_report_test.go` に `TestAssessReportEligibility`（テーブル駆動 7 ケース、Builder 不要の `RestorePhotobook` ベース）を追加。業務知識 v4 §3.6 / m2-report-plan §17 #2 / m2-report-plan §5.2 / runbook usage-limit.md §11.3 / roadmap §1.3 を更新。STOP γ Backend deploy 承認待ち |

@@ -222,7 +222,7 @@ now: 時刻
 1. slug VO 化 + Turnstile siteverify
 2. Photobook を slug で permissive lookup（FindAnyBySlug）
 3. 公開対象判定:
-   - status='published' AND visibility='public' AND hidden_by_operator=false
+   - status='published' AND hidden_by_operator=false AND visibility != 'private'（PR36 後の案 B 採用、`public` / `unlisted` を許可）
    - 上記以外は ErrTargetNotEligibleForReport（404 として返す）
 4. Photobook 現在値（slug / title / creator_display_name）を snapshot として確保
 5. source_ip_hash 算出（環境変数の salt_version + salt + remoteIP の sha256）
@@ -680,7 +680,7 @@ PR35 実装時に **必須**。`/p/<slug>/report` の form / textarea / select /
 | # | 判断項目 | 候補 / 推奨 | 影響 |
 |---|---|---|---|
 | 1 | **Turnstile 必須にするか** | **推奨: 必須**（案 A）。最小は rate-limit のみ（リスク高）| §8 / §11 |
-| 2 | hide / deleted / purged photobook を通報対象に含めるか | **推奨: published + visible + not hidden のみ受付**（v4 ドメイン §6.1 は「削除済みも対応のため受付」だが MVP 簡素化）。最小は public のみ | §2 G4 / §5.2 |
+| 2 | hide / deleted / purged photobook を通報対象に含めるか | **採用（PR36 後）: published + (visibility != private) + not hidden を受付**（公開 Viewer の `assessPublicVisibility` と同じ受入軸、業務知識 v4 §3.6 と整合）。当初実装は「最小: public のみ」を採用していたが、PR36 STOP ε で 3 層不整合が判明し [`docs/plan/post-pr36-submit-report-visibility-decision.md`](./post-pr36-submit-report-visibility-decision.md) で案 B を確定。v4 ドメイン §6.1 の「削除済みも対応のため受付」は MVP では引き続き未採用 | §2 G4 / §5.2 |
 | 3 | `REPORT_IP_HASH_SALT_V1` を新規 Secret として導入するか | **推奨: 新規 Secret 導入**。既存 salt 共有も可能だが PR36 連動を考えると独立した方が clean | §4.4 / §13 |
 | 4 | IP 取得経路 | **推奨: `Cf-Connecting-Ip` 優先 + `X-Forwarded-For` フォールバック**。最小は `RemoteAddr`（信頼性低）| §6.3 |
 | 5 | Frontend 通報フォーム配置 | **推奨: 案 A（`/p/[slug]/report` 別ページ）**。modal / dialog は SSR / a11y / Safari 互換性のリスク | §7.1 |

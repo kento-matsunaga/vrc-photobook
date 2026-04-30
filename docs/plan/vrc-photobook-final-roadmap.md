@@ -123,7 +123,7 @@
 #### 運営機能（次の PR ライン）
 - ~~**Report 集約**（通報受付 + 運営対応 + Moderation 自動連動）→ **次の PR35**~~ → **PR35b 完了**（2026-04-29、Backend + Frontend + cmd/ops + Outbox handler + Safari 実機 smoke + 監査チェーン本番検証）。後続: report list/show 状態遷移系（mark-reviewed / dismiss / resolve-without-action）/ 90 日 NULL 化 reconciler / Web admin dashboard / Email 通知 → 後続 PR
 - ~~**UsageLimit 集約（公開数制限 / abuse 抑止）→ 次の PR36**~~ → **PR36 完了**（2026-05-01、Backend + Frontend + cmd/ops + runbook + Safari 実機 429 smoke + cleanup + target 復元）。`report.submit` / `upload_verification.issue` / `publish.from_draft` の RateLimit MVP 完了。後続候補は §1.3 PR36 後続項目を参照
-- **SubmitReport の visibility 要件 再判断（PR36 STOP ε で発見）**: 現実装は `visibility=='public'` を厳格要求するが、業務知識 v4 §2.6 の MVP 既定値は `unlisted`。MVP では通常作成された photobook が **通報不可**になる。候補: A 仕様維持 / B SubmitReport を `!= 'private'` に緩和して unlisted も対象 / C 業務知識を更新して「通報は public のみ」と明文化。後続 PR で判断
+- ~~**SubmitReport の visibility 要件 再判断（PR36 STOP ε で発見）**~~ → **完了**（2026-05-01、案 B 採用）。判断: [`docs/plan/post-pr36-submit-report-visibility-decision.md`](./post-pr36-submit-report-visibility-decision.md)。実装: SubmitReport を `visibility != private` に緩和、`unlisted` も通報対象に拡大。Backend のみ 1 行 + テスト + docs 更新で API 互換維持、Workers redeploy / migration / Secret 不要
 - Report mark-reviewed / dismiss / resolve-without-action（運営対応 UseCase、cmd/ops 拡張）→ 後続 PR
 - 90 日後の reports.detail / reporter_contact / source_ip_hash NULL 化 reconciler → 後続 PR
 - Moderation 拡張（`soft_delete` / `restore`（論理復元） / `purge` UseCase）→ PR34 拡張または別 PR（CHECK 制約は既に 6 種受け入れ済、追加コスト小）

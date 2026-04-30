@@ -16,7 +16,9 @@ import (
 	"vrcpb/backend/internal/outbox/domain/vo/aggregate_type"
 	"vrcpb/backend/internal/outbox/domain/vo/event_type"
 	outboxrdb "vrcpb/backend/internal/outbox/infrastructure/repository/rdb"
+	photobookdomain "vrcpb/backend/internal/photobook/domain"
 	"vrcpb/backend/internal/photobook/domain/vo/slug"
+	"vrcpb/backend/internal/photobook/domain/vo/visibility"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/report/domain/entity"
 	"vrcpb/backend/internal/report/domain/vo/report_detail"
@@ -75,13 +77,15 @@ func mapUsageErr(err error, retryAfter int) error {
 //
 // 処理:
 //   1. Turnstile siteverify
-//   2. slug → photobook 解決（FindAnyBySlug）+ 公開対象判定（published+visibility=public+hidden=false）
+//   2. slug → photobook 解決（FindAnyBySlug）+ 公開対象判定（assessReportEligibility:
+//      status=published AND hidden_by_operator=false AND visibility != private）
 //   3. snapshot 確保（slug / title / creator_display_name）
 //   4. source_ip_hash 算出（salt + sha256）
 //   5. 同一 TX で reports INSERT + outbox_events INSERT
 //
 // 公開対象判定（draft / private / hidden / deleted / purged）の理由を **外部に区別なく
 // 漏らさない**ために、すべて ErrTargetNotEligibleForReport（HTTP 404）に集約する。
+// 設計判断: docs/plan/post-pr36-submit-report-visibility-decision.md（案 B、unlisted も許可）
 type SubmitReport struct {
 	pool              *pgxpool.Pool
 	turnstileVerifier turnstile.Verifier
@@ -156,15 +160,11 @@ func (u *SubmitReport) Execute(ctx context.Context, in SubmitReportInput) (Submi
 		}
 		return SubmitReportOutput{}, fmt.Errorf("find photobook by slug: %w", err)
 	}
-	// 公開対象判定: published + visibility=public + hidden=false
-	if !pb.Status().IsPublished() {
-		return SubmitReportOutput{}, ErrTargetNotEligibleForReport
-	}
-	if pb.Visibility().String() != "public" {
-		return SubmitReportOutput{}, ErrTargetNotEligibleForReport
-	}
-	if pb.HiddenByOperator() {
-		return SubmitReportOutput{}, ErrTargetNotEligibleForReport
+	// 公開対象判定: status=published AND hidden_by_operator=false AND visibility != private
+	// 詳細は assessReportEligibility 参照。判定理由は外部に区別なく漏らさず
+	// ErrTargetNotEligibleForReport（HTTP 404）に集約する。
+	if err := assessReportEligibility(pb); err != nil {
+		return SubmitReportOutput{}, err
 	}
 
 	// 3) snapshot 確保
@@ -303,4 +303,31 @@ func (u *SubmitReport) Execute(ctx context.Context, in SubmitReportInput) (Submi
 		return SubmitReportOutput{}, err
 	}
 	return SubmitReportOutput{ReportID: rid}, nil
+}
+
+// assessReportEligibility は通報対象になり得るかを判定する。
+//
+// 受入条件:
+//   - status = published
+//   - hidden_by_operator = false
+//   - visibility != private（public / unlisted を許可）
+//
+// それ以外はすべて ErrTargetNotEligibleForReport を返す。判定理由（draft / private /
+// hidden / deleted / purged）の区別は外部に漏らさない（敵対者対策、`get_public_photobook.go`
+// の既存ポリシーと整合）。
+//
+// 設計判断: docs/plan/post-pr36-submit-report-visibility-decision.md（案 B 採用）。
+// 業務知識 v4 §3.6「閲覧者は通報できる」の自然な解釈と整合し、公開 Viewer
+// (`assessPublicVisibility`) の visibility 判定（`!= private`）と同じ受入軸を採用する。
+func assessReportEligibility(pb photobookdomain.Photobook) error {
+	if !pb.Status().IsPublished() {
+		return ErrTargetNotEligibleForReport
+	}
+	if pb.Visibility().Equal(visibility.Private()) {
+		return ErrTargetNotEligibleForReport
+	}
+	if pb.HiddenByOperator() {
+		return ErrTargetNotEligibleForReport
+	}
+	return nil
 }

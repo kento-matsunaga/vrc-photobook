@@ -1,7 +1,11 @@
 // SubmitReport UseCase の単体テスト。本ファイルは DB / Turnstile を使わない
-// 早期 return ガード（L4 多層防御 Turnstile ガード）に焦点を当てる。
+// 早期 return ガード（L4 多層防御 Turnstile ガード）と純粋関数
+// (assessReportEligibility) に焦点を当てる。
 //
-// 設計参照: `.agents/rules/turnstile-defensive-guard.md`
+// 設計参照:
+//   - `.agents/rules/turnstile-defensive-guard.md`
+//   - docs/plan/post-pr36-submit-report-visibility-decision.md（案 B、visibility 緩和）
+//
 // 失敗事例: `harness/failure-log/2026-04-29_report-form-turnstile-bypass.md`
 package usecase
 
@@ -11,8 +15,198 @@ import (
 	"testing"
 	"time"
 
+	photobookdomain "vrcpb/backend/internal/photobook/domain"
+	"vrcpb/backend/internal/photobook/domain/vo/draft_edit_token"
+	"vrcpb/backend/internal/photobook/domain/vo/draft_edit_token_hash"
+	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token"
+	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_hash"
+	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_version"
+	"vrcpb/backend/internal/photobook/domain/vo/opening_style"
+	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
+	"vrcpb/backend/internal/photobook/domain/vo/photobook_layout"
+	"vrcpb/backend/internal/photobook/domain/vo/photobook_status"
+	"vrcpb/backend/internal/photobook/domain/vo/photobook_type"
+	"vrcpb/backend/internal/photobook/domain/vo/slug"
+	"vrcpb/backend/internal/photobook/domain/vo/visibility"
 	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
+
+// TestAssessReportEligibility は通報対象判定の純粋関数を検証する。
+//
+// 受入条件は status=published AND hidden_by_operator=false AND visibility != private。
+// それ以外はすべて ErrTargetNotEligibleForReport（敵対者対策で理由を区別しない）。
+//
+// 設計判断: docs/plan/post-pr36-submit-report-visibility-decision.md（案 B）。
+// 公開 Viewer (`assessPublicVisibility`) と同じ受入軸（visibility != private）に揃え、
+// 業務知識 v4 §3.6「閲覧者は通報できる」と整合させる。
+func TestAssessReportEligibility(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		visibility  visibility.Visibility
+		status      photobook_status.PhotobookStatus
+		hidden      bool
+		published   bool // RestorePhotobook 用フラグ（published 系の付帯フィールド設定）
+		deleted     bool // 同上（deleted 系の deleted_at 付与）
+		wantErr     error
+	}{
+		{
+			name:        "成功_public_published_visible",
+			description: "Given: status=published / visibility=public / hidden=false, When: 通報判定, Then: nil（既存の許可対象）",
+			visibility:  visibility.Public(),
+			status:      photobook_status.Published(),
+			hidden:      false,
+			published:   true,
+			wantErr:     nil,
+		},
+		{
+			name:        "成功_unlisted_published_visible",
+			description: "Given: status=published / visibility=unlisted / hidden=false, When: 通報判定, Then: nil（案 B で新たに許可、業務知識 v4 §3.6 と整合）",
+			visibility:  visibility.Unlisted(),
+			status:      photobook_status.Published(),
+			hidden:      false,
+			published:   true,
+			wantErr:     nil,
+		},
+		{
+			name:        "拒否_private_published",
+			description: "Given: visibility=private / published / hidden=false, When: 通報判定, Then: ErrTargetNotEligibleForReport（限定共有の最小性を尊重）",
+			visibility:  visibility.Private(),
+			status:      photobook_status.Published(),
+			hidden:      false,
+			published:   true,
+			wantErr:     ErrTargetNotEligibleForReport,
+		},
+		{
+			name:        "拒否_public_hidden_by_operator",
+			description: "Given: visibility=public / published / hidden=true, When: 通報判定, Then: ErrTargetNotEligibleForReport（運営の一時非表示中は通報受付しない）",
+			visibility:  visibility.Public(),
+			status:      photobook_status.Published(),
+			hidden:      true,
+			published:   true,
+			wantErr:     ErrTargetNotEligibleForReport,
+		},
+		{
+			name:        "拒否_unlisted_hidden_by_operator",
+			description: "Given: visibility=unlisted / published / hidden=true, When: 通報判定, Then: ErrTargetNotEligibleForReport（hidden は visibility に関係なく拒否）",
+			visibility:  visibility.Unlisted(),
+			status:      photobook_status.Published(),
+			hidden:      true,
+			published:   true,
+			wantErr:     ErrTargetNotEligibleForReport,
+		},
+		{
+			name:        "拒否_draft",
+			description: "Given: status=draft, When: 通報判定, Then: ErrTargetNotEligibleForReport（公開前は通報対象外）",
+			visibility:  visibility.Unlisted(),
+			status:      photobook_status.Draft(),
+			hidden:      false,
+			wantErr:     ErrTargetNotEligibleForReport,
+		},
+		{
+			name:        "拒否_deleted",
+			description: "Given: status=deleted, When: 通報判定, Then: ErrTargetNotEligibleForReport（削除済みは MVP では通報対象外）",
+			visibility:  visibility.Public(),
+			status:      photobook_status.Deleted(),
+			hidden:      false,
+			published:   true,
+			deleted:     true,
+			wantErr:     ErrTargetNotEligibleForReport,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			pb := buildPhotobookForEligibility(t, tt.visibility, tt.status, tt.hidden, tt.published, tt.deleted)
+			got := assessReportEligibility(pb)
+			if !errors.Is(got, tt.wantErr) {
+				t.Fatalf("got=%v want=%v", got, tt.wantErr)
+			}
+		})
+	}
+}
+
+// buildPhotobookForEligibility は assessReportEligibility テスト用の Photobook を組み立てる。
+//
+// status / visibility / hidden の組み合わせに応じて、RestorePhotobook が要求する付帯フィールド
+// （published 系: slug / manage_url_token_hash / published_at、draft 系: draft_edit_token_hash /
+// draft_expires_at、deleted 系: deleted_at）を最小構成で埋める。
+//
+// `.agents/rules/testing.md` のヘルパー禁止ルール（前提条件の隠蔽）に対しては、本ヘルパーは
+// 「テーブル駆動の各ケースが必要とする付帯フィールドを宣言から導出して埋めるだけ」の機械的変換に
+// 留め、テスト意図は呼び出し元のテーブル（visibility / status / hidden）が担う設計とする。
+func buildPhotobookForEligibility(
+	t *testing.T,
+	vis visibility.Visibility,
+	status photobook_status.PhotobookStatus,
+	hidden bool,
+	published bool,
+	deleted bool,
+) photobookdomain.Photobook {
+	t.Helper()
+	pid, err := photobook_id.New()
+	if err != nil {
+		t.Fatalf("photobook_id.New: %v", err)
+	}
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	params := photobookdomain.RestorePhotobookParams{
+		ID:                    pid,
+		Type:                  photobook_type.Memory(),
+		Title:                 "Test Photobook",
+		Layout:                photobook_layout.Simple(),
+		OpeningStyle:          opening_style.Light(),
+		Visibility:            vis,
+		Sensitive:             false,
+		RightsAgreed:          true,
+		CreatorDisplayName:    "Tester",
+		ManageUrlTokenVersion: manage_url_token_version.Zero(),
+		Status:                status,
+		HiddenByOperator:      hidden,
+		Version:               1,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+
+	if published {
+		s, err := slug.Parse("smoke-target-fix")
+		if err != nil {
+			t.Fatalf("slug.Parse: %v", err)
+		}
+		params.PublicUrlSlug = &s
+
+		tok, err := manage_url_token.Generate()
+		if err != nil {
+			t.Fatalf("manage_url_token.Generate: %v", err)
+		}
+		h := manage_url_token_hash.Of(tok)
+		params.ManageUrlTokenHash = &h
+
+		pat := now.Add(-1 * time.Hour)
+		params.PublishedAt = &pat
+		params.RightsAgreedAt = &pat
+	} else {
+		// draft 系
+		tok, err := draft_edit_token.Generate()
+		if err != nil {
+			t.Fatalf("draft_edit_token.Generate: %v", err)
+		}
+		h := draft_edit_token_hash.Of(tok)
+		params.DraftEditTokenHash = &h
+		exp := now.Add(7 * 24 * time.Hour)
+		params.DraftExpiresAt = &exp
+	}
+
+	if deleted {
+		dat := now.Add(-30 * time.Minute)
+		params.DeletedAt = &dat
+	}
+
+	pb, err := photobookdomain.RestorePhotobook(params)
+	if err != nil {
+		t.Fatalf("RestorePhotobook: %v", err)
+	}
+	return pb
+}
 
 // TestSubmitReport_L4_BlankTurnstileToken_Rejected は L4 ガードを検証する。
 //
@@ -54,7 +248,9 @@ func TestSubmitReport_L4_BlankTurnstileToken_Rejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := uc.Execute(context.Background(), SubmitReportInput{
-				Slug:           "uqfwfti7glarva5saj",
+				// L4 ガードは token check で early return するため slug 値は実際には参照されない。
+				// 念のため production と被らない fixture を使う。
+				Slug:           "test-slug-l4-reject",
 				TurnstileToken: tt.token,
 				RemoteIP:       "203.0.113.1",
 				Now:            time.Now().UTC(),
