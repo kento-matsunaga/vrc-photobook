@@ -21,8 +21,31 @@ export type PublishApiError =
   | { kind: "not_found" }
   | { kind: "bad_request" }
   | { kind: "version_conflict" }
+  | { kind: "rate_limited"; retryAfterSeconds: number }
   | { kind: "server_error" }
   | { kind: "network" };
+
+/** 429 response から再試行秒数を取り出す（Retry-After header → body → 既定 60 秒）。 */
+async function extractRetryAfterSeconds(res: Response): Promise<number> {
+  const hdr = res.headers.get("Retry-After");
+  const fromHdr = hdr !== null ? Number(hdr) : NaN;
+  if (Number.isFinite(fromHdr) && fromHdr >= 1) {
+    return Math.floor(fromHdr);
+  }
+  try {
+    const body = (await res
+      .clone()
+      .json()
+      .catch(() => null)) as { retry_after_seconds?: unknown } | null;
+    const fromBody = body?.retry_after_seconds;
+    if (typeof fromBody === "number" && Number.isFinite(fromBody) && fromBody >= 1) {
+      return Math.floor(fromBody);
+    }
+  } catch {
+    // body 解釈失敗は既定値で進む
+  }
+  return 60;
+}
 
 export function isPublishApiError(e: unknown): e is PublishApiError {
   return typeof e === "object" && e !== null && "kind" in e;
@@ -71,6 +94,10 @@ export async function publishPhotobook(
   if (res.status === 404) throw { kind: "not_found" } satisfies PublishApiError;
   if (res.status === 400) throw { kind: "bad_request" } satisfies PublishApiError;
   if (res.status === 409) throw { kind: "version_conflict" } satisfies PublishApiError;
+  if (res.status === 429) {
+    const retryAfterSeconds = await extractRetryAfterSeconds(res);
+    throw { kind: "rate_limited", retryAfterSeconds } satisfies PublishApiError;
+  }
   throw { kind: "server_error" } satisfies PublishApiError;
 }
 

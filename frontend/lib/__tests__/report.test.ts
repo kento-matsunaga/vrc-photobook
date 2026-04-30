@@ -200,3 +200,101 @@ describe("REPORT_REASONS", () => {
     expect(values).toContain("other");
   });
 });
+
+// PR36 commit 4: 429 rate_limited mapping。
+describe("submitReport_429_RateLimited", () => {
+  function build429Response(retryAfterHeader: string | null, body: unknown): Response {
+    const init: ResponseInit = {
+      status: 429,
+      headers: retryAfterHeader !== null ? { "Retry-After": retryAfterHeader, "Content-Type": "application/json" } : { "Content-Type": "application/json" },
+    };
+    return new Response(JSON.stringify(body), init);
+  }
+
+  it("正常_Retry-After_header優先で秒数を抽出", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => build429Response("3600", { status: "rate_limited", retry_after_seconds: 999 })),
+    );
+    try {
+      await submitReport({
+        slug: "uqfwfti7glarva5saj",
+        reason: "harassment_or_doxxing",
+        turnstileToken: "ts-token",
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(isSubmitReportError(e)).toBe(true);
+      if (isSubmitReportError(e) && e.kind === "rate_limited") {
+        expect(e.retryAfterSeconds).toBe(3600);
+      } else {
+        throw new Error(`expected rate_limited got ${(e as { kind?: string }).kind}`);
+      }
+    }
+  });
+
+  it("正常_Retry-After無し時はbody.retry_after_secondsを使う", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => build429Response(null, { status: "rate_limited", retry_after_seconds: 120 })),
+    );
+    try {
+      await submitReport({
+        slug: "uqfwfti7glarva5saj",
+        reason: "other",
+        turnstileToken: "ts-token",
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      if (isSubmitReportError(e) && e.kind === "rate_limited") {
+        expect(e.retryAfterSeconds).toBe(120);
+      } else {
+        throw new Error("not rate_limited");
+      }
+    }
+  });
+
+  it("正常_Retry-Afterもbodyも不正なら既定60秒", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => build429Response(null, { status: "rate_limited" })),
+    );
+    try {
+      await submitReport({
+        slug: "uqfwfti7glarva5saj",
+        reason: "other",
+        turnstileToken: "ts-token",
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      if (isSubmitReportError(e) && e.kind === "rate_limited") {
+        expect(e.retryAfterSeconds).toBe(60);
+      } else {
+        throw new Error("not rate_limited");
+      }
+    }
+  });
+
+  it("正常_scope_hash_count_limitがbodyに無くても動く", async () => {
+    // 漏洩防止: body に scope_hash / count / limit が無いのが正常。
+    // mapping は status だけで判断できる。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => build429Response("60", { status: "rate_limited", retry_after_seconds: 60 })),
+    );
+    try {
+      await submitReport({
+        slug: "uqfwfti7glarva5saj",
+        reason: "other",
+        turnstileToken: "ts-token",
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      if (isSubmitReportError(e) && e.kind === "rate_limited") {
+        expect(e.retryAfterSeconds).toBe(60);
+      } else {
+        throw new Error("not rate_limited");
+      }
+    }
+  });
+});

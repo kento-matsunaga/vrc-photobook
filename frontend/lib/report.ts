@@ -22,8 +22,41 @@ export type SubmitReportError =
   | { kind: "invalid_payload" }
   | { kind: "turnstile_failed" }
   | { kind: "not_found" }
+  | { kind: "rate_limited"; retryAfterSeconds: number }
   | { kind: "server_error" }
   | { kind: "network" };
+
+/**
+ * extractRetryAfterSeconds は 429 response から再試行秒数を取り出す。
+ *
+ * 優先順:
+ *   1. `Retry-After` header（数値秒、HTTP-date は MVP 非対応）
+ *   2. body.retry_after_seconds
+ *   3. 既定 60 秒
+ *
+ * 0 / 負 / NaN / 無効値はすべて 1 秒に丸める（最低 1 秒）。
+ */
+export async function extractRetryAfterSeconds(res: Response): Promise<number> {
+  const hdr = res.headers.get("Retry-After");
+  const fromHdr = hdr !== null ? Number(hdr) : NaN;
+  if (Number.isFinite(fromHdr) && fromHdr >= 1) {
+    return Math.floor(fromHdr);
+  }
+  // body から fallback（response 一度きりの読み取りなのでクローン）
+  try {
+    const body = (await res
+      .clone()
+      .json()
+      .catch(() => null)) as { retry_after_seconds?: unknown } | null;
+    const fromBody = body?.retry_after_seconds;
+    if (typeof fromBody === "number" && Number.isFinite(fromBody) && fromBody >= 1) {
+      return Math.floor(fromBody);
+    }
+  } catch {
+    // body 解釈失敗は既定値で進む
+  }
+  return 60;
+}
 
 export type SubmitReportInput = {
   slug: string;
@@ -79,6 +112,10 @@ export async function submitReport(in_: SubmitReportInput): Promise<void> {
       throw { kind: "turnstile_failed" } satisfies SubmitReportError;
     case 404:
       throw { kind: "not_found" } satisfies SubmitReportError;
+    case 429: {
+      const retryAfterSeconds = await extractRetryAfterSeconds(res);
+      throw { kind: "rate_limited", retryAfterSeconds } satisfies SubmitReportError;
+    }
     default:
       throw { kind: "server_error" } satisfies SubmitReportError;
   }

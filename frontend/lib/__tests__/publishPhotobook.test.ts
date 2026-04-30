@@ -73,4 +73,51 @@ describe("publishPhotobook", () => {
       if (isPublishApiError(e)) expect(e.kind).toBe("network");
     }
   });
+
+  // PR36 commit 4: 429 rate_limited mapping
+  it("異常_429でrate_limited_RetryAfter優先", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ status: "rate_limited", retry_after_seconds: 1 }), {
+            status: 429,
+            headers: { "Retry-After": "3600", "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    try {
+      await publishPhotobook("pid", 0);
+      throw new Error("should have thrown");
+    } catch (e) {
+      if (isPublishApiError(e) && e.kind === "rate_limited") {
+        expect(e.retryAfterSeconds).toBe(3600);
+      } else {
+        throw new Error("not rate_limited");
+      }
+    }
+  });
+
+  it("異常_429でheader無しはbody fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ status: "rate_limited", retry_after_seconds: 90 }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    try {
+      await publishPhotobook("pid", 0);
+      throw new Error("should have thrown");
+    } catch (e) {
+      if (isPublishApiError(e) && e.kind === "rate_limited") {
+        expect(e.retryAfterSeconds).toBe(90);
+      } else {
+        throw new Error("not rate_limited");
+      }
+    }
+  });
 });

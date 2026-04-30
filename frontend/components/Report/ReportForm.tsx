@@ -25,6 +25,7 @@ import {
   submitReport,
   type SubmitReportError,
 } from "@/lib/report";
+import { formatRetryAfterDisplay } from "@/lib/retryAfter";
 
 const MAX_DETAIL_LEN = 2000;
 const MAX_CONTACT_LEN = 200;
@@ -230,6 +231,8 @@ function mapErrorMessage(e: unknown): string {
       return "bot 検証に失敗しました。再度ページを読み込み直して、もう一度お試しください。";
     case "not_found":
       return "通報対象のフォトブックが見つかりませんでした。";
+    case "rate_limited":
+      return `短時間に通報を送信しすぎました。${formatRetryAfterDisplay(err.retryAfterSeconds)}時間をおいて再度お試しください。`;
     case "server_error":
     case "network":
       return "通信エラーが発生しました。時間をおいて再度お試しください。";

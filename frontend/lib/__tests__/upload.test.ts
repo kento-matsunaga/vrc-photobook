@@ -190,3 +190,57 @@ describe("completeUpload", () => {
     await expect(completeUpload("pid", "iid", "k")).rejects.toMatchObject({ kind: "validation_failed" } satisfies UploadError);
   });
 });
+
+// PR36 commit 4: 429 rate_limited mapping for issueUploadVerification。
+describe("issueUploadVerification_429_RateLimited", () => {
+  it("正常_Retry-After_header優先", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ status: "rate_limited", retry_after_seconds: 999 }), {
+            status: 429,
+            headers: { "Retry-After": "1800", "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    await expect(issueUploadVerification("pid", "x")).rejects.toMatchObject({
+      kind: "rate_limited",
+      retryAfterSeconds: 1800,
+    } satisfies UploadError);
+  });
+
+  it("正常_Retry-After無しはbody fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ status: "rate_limited", retry_after_seconds: 240 }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    await expect(issueUploadVerification("pid", "x")).rejects.toMatchObject({
+      kind: "rate_limited",
+      retryAfterSeconds: 240,
+    } satisfies UploadError);
+  });
+
+  it("正常_両方不正なら既定60秒", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ status: "rate_limited" }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    await expect(issueUploadVerification("pid", "x")).rejects.toMatchObject({
+      kind: "rate_limited",
+      retryAfterSeconds: 60,
+    } satisfies UploadError);
+  });
+});

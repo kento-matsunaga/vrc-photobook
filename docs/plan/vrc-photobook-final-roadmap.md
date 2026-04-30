@@ -137,6 +137,9 @@
 - ~~**TurnstileWidget 安定 mount（L0 ガード）の upload UI 横展開確認**~~ → **PR36-0 完了**（2026-04-29、`EditClient.tsx` 側 onVerify/onError/onExpired/onTimeout を `useCallback` 化、TurnstileWidget 内部 useRef との二重 belt）
 - 実機 Safari smoke による Upload 画面 widget loop 再発確認 → **後続 PR / 運用フェーズで確認**（PR36-0 ではコード横展開と単体テスト固定化までで停止）
 - **`backend/internal/http/router_test.go` で `chi.Walk()` route registration テーブル駆動テスト**（CI で route 登録漏れ / chi tree 衝突を検出。PR35b STOP ε2 NG で Cloud Run deploy 直後 transient と切り分けがついた経験から、deploy ではなく単体テストレベルで route 健康性を保証する仕組みを追加）→ PR40 ローンチ前安全性強化タスク
+- **PR36 commit 3.6 で発生した既存テスト基盤の技術負債**:
+  - `backend/internal/auth/session/infrastructure/repository/rdb/session_repository_test.go` が `pid, _ := photobook_id.FromUUID(uuid.New())` で photobook を seed せずに session を直接 INSERT しており、本番 schema の `sessions_photobook_id_fkey` FK 違反で実 DB 統合テストが FAIL する。実運用障害ではなく test 基盤の暗黙前提（DATABASE_URL 未設定で Skip / CI で実行されない）に依存していた既存問題。修正方針: 各 test 内で `seedPhotobook(t, pool)` を入れる。failure-log 起票は不要（実運用に影響なし） → 後続 PR で fix
+  - **PR36 SubmitReport の実 DB 副作用なしテスト**は本 PR では直接追加せず、`uploadverification` / `publish` の同パターン integration test で代表保証（`mapUsageErr` unit + L4 ガード unit + `writeRateLimited` unit で等価保証）。photobook published 状態の seed が `manage_url_token_hash` / `published_at` / status 整合性 CHECK で煩雑なため、必要なら後続で SubmitReport 専用の実 DB 副作用テストを追加 → 後続候補（PR36 拡張 or PR40 前点検）
 - Email Provider 再選定 + ManageUrlDelivery 集約（ADR-0006 で MVP 必須から外し済、
   個人契約可能 Provider 確定後に再開）→ PR32c 以降
 - Cloud Scheduler 作成（outbox-worker 自動回し）→ 当面は手動 Job execute、PR33e で要否判断

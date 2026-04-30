@@ -116,7 +116,38 @@ export type UploadError =
   | { kind: "upload_failed" }
   | { kind: "complete_failed" }
   | { kind: "validation_failed" }
+  | { kind: "rate_limited"; retryAfterSeconds: number }
   | { kind: "network" };
+
+/** extractRetryAfterSeconds は 429 response から再試行秒数を取り出す。
+ *
+ * 優先順:
+ *   1. `Retry-After` header（数値秒、HTTP-date は MVP 非対応）
+ *   2. body.retry_after_seconds
+ *   3. 既定 60 秒
+ *
+ * 0 / 負 / NaN / 無効値はすべて 1 秒に丸める（最低 1 秒）。
+ */
+async function extractRetryAfterSeconds(res: Response): Promise<number> {
+  const hdr = res.headers.get("Retry-After");
+  const fromHdr = hdr !== null ? Number(hdr) : NaN;
+  if (Number.isFinite(fromHdr) && fromHdr >= 1) {
+    return Math.floor(fromHdr);
+  }
+  try {
+    const body = (await res
+      .clone()
+      .json()
+      .catch(() => null)) as { retry_after_seconds?: unknown } | null;
+    const fromBody = body?.retry_after_seconds;
+    if (typeof fromBody === "number" && Number.isFinite(fromBody) && fromBody >= 1) {
+      return Math.floor(fromBody);
+    }
+  } catch {
+    // body 解釈失敗は既定値で進む
+  }
+  return 60;
+}
 
 /** POST /api/photobooks/{id}/upload-verifications
  *
@@ -147,6 +178,10 @@ export async function issueUploadVerification(
   }
   if (res.status === 403) {
     throw { kind: "verification_failed" } satisfies UploadError;
+  }
+  if (res.status === 429) {
+    const retryAfterSeconds = await extractRetryAfterSeconds(res);
+    throw { kind: "rate_limited", retryAfterSeconds } satisfies UploadError;
   }
   if (res.status === 503) {
     throw { kind: "turnstile_unavailable" } satisfies UploadError;

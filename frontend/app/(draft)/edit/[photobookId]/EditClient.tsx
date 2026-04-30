@@ -45,6 +45,7 @@ import {
   sourceFormatOf,
   validateFile,
 } from "@/lib/upload";
+import { formatRetryAfterDisplay } from "@/lib/retryAfter";
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -259,6 +260,13 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
           setErrorMsg("認可セッションが切れました。draft URL から入り直してください。");
           return;
         }
+        if (e.kind === "rate_limited") {
+          // PR36: 1 時間 5 冊上限到達時の文言（業務知識 v4 §3.7）
+          setErrorMsg(
+            `公開操作の上限に達しました。1 時間あたりの公開数には上限があります。${formatRetryAfterDisplay(e.retryAfterSeconds)}時間をおいて再度お試しください。`,
+          );
+          return;
+        }
         setErrorMsg(`公開に失敗しました（${e.kind}）。`);
         return;
       }
@@ -332,6 +340,13 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
       await reload();
     } catch (e) {
       const kind = (e as { kind?: string })?.kind ?? "network";
+      // PR36: rate_limited は retryAfterSeconds を含む特殊形式
+      if (kind === "rate_limited") {
+        const retryAfter = (e as { retryAfterSeconds?: number })?.retryAfterSeconds ?? 60;
+        const msg = `短時間にアップロード操作を繰り返しています。${formatRetryAfterDisplay(retryAfter)}時間をおいて再度お試しください。`;
+        setUploadStatus({ kind: "error", message: msg });
+        return;
+      }
       setUploadStatus({ kind: "error", message: UPLOAD_ERROR_MESSAGES[kind] ?? UPLOAD_ERROR_MESSAGES.network });
     }
   };
