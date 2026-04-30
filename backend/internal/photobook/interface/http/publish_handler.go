@@ -17,6 +17,8 @@ package http
 import (
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -28,12 +30,16 @@ import (
 
 // PublishHandlers は publish endpoint の HTTP handler。
 type PublishHandlers struct {
-	publish *usecase.PublishFromDraft
+	publish    *usecase.PublishFromDraft
+	ipHashSalt string // PR36: REPORT_IP_HASH_SALT_V1 流用、空なら UsageLimit skip
 }
 
 // NewPublishHandlers は PublishHandlers を組み立てる。
-func NewPublishHandlers(publish *usecase.PublishFromDraft) *PublishHandlers {
-	return &PublishHandlers{publish: publish}
+//
+// PR36: ipHashSalt（REPORT_IP_HASH_SALT_V1）を渡すと publish の UsageLimit が有効化される。
+// 空文字なら UsageLimit を skip。
+func NewPublishHandlers(publish *usecase.PublishFromDraft, ipHashSalt string) *PublishHandlers {
+	return &PublishHandlers{publish: publish, ipHashSalt: ipHashSalt}
 }
 
 type publishRequest struct {
@@ -68,6 +74,8 @@ func (h *PublishHandlers) Publish(w http.ResponseWriter, r *http.Request) {
 		PhotobookID:     pid,
 		ExpectedVersion: req.ExpectedVersion,
 		Now:             time.Now().UTC(),
+		RemoteIP:        publishRemoteIP(r),
+		IPHashSalt:      h.ipHashSalt,
 	})
 	if err != nil {
 		writePublishError(w, err)
@@ -96,6 +104,12 @@ func (h *PublishHandlers) Publish(w http.ResponseWriter, r *http.Request) {
 // 状態不整合 / OCC 違反は 409 に集約。「draft 以外」「version 不一致」「rights 未同意」
 // 「title / creator 空」を区別しない（情報漏洩抑止）。
 func writePublishError(w http.ResponseWriter, err error) {
+	// PR36: UsageLimit 起因の 429（threshold / fail-closed）
+	var rl *usecase.PublishRateLimited
+	if errors.As(err, &rl) {
+		writePublishRateLimited(w, rl.RetryAfterSeconds)
+		return
+	}
 	switch {
 	case errors.Is(err, usecase.ErrPublishConflict),
 		errors.Is(err, photobookrdb.ErrOptimisticLockConflict),
@@ -117,4 +131,39 @@ func writePublishError(w http.ResponseWriter, err error) {
 		}
 		writeJSONStatus(w, http.StatusInternalServerError, bodyServerError)
 	}
+}
+
+// writePublishRateLimited は HTTP 429 + Retry-After を書き出す（PR36）。
+//
+// セキュリティ: scope_hash / count / limit / IP / token は header / body に出さない。
+func writePublishRateLimited(w http.ResponseWriter, retryAfterSeconds int) {
+	if retryAfterSeconds < 1 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
+	w.Header().Set("Cache-Control", "private, no-store, must-revalidate")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte(`{"status":"rate_limited","retry_after_seconds":` + strconv.Itoa(retryAfterSeconds) + `}`))
+}
+
+// publishRemoteIP は publish endpoint で UsageLimit 用に Remote IP を取り出す。
+//
+// セキュリティ: 戻り値の生 IP は UseCase 内で salt + sha256 → hex 化されてから保存される。
+// 本関数の戻り値を logs に直接出さない（呼び出し側で usage_counters の scope_hash 経由のみ）。
+func publishRemoteIP(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip")); v != "" {
+		return v
+	}
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		// 先頭が client IP（Cloudflare 経由前提、PR35b と同方針）
+		parts := strings.Split(v, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	addr := r.RemoteAddr
+	if i := strings.LastIndex(addr, ":"); i > 0 {
+		return addr[:i]
+	}
+	return addr
 }

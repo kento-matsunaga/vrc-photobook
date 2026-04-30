@@ -97,6 +97,7 @@ func createDraftAndPublish(t *testing.T, pool *pgxpool.Pool) (string, string) {
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
+		nil, // PR36: test 経路は UsageLimit skip
 	)
 	pub, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pubOut.Photobook.ID(),

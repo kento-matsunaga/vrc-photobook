@@ -12,6 +12,7 @@ import (
 
 	"vrcpb/backend/internal/report/internal/usecase"
 	"vrcpb/backend/internal/turnstile"
+	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
 // 入出力型 re-export。
@@ -33,7 +34,14 @@ var (
 	ErrInvalidSlug                 = usecase.ErrInvalidSlug
 	ErrSaltNotConfigured           = usecase.ErrSaltNotConfigured
 	ErrReportNotFound              = usecase.ErrReportNotFound
+
+	// PR36: UsageLimit 連動のエラー sentinel + RateLimited wrapper。
+	ErrRateLimited            = usecase.ErrRateLimited
+	ErrRateLimiterUnavailable = usecase.ErrRateLimiterUnavailable
 )
+
+// RateLimited は HTTP layer で 429 + Retry-After にマップするための wrapper の type alias。
+type RateLimited = usecase.RateLimited
 
 // Handlers は cmd/ops / Backend HTTP layer が使う facade。
 type Handlers struct {
@@ -48,6 +56,9 @@ type Config struct {
 	TurnstileHostname string
 	TurnstileAction   string // 既定 "report-submit"
 	IPHashSalt        string // REPORT_IP_HASH_SALT_V1
+	// Usage は SubmitReport 内で呼び出す UsageLimit UseCase。nil なら UsageLimit を skip
+	// （PR36 commit 3 以前の互換維持用、本番では非 nil で渡す）。
+	Usage *usagelimitwireup.Check
 }
 
 // BuildHandlers は pool / Config から Report UseCase 群を組み立てる。
@@ -62,7 +73,7 @@ func BuildHandlers(pool *pgxpool.Pool, cfg Config, logger *slog.Logger) *Handler
 		return nil
 	}
 	return &Handlers{
-		submit:     usecase.NewSubmitReport(pool, cfg.TurnstileVerifier, cfg.TurnstileHostname, cfg.TurnstileAction, cfg.IPHashSalt),
+		submit:     usecase.NewSubmitReport(pool, cfg.TurnstileVerifier, cfg.TurnstileHostname, cfg.TurnstileAction, cfg.IPHashSalt, cfg.Usage),
 		getForOps:  usecase.NewGetReportForOps(pool),
 		listForOps: usecase.NewListReportsForOps(pool),
 	}

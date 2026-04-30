@@ -26,6 +26,7 @@ import (
 	"vrcpb/backend/internal/photobook/infrastructure/session_adapter"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/internal/usecase"
+	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
 // BuildHandlers は pool / TTL から Photobook 集約の HTTP Handlers を組み立てる。
@@ -73,11 +74,19 @@ func BuildManageReadHandlers(pool *pgxpool.Pool) *photobookhttp.ManageHandlers {
 // BuildPublishHandlers は publish 用 HTTP Handlers を組み立てる（PR28）。
 //
 // pool が nil なら nil を返す。
-func BuildPublishHandlers(pool *pgxpool.Pool) *photobookhttp.PublishHandlers {
+//
+// PR36: ipHashSalt（REPORT_IP_HASH_SALT_V1 流用）と usage UseCase を渡すと
+// 1 時間 5 冊の publish UsageLimit が有効化される（業務知識 v4 §3.7）。
+// 空文字 / nil なら UsageLimit を skip。
+func BuildPublishHandlers(
+	pool *pgxpool.Pool,
+	usage *usagelimitwireup.Check,
+	ipHashSalt string,
+) *photobookhttp.PublishHandlers {
 	if pool == nil {
 		return nil
 	}
-	return photobookhttp.NewPublishHandlers(BuildPublishFromDraft(pool))
+	return photobookhttp.NewPublishHandlers(BuildPublishFromDraft(pool, usage), ipHashSalt)
 }
 
 // BuildCreateDraftPhotobook は CreateDraftPhotobook UseCase を組み立てる（CLI / batch
@@ -89,12 +98,15 @@ func BuildCreateDraftPhotobook(pool *pgxpool.Pool) *usecase.CreateDraftPhotobook
 
 // BuildPublishFromDraft は PublishFromDraft UseCase を組み立てる（HTTP handler 用 +
 // CLI / batch 用に再利用できるよう export）。
-func BuildPublishFromDraft(pool *pgxpool.Pool) *usecase.PublishFromDraft {
+//
+// PR36: usage が nil なら UsageLimit 連動を skip（旧互換 + test 用）。
+func BuildPublishFromDraft(pool *pgxpool.Pool, usage *usagelimitwireup.Check) *usecase.PublishFromDraft {
 	return usecase.NewPublishFromDraft(
 		pool,
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
+		usage,
 	)
 }
 
@@ -146,7 +158,8 @@ func CreateAndPublishForCLI(
 	pid := createOut.Photobook.ID()
 	_ = createOut.RawDraftToken // 破棄
 
-	publishUC := BuildPublishFromDraft(pool)
+	// CLI 経路は UsageLimit の対象外（運営/admin による作成）
+	publishUC := BuildPublishFromDraft(pool, nil)
 	publishOut, err := publishUC.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
 		ExpectedVersion: 0,

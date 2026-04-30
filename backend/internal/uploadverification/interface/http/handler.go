@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +134,7 @@ func (h *Handlers) IssueUploadVerification(w http.ResponseWriter, r *http.Reques
 
 	out, err := h.issue.Execute(r.Context(), usecase.IssueInput{
 		PhotobookID:    pid,
+		SessionID:      sess.ID(), // PR36: UsageLimit scope 用
 		TurnstileToken: trimmedToken,
 		RemoteIP:       remoteIP,
 		Hostname:       h.hostname,
@@ -140,6 +142,12 @@ func (h *Handlers) IssueUploadVerification(w http.ResponseWriter, r *http.Reques
 		Now:            h.clock.Now(),
 	})
 	if err != nil {
+		// PR36: UsageLimit 起因の 429（threshold / fail-closed 両方）
+		var rl *usecase.RateLimited
+		if errors.As(err, &rl) {
+			writeRateLimited(w, rl.RetryAfterSeconds)
+			return
+		}
 		switch {
 		case errors.Is(err, usecase.ErrUploadVerificationFailed):
 			writeFixed(w, http.StatusForbidden, bodyVerificationFailed)
@@ -165,6 +173,21 @@ func writeFixed(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(body))
+}
+
+// writeRateLimited は HTTP 429 + Retry-After + body を書き出す（PR36）。
+//
+// セキュリティ: scope_hash / count / limit / IP / token は header / body に出さない。
+func writeRateLimited(w http.ResponseWriter, retryAfterSeconds int) {
+	if retryAfterSeconds < 1 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
+	w.Header().Set("Cache-Control", "private, no-store, must-revalidate")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte(`{"status":"rate_limited","retry_after_seconds":` + strconv.Itoa(retryAfterSeconds) + `}`))
 }
 
 // remoteIPFromRequest は Cf-Connecting-IP / X-Forwarded-For 末尾から実 IP を取り出す。

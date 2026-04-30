@@ -14,10 +14,12 @@ package usecase
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
 
+	"vrcpb/backend/internal/auth/session/domain/vo/session_id"
 	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
 	"vrcpb/backend/internal/uploadverification/domain"
 	"vrcpb/backend/internal/uploadverification/domain/vo/intent_count"
@@ -25,6 +27,11 @@ import (
 	"vrcpb/backend/internal/uploadverification/domain/vo/verification_session_token"
 	"vrcpb/backend/internal/uploadverification/domain/vo/verification_session_token_hash"
 	"vrcpb/backend/internal/turnstile"
+	"vrcpb/backend/internal/usagelimit"
+	usagelimitaction "vrcpb/backend/internal/usagelimit/domain/vo/action"
+	usagelimitscopehash "vrcpb/backend/internal/usagelimit/domain/vo/scope_hash"
+	usagelimitscopetype "vrcpb/backend/internal/usagelimit/domain/vo/scope_type"
+	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
 // 共通エラー（外部に出す業務エラー）。
@@ -35,7 +42,41 @@ var (
 
 	// ErrTurnstileUnavailable は Cloudflare 障害時。上位は 503 + 再試行案内。
 	ErrTurnstileUnavailable = errors.New("turnstile siteverify unavailable")
+
+	// PR36: UsageLimit 連動エラー。
+	ErrRateLimited            = errors.New("upload verification: rate limited")
+	ErrRateLimiterUnavailable = errors.New("upload verification: rate limiter unavailable")
 )
+
+// RateLimited は HTTP layer で 429 + Retry-After にマップするための wrapper。
+type RateLimited struct {
+	RetryAfterSeconds int
+	Cause             error
+}
+
+func (e *RateLimited) Error() string {
+	if e.Cause != nil {
+		return e.Cause.Error()
+	}
+	return "upload verification: rate limited"
+}
+
+func (e *RateLimited) Unwrap() error { return e.Cause }
+
+// mapUsageErr は usagelimit エラーを upload-verification 集約エラーに変換する。
+func mapUsageErr(err error, retryAfter int) error {
+	switch {
+	case errors.Is(err, usagelimitwireup.ErrRateLimited):
+		if retryAfter < 1 {
+			retryAfter = 1
+		}
+		return &RateLimited{RetryAfterSeconds: retryAfter, Cause: ErrRateLimited}
+	case errors.Is(err, usagelimitwireup.ErrUsageRepositoryFailed):
+		return &RateLimited{RetryAfterSeconds: 60, Cause: ErrRateLimiterUnavailable}
+	default:
+		return err
+	}
+}
 
 // === Issue ===
 
@@ -47,6 +88,7 @@ type IssueRepository interface {
 // IssueInput は Issue の入力。
 type IssueInput struct {
 	PhotobookID    photobook_id.PhotobookID
+	SessionID      session_id.SessionID // PR36: UsageLimit scope 用、ゼロ値なら UsageLimit skip
 	TurnstileToken string
 	RemoteIP       string // 任意
 	Hostname       string // 期待値 (e.g. "app.vrc-photobook.com")
@@ -68,14 +110,19 @@ type IssueOutput struct {
 type IssueUploadVerificationSession struct {
 	verifier turnstile.Verifier
 	repo     IssueRepository
+	usage    *usagelimitwireup.Check // PR36: nil なら UsageLimit skip（旧互換）
 }
 
 // NewIssueUploadVerificationSession は UseCase を組み立てる。
+//
+// usage が nil の場合 UsageLimit 連動を行わない（PR36 commit 3 以前の互換維持用）。
+// 本番では非 nil で渡す。
 func NewIssueUploadVerificationSession(
 	verifier turnstile.Verifier,
 	repo IssueRepository,
+	usage *usagelimitwireup.Check,
 ) *IssueUploadVerificationSession {
-	return &IssueUploadVerificationSession{verifier: verifier, repo: repo}
+	return &IssueUploadVerificationSession{verifier: verifier, repo: repo, usage: usage}
 }
 
 // Execute は Turnstile 検証成功時のみ session を発行する。
@@ -107,6 +154,33 @@ func (u *IssueUploadVerificationSession) Execute(ctx context.Context, in IssueIn
 	}
 	if !verifyOut.Success {
 		return IssueOutput{}, ErrUploadVerificationFailed
+	}
+
+	// PR36: UsageLimit 連動（draft session × photobook の 1 時間 20 件、計画書 §4.2 / §5.2）。
+	// session_id が zero（テスト経路）なら skip。
+	if u.usage != nil && in.SessionID != (session_id.SessionID{}) {
+		sidUUID := in.SessionID.UUID()
+		pidUUID := in.PhotobookID.UUID()
+		composedHash := usagelimit.ComposeScopeHash(
+			hex.EncodeToString(sidUUID[:]),
+			hex.EncodeToString(pidUUID[:]),
+		)
+		composedScope, err := usagelimitscopehash.Parse(composedHash)
+		if err != nil {
+			return IssueOutput{}, err
+		}
+		out, err := u.usage.Execute(ctx, usagelimitwireup.CheckInput{
+			ScopeType:          usagelimitscopetype.DraftSessionID(),
+			ScopeHash:          composedScope,
+			Action:             usagelimitaction.UploadVerificationIssue(),
+			Now:                in.Now,
+			WindowSeconds:      3600,
+			Limit:              20,
+			RetentionGraceSecs: 86400,
+		})
+		if err != nil {
+			return IssueOutput{}, mapUsageErr(err, out.RetryAfterSeconds)
+		}
 	}
 
 	rawToken, err := verification_session_token.Generate()

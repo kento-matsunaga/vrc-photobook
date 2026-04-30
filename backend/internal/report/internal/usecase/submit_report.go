@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,6 +26,11 @@ import (
 	"vrcpb/backend/internal/report/domain/vo/target_snapshot"
 	reportrdb "vrcpb/backend/internal/report/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/turnstile"
+	"vrcpb/backend/internal/usagelimit"
+	usagelimitaction "vrcpb/backend/internal/usagelimit/domain/vo/action"
+	usagelimitscopehash "vrcpb/backend/internal/usagelimit/domain/vo/scope_hash"
+	usagelimitscopetype "vrcpb/backend/internal/usagelimit/domain/vo/scope_type"
+	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
 // SubmitReportInput は SubmitReport UseCase の入力。
@@ -48,6 +54,23 @@ type SubmitReportOutput struct {
 	ReportID report_id.ReportID
 }
 
+// mapUsageErr は usagelimit UseCase のエラーを report 集約のエラーに変換する。
+// fail-closed: ErrUsageRepositoryFailed もしくは ErrRateLimited はいずれも HTTP 429 にマップ。
+// retryAfter は最低 1 秒、Repository 失敗時は 60 秒の安全側既定。
+func mapUsageErr(err error, retryAfter int) error {
+	switch {
+	case errors.Is(err, usagelimitwireup.ErrRateLimited):
+		if retryAfter < 1 {
+			retryAfter = 1
+		}
+		return &RateLimited{RetryAfterSeconds: retryAfter, Cause: ErrRateLimited}
+	case errors.Is(err, usagelimitwireup.ErrUsageRepositoryFailed):
+		return &RateLimited{RetryAfterSeconds: 60, Cause: ErrRateLimiterUnavailable}
+	default:
+		return err
+	}
+}
+
 // SubmitReport は通報を受け付けて DB + Outbox に同一 TX で書き込む UseCase。
 //
 // 処理:
@@ -60,11 +83,12 @@ type SubmitReportOutput struct {
 // 公開対象判定（draft / private / hidden / deleted / purged）の理由を **外部に区別なく
 // 漏らさない**ために、すべて ErrTargetNotEligibleForReport（HTTP 404）に集約する。
 type SubmitReport struct {
-	pool             *pgxpool.Pool
+	pool              *pgxpool.Pool
 	turnstileVerifier turnstile.Verifier
 	turnstileHostname string
 	turnstileAction   string
 	ipHashSalt        string // 空なら ErrSaltNotConfigured
+	usage             *usagelimitwireup.Check
 }
 
 // NewSubmitReport は UseCase を組み立てる。
@@ -72,12 +96,16 @@ type SubmitReport struct {
 // salt が空文字でも組み立て自体は成功する（main.go の起動順序で env 未注入 / Cloud Run
 // secretKeyRef 反映漏れがあっても起動継続するため）が、Execute は ErrSaltNotConfigured
 // を即返す。
+//
+// usage が nil の場合 UsageLimit 連動を行わない（PR36 commit 3 以前の互換維持用）。
+// 本番では非 nil で渡す。
 func NewSubmitReport(
 	pool *pgxpool.Pool,
 	verifier turnstile.Verifier,
 	turnstileHostname string,
 	turnstileAction string,
 	ipHashSalt string,
+	usage *usagelimitwireup.Check,
 ) *SubmitReport {
 	return &SubmitReport{
 		pool:              pool,
@@ -85,6 +113,7 @@ func NewSubmitReport(
 		turnstileHostname: turnstileHostname,
 		turnstileAction:   turnstileAction,
 		ipHashSalt:        ipHashSalt,
+		usage:             usage,
 	}
 }
 
@@ -158,6 +187,58 @@ func (u *SubmitReport) Execute(ctx context.Context, in SubmitReportInput) (Submi
 	var ipHash []byte
 	if in.RemoteIP != "" {
 		ipHash = HashSourceIP(SaltVersionV1, u.ipHashSalt, in.RemoteIP)
+	}
+
+	// 4.5) UsageLimit 連動（PR36 commit 3）。
+	// 業務知識 v4 §3.7 / PR36 計画書 §4.2 / §5.2 に従い 2 本のレートリミット:
+	//   1. 同一 IP × 同一 photobook（scope_type='photobook_id'、scope_hash=sha256(ip||pid)）
+	//      window 5 分 / limit 3 → 同 photobook への spam 抑止
+	//   2. 同一 IP 全体（scope_type='source_ip_hash'、scope_hash=ip_hash hex）
+	//      window 1 時間 / limit 20 → 通報ボム抑止
+	//
+	// MVP 仕様: 1 を consume 後に 2 で deny されると「片方だけ count が進む」副作用がある。
+	// PR36 計画書 §11 / §17 で許容済（CheckOnly + Consume 分離は後続検討）。
+	// ip 取得不能時（RemoteIP 空 / hash 失敗）は UsageLimit を skip し、Turnstile に依存する。
+	if u.usage != nil && len(ipHash) > 0 {
+		ipHashHex := hex.EncodeToString(ipHash)
+		pidUUID := pb.ID().UUID()
+		pidHex := hex.EncodeToString(pidUUID[:])
+		composedHash := usagelimit.ComposeIPHashAndPhotobookID(ipHashHex, pidHex)
+
+		// 1: 同一 IP × 同一 photobook の 5 分 3 件
+		composedScope, err := usagelimitscopehash.Parse(composedHash)
+		if err != nil {
+			return SubmitReportOutput{}, fmt.Errorf("scope_hash compose: %w", err)
+		}
+		ipScope, err := usagelimitscopehash.Parse(ipHashHex)
+		if err != nil {
+			return SubmitReportOutput{}, fmt.Errorf("scope_hash ip: %w", err)
+		}
+		out1, err := u.usage.Execute(ctx, usagelimitwireup.CheckInput{
+			ScopeType:          usagelimitscopetype.PhotobookID(),
+			ScopeHash:          composedScope,
+			Action:             usagelimitaction.ReportSubmit(),
+			Now:                in.Now,
+			WindowSeconds:      300,
+			Limit:              3,
+			RetentionGraceSecs: 86400,
+		})
+		if err != nil {
+			return SubmitReportOutput{}, mapUsageErr(err, out1.RetryAfterSeconds)
+		}
+		// 2: 同一 IP 全体の 1 時間 20 件
+		out2, err := u.usage.Execute(ctx, usagelimitwireup.CheckInput{
+			ScopeType:          usagelimitscopetype.SourceIPHash(),
+			ScopeHash:          ipScope,
+			Action:             usagelimitaction.ReportSubmit(),
+			Now:                in.Now,
+			WindowSeconds:      3600,
+			Limit:              20,
+			RetentionGraceSecs: 86400,
+		})
+		if err != nil {
+			return SubmitReportOutput{}, mapUsageErr(err, out2.RetryAfterSeconds)
+		}
 	}
 
 	// 5) report id 生成

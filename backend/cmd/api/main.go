@@ -40,6 +40,7 @@ import (
 	"vrcpb/backend/internal/turnstile"
 	uvhttp "vrcpb/backend/internal/uploadverification/interface/http"
 	uvwireup "vrcpb/backend/internal/uploadverification/wireup"
+	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
 // manageSessionTTL は manage session の有効期限。
@@ -82,6 +83,14 @@ func main() {
 
 	// pool が利用可能なときだけ Photobook の token 交換 endpoint を組み立てる。
 	// pool 未設定（DATABASE_URL 空）時は handler nil で渡して endpoint 自体を作らない。
+	// PR36: UsageLimit / RateLimit UseCase（fail-closed、429 応答）。
+	// pool が nil なら nil を渡し、各既存 UseCase は UsageLimit を skip する。
+	var usageCheck *usagelimitwireup.Check
+	if pool != nil {
+		usageCheck = usagelimitwireup.NewCheck(pool)
+		logger.Info("usagelimit configured (rate-limit enabled for report.submit / upload_verification.issue / publish.from_draft)")
+	}
+
 	var photobookHandlers *photobookhttp.Handlers
 	var photobookManageHandlers *photobookhttp.ManageHandlers
 	var photobookPublishHandlers *photobookhttp.PublishHandlers
@@ -90,7 +99,8 @@ func main() {
 		// 管理ページ read endpoint（pool だけで完結）
 		photobookManageHandlers = wireup.BuildManageReadHandlers(pool)
 		// publish endpoint（PublishFromDraft UseCase の HTTP 化）
-		photobookPublishHandlers = wireup.BuildPublishHandlers(pool)
+		// PR36: usage + ipHashSalt（REPORT_IP_HASH_SALT_V1 流用）で 1 時間 5 冊制限
+		photobookPublishHandlers = wireup.BuildPublishHandlers(pool, usageCheck, cfg.ReportIPHashSaltV1)
 	}
 
 	// R2 が configured かつ pool 利用可能なときに imageupload endpoint と、
@@ -132,6 +142,7 @@ func main() {
 		uvHandlers = uvwireup.BuildHandlers(pool, verifier, uvwireup.Config{
 			Hostname: cfg.TurnstileHostname,
 			Action:   cfg.TurnstileAction,
+			Usage:    usageCheck, // PR36: 1 時間 20 件 / draft session × photobook
 		}, uvhttp.SystemClock{})
 		logger.Info("turnstile configured; upload-verifications endpoint enabled")
 	} else if pool != nil {
@@ -163,6 +174,7 @@ func main() {
 			TurnstileHostname: cfg.TurnstileHostname,
 			TurnstileAction:   "report-submit",
 			IPHashSalt:        cfg.ReportIPHashSaltV1,
+			Usage:             usageCheck, // PR36: 5 分 3 件（同 IP × photobook）+ 1 時間 20 件（同 IP）
 		}, logger)
 		routerCfg.ReportPublicHandlers = reporthttp.NewPublicHandlers(reportHandlers)
 		logger.Info("report endpoint enabled (turnstile + ip_hash_salt configured)")

@@ -32,4 +32,31 @@ var (
 
 	// ErrSaltNotConfigured は REPORT_IP_HASH_SALT_V1 未設定（Secret Manager 注入忘れ）。
 	ErrSaltNotConfigured = errors.New("report: REPORT_IP_HASH_SALT_V1 not configured")
+
+	// ErrRateLimited は UsageLimit 閾値超過（HTTP 429）。
+	// 同一 IP × 同一 photobook の短時間連投、または同一 IP の長期累積で発火。
+	ErrRateLimited = errors.New("report: rate limited")
+
+	// ErrRateLimiterUnavailable は UsageLimit Repository 失敗（fail-closed で HTTP 429）。
+	// 内部 log には「usage repository failed」程度のみ、scope_hash 完全値は出さない。
+	ErrRateLimiterUnavailable = errors.New("report: rate limiter unavailable")
 )
+
+// RateLimited は ErrRateLimited / ErrRateLimiterUnavailable を返すときに、
+// HTTP 層が Retry-After header に渡す秒数（>=1）を伴って投げるためのラップ型。
+type RateLimited struct {
+	RetryAfterSeconds int
+	// Cause は ErrRateLimited（threshold 超過）または ErrRateLimiterUnavailable（fail-closed）。
+	Cause error
+}
+
+// Error は error interface。
+func (e *RateLimited) Error() string {
+	if e.Cause != nil {
+		return e.Cause.Error()
+	}
+	return "report: rate limited"
+}
+
+// Unwrap は errors.Is で Cause を判定できるようにする。
+func (e *RateLimited) Unwrap() error { return e.Cause }

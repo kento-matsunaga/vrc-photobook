@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -19,22 +21,71 @@ import (
 	"vrcpb/backend/internal/photobook/domain/vo/manage_url_token_hash"
 	"vrcpb/backend/internal/photobook/domain/vo/photobook_id"
 	"vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
+	usagelimitaction "vrcpb/backend/internal/usagelimit/domain/vo/action"
+	usagelimitscopehash "vrcpb/backend/internal/usagelimit/domain/vo/scope_hash"
+	usagelimitscopetype "vrcpb/backend/internal/usagelimit/domain/vo/scope_type"
+	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
 // ErrPublishConflict は publish 楽観ロック失敗（version 不一致 / status≠draft）。
 var ErrPublishConflict = errors.New("publish conflict (version mismatch or not in draft state)")
 
+// PR36: UsageLimit 連動。
+var (
+	// ErrPublishRateLimited は 1 時間 5 冊の publish 上限超過（HTTP 429）。
+	ErrPublishRateLimited = errors.New("publish: rate limited")
+	// ErrPublishRateLimiterUnavailable は UsageLimit Repository 失敗（fail-closed で 429）。
+	ErrPublishRateLimiterUnavailable = errors.New("publish: rate limiter unavailable")
+)
+
+// PublishRateLimited は HTTP layer で 429 + Retry-After にマップする wrapper。
+type PublishRateLimited struct {
+	RetryAfterSeconds int
+	Cause             error
+}
+
+// Error は error interface。
+func (e *PublishRateLimited) Error() string {
+	if e.Cause != nil {
+		return e.Cause.Error()
+	}
+	return "publish: rate limited"
+}
+
+// Unwrap は errors.Is で Cause を判定できるようにする。
+func (e *PublishRateLimited) Unwrap() error { return e.Cause }
+
 // PublishFromDraftInput は publish の入力。
+//
+// PR36: RemoteIP / IPHashSalt は UsageLimit 連動用（業務知識 v4 §3.7 「同一作成元
+// 1 時間 5 冊」）。空文字なら UsageLimit を skip。
 type PublishFromDraftInput struct {
 	PhotobookID     photobook_id.PhotobookID
 	ExpectedVersion int
 	Now             time.Time
+	RemoteIP        string
+	IPHashSalt      string
 }
 
 // PublishFromDraftOutput は publish 結果。RawManageToken はログ禁止。
 type PublishFromDraftOutput struct {
 	Photobook       domain.Photobook
 	RawManageToken  manage_url_token.ManageUrlToken
+}
+
+// computeIPHashHex は salt + sha256(remoteIP) の hex を返す。生 IP は保存せず、
+// 戻り値の hex も logs / chat に出さない（呼び出し側で redact）。
+//
+// 既存 `internal/report/internal/usecase.HashSourceIP` と同じアルゴリズム
+// （salt + ":" + ip → sha256）を本 package 内で重複実装。本 PR36 では既存報告経路の
+// HashSourceIP を再利用したいが、ImportCycle を避けるため photobook package に閉じた
+// 局所実装にする（PR40 でユーティリティを共通化する余地）。
+func computeIPHashHex(salt, remoteIP string) string {
+	h := sha256.New()
+	h.Write([]byte(salt))
+	h.Write([]byte{':'})
+	h.Write([]byte(remoteIP))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // PublishFromDraft は draft → published を実行する UseCase。
@@ -54,20 +105,26 @@ type PublishFromDraft struct {
 	photobookRepoFactory PhotobookTxRepositoryFactory
 	revokerFactory       DraftSessionRevokerFactory
 	slugGen              SlugGenerator
+	usage                *usagelimitwireup.Check // PR36: nil なら UsageLimit skip
 }
 
 // NewPublishFromDraft は UseCase を組み立てる。
+//
+// PR36: usage が nil の場合 UsageLimit 連動を行わない（旧互換維持）。
+// 本番では非 nil で渡す。
 func NewPublishFromDraft(
 	pool *pgxpool.Pool,
 	photobookRepoFactory PhotobookTxRepositoryFactory,
 	revokerFactory DraftSessionRevokerFactory,
 	slugGen SlugGenerator,
+	usage *usagelimitwireup.Check,
 ) *PublishFromDraft {
 	return &PublishFromDraft{
 		pool:                 pool,
 		photobookRepoFactory: photobookRepoFactory,
 		revokerFactory:       revokerFactory,
 		slugGen:              slugGen,
+		usage:                usage,
 	}
 }
 
@@ -76,6 +133,39 @@ func (u *PublishFromDraft) Execute(
 	ctx context.Context,
 	in PublishFromDraftInput,
 ) (PublishFromDraftOutput, error) {
+	// PR36: UsageLimit 連動（業務知識 v4 §3.7 同一作成元 1 時間 5 冊）。
+	// salt 未設定 / RemoteIP 空 / usage nil ならいずれも skip し、Turnstile に依存。
+	if u.usage != nil && in.IPHashSalt != "" && in.RemoteIP != "" {
+		ipHashHex := computeIPHashHex(in.IPHashSalt, in.RemoteIP)
+		ipScope, perr := usagelimitscopehash.Parse(ipHashHex)
+		if perr != nil {
+			return PublishFromDraftOutput{}, fmt.Errorf("scope_hash ip: %w", perr)
+		}
+		out, uerr := u.usage.Execute(ctx, usagelimitwireup.CheckInput{
+			ScopeType:          usagelimitscopetype.SourceIPHash(),
+			ScopeHash:          ipScope,
+			Action:             usagelimitaction.PublishFromDraft(),
+			Now:                in.Now,
+			WindowSeconds:      3600,
+			Limit:              5,
+			RetentionGraceSecs: 86400,
+		})
+		if uerr != nil {
+			retry := out.RetryAfterSeconds
+			switch {
+			case errors.Is(uerr, usagelimitwireup.ErrRateLimited):
+				if retry < 1 {
+					retry = 1
+				}
+				return PublishFromDraftOutput{}, &PublishRateLimited{RetryAfterSeconds: retry, Cause: ErrPublishRateLimited}
+			case errors.Is(uerr, usagelimitwireup.ErrUsageRepositoryFailed):
+				return PublishFromDraftOutput{}, &PublishRateLimited{RetryAfterSeconds: 60, Cause: ErrPublishRateLimiterUnavailable}
+			default:
+				return PublishFromDraftOutput{}, uerr
+			}
+		}
+	}
+
 	publicSlug, err := u.slugGen.Generate(ctx)
 	if err != nil {
 		return PublishFromDraftOutput{}, fmt.Errorf("slug gen: %w", err)

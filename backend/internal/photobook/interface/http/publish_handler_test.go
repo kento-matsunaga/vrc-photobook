@@ -37,8 +37,9 @@ func setupPublishRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
+		nil, // PR36: test 経路は UsageLimit skip
 	)
-	h := photobookhttp.NewPublishHandlers(uc)
+	h := photobookhttp.NewPublishHandlers(uc, "" /* ipHashSalt: PR36 test 経路は salt 空で UsageLimit skip */)
 	r := chi.NewRouter()
 	r.Post("/api/photobooks/{id}/publish", h.Publish)
 	return r

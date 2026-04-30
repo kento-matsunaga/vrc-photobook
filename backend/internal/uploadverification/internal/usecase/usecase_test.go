@@ -64,7 +64,7 @@ func TestIssueUploadVerificationSession(t *testing.T) {
 		}
 		pid := seedPhotobook(t, pool)
 		fake := &uvtests.FakeTurnstile{}
-		uc := usecase.NewIssueUploadVerificationSession(fake, repo)
+		uc := usecase.NewIssueUploadVerificationSession(fake, repo, nil)
 		out, err := uc.Execute(ctx, usecase.IssueInput{
 			PhotobookID:    pid,
 			TurnstileToken: "dummy-turnstile-response",
@@ -104,7 +104,7 @@ func TestIssueUploadVerificationSession(t *testing.T) {
 				return turnstile.VerifyOutput{Success: false, ErrorCodes: []string{"invalid-input-response"}}, turnstile.ErrVerificationFailed
 			},
 		}
-		uc := usecase.NewIssueUploadVerificationSession(fake, repo)
+		uc := usecase.NewIssueUploadVerificationSession(fake, repo, nil)
 		_, err := uc.Execute(ctx, usecase.IssueInput{
 			PhotobookID:    pid,
 			TurnstileToken: "bad",
@@ -135,7 +135,7 @@ func TestIssueUploadVerificationSession(t *testing.T) {
 				return turnstile.VerifyOutput{}, turnstile.ErrUnavailable
 			},
 		}
-		uc := usecase.NewIssueUploadVerificationSession(fake, repo)
+		uc := usecase.NewIssueUploadVerificationSession(fake, repo, nil)
 		_, err := uc.Execute(ctx, usecase.IssueInput{
 			PhotobookID:    pid,
 			TurnstileToken: "x",
@@ -194,7 +194,7 @@ func TestIssueUploadVerificationSession_L4_BlankTurnstileToken_Rejected(t *testi
 					return turnstile.VerifyOutput{Success: true, Hostname: in.Hostname, Action: in.Action}, nil
 				},
 			}
-			uc := usecase.NewIssueUploadVerificationSession(fake, repo)
+			uc := usecase.NewIssueUploadVerificationSession(fake, repo, nil)
 			_, err := uc.Execute(ctx, usecase.IssueInput{
 				PhotobookID:    pid,
 				TurnstileToken: tt.token,
@@ -224,7 +224,7 @@ func TestConsumeUploadVerificationSession(t *testing.T) {
 			t.Fatalf("TRUNCATE: %v", err)
 		}
 		pid := seedPhotobook(t, pool)
-		issue := usecase.NewIssueUploadVerificationSession(&uvtests.FakeTurnstile{}, repo)
+		issue := usecase.NewIssueUploadVerificationSession(&uvtests.FakeTurnstile{}, repo, nil)
 		issueOut, err := issue.Execute(ctx, usecase.IssueInput{
 			PhotobookID:    pid,
 			TurnstileToken: "ok",
@@ -258,7 +258,7 @@ func TestConsumeUploadVerificationSession(t *testing.T) {
 		}
 		pid := seedPhotobook(t, pool)
 		other := seedPhotobook(t, pool)
-		issue := usecase.NewIssueUploadVerificationSession(&uvtests.FakeTurnstile{}, repo)
+		issue := usecase.NewIssueUploadVerificationSession(&uvtests.FakeTurnstile{}, repo, nil)
 		issueOut, err := issue.Execute(ctx, usecase.IssueInput{
 			PhotobookID:    pid,
 			TurnstileToken: "ok",
@@ -284,7 +284,7 @@ func TestConsumeUploadVerificationSession(t *testing.T) {
 			t.Fatalf("TRUNCATE: %v", err)
 		}
 		pid := seedPhotobook(t, pool)
-		issue := usecase.NewIssueUploadVerificationSession(&uvtests.FakeTurnstile{}, repo)
+		issue := usecase.NewIssueUploadVerificationSession(&uvtests.FakeTurnstile{}, repo, nil)
 		issueOut, err := issue.Execute(ctx, usecase.IssueInput{
 			PhotobookID:    pid,
 			TurnstileToken: "ok",

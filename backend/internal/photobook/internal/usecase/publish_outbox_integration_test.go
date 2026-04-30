@@ -25,6 +25,7 @@ func TestPublishFromDraftCreatesOutboxEvent(t *testing.T) {
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
+		nil, // PR36: test 経路は UsageLimit skip
 	)
 	if _, err := uc.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pb.ID(),

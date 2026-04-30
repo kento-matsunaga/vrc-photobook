@@ -86,6 +86,7 @@ func TestPublishFromDraft_TxCommit_RevokesDraftSessions(t *testing.T) {
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
+		nil, // PR36: test 経路は UsageLimit skip
 	)
 	pubOut, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
@@ -144,6 +145,7 @@ func TestPublishFromDraft_TxRollback_OnRevokerError(t *testing.T) {
 			return &alwaysFailDraftRevoker{err: simErr}
 		},
 		usecase.NewMinimalSlugGenerator(),
+		nil, // PR36: test 経路は UsageLimit skip
 	)
 	_, err = publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
@@ -192,6 +194,7 @@ func TestReissueManageUrl_TxCommit_RevokesOldManageSessions(t *testing.T) {
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
+		nil, // PR36: test 経路は UsageLimit skip
 	)
 	if _, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,9 @@ const (
 	bodyNotFound        = `{"status":"not_found"}`
 	bodyInternalError   = `{"status":"internal_error"}`
 )
+
+// rate-limited body は retry_after_seconds が動的なので関数で生成する。
+// scope_hash / count / limit / IP / token は body / header に出さない。
 
 // PublicHandlers は Report 集約の公開 HTTP handler 群。
 type PublicHandlers struct {
@@ -140,6 +144,12 @@ func (h *PublicHandlers) SubmitReport(w http.ResponseWriter, r *http.Request) {
 //
 // 敵対者対策で photobook 不在 / 公開対象外 / Turnstile 失敗の内部詳細を漏らさない。
 func writeError(w http.ResponseWriter, err error) {
+	// PR36: UsageLimit 起因の 429（threshold / fail-closed 両方）
+	var rl *wireup.RateLimited
+	if errors.As(err, &rl) {
+		writeRateLimited(w, rl.RetryAfterSeconds)
+		return
+	}
 	switch {
 	case errors.Is(err, wireup.ErrInvalidSlug):
 		w.WriteHeader(http.StatusBadRequest)
@@ -164,6 +174,21 @@ func writeError(w http.ResponseWriter, err error) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(bodyInternalError))
 	}
+}
+
+// writeRateLimited は HTTP 429 + Retry-After header + body を書き出す。
+//
+// セキュリティ: scope_hash / count / limit / IP / token は header / body に出さない。
+func writeRateLimited(w http.ResponseWriter, retryAfterSeconds int) {
+	if retryAfterSeconds < 1 {
+		retryAfterSeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
+	w.Header().Set("Cache-Control", "private, no-store, must-revalidate")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte(`{"status":"rate_limited","retry_after_seconds":` + strconv.Itoa(retryAfterSeconds) + `}`))
 }
 
 // extractRemoteIP は Cf-Connecting-Ip 優先 + X-Forwarded-For 末尾 + RemoteAddr の順で取得。

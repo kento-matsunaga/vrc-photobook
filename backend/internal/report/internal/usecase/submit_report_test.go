@@ -47,7 +47,7 @@ func TestSubmitReport_L4_BlankTurnstileToken_Rejected(t *testing.T) {
 	}
 
 	// pool / verifier は nil。L4 ガードが効いていれば nil 参照に到達しない。
-	uc := NewSubmitReport(nil, nil, "report-submit.example.test", "report-submit", "test-salt-v1")
+	uc := NewSubmitReport(nil, nil, "report-submit.example.test", "report-submit", "test-salt-v1", nil)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
