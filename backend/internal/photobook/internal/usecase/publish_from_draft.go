@@ -73,6 +73,23 @@ type PublishFromDraftOutput struct {
 	RawManageToken  manage_url_token.ManageUrlToken
 }
 
+// MapPublishUsageErr は usagelimit エラーを publish 集約エラーに変換する。
+// fail-closed: 両方の usage error を 429 wrapper にマップ。retry_after は最低 1 秒、
+// Repository 失敗時は 60 秒の安全側既定。
+func MapPublishUsageErr(err error, retryAfter int) error {
+	switch {
+	case errors.Is(err, usagelimitwireup.ErrRateLimited):
+		if retryAfter < 1 {
+			retryAfter = 1
+		}
+		return &PublishRateLimited{RetryAfterSeconds: retryAfter, Cause: ErrPublishRateLimited}
+	case errors.Is(err, usagelimitwireup.ErrUsageRepositoryFailed):
+		return &PublishRateLimited{RetryAfterSeconds: 60, Cause: ErrPublishRateLimiterUnavailable}
+	default:
+		return err
+	}
+}
+
 // computeIPHashHex は salt + sha256(remoteIP) の hex を返す。生 IP は保存せず、
 // 戻り値の hex も logs / chat に出さない（呼び出し側で redact）。
 //
@@ -151,18 +168,7 @@ func (u *PublishFromDraft) Execute(
 			RetentionGraceSecs: 86400,
 		})
 		if uerr != nil {
-			retry := out.RetryAfterSeconds
-			switch {
-			case errors.Is(uerr, usagelimitwireup.ErrRateLimited):
-				if retry < 1 {
-					retry = 1
-				}
-				return PublishFromDraftOutput{}, &PublishRateLimited{RetryAfterSeconds: retry, Cause: ErrPublishRateLimited}
-			case errors.Is(uerr, usagelimitwireup.ErrUsageRepositoryFailed):
-				return PublishFromDraftOutput{}, &PublishRateLimited{RetryAfterSeconds: 60, Cause: ErrPublishRateLimiterUnavailable}
-			default:
-				return PublishFromDraftOutput{}, uerr
-			}
+			return PublishFromDraftOutput{}, MapPublishUsageErr(uerr, out.RetryAfterSeconds)
 		}
 	}
 

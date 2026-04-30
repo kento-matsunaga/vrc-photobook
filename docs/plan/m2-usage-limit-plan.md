@@ -210,6 +210,13 @@ handler / UseCase / Frontend client の各層で扱いを揃える。
 |---|---|---|
 | `report.submit` | `source_ip_hash` + `target_photobook_id` AND `source_ip_hash`（全体） | 同一 IP からの同一対象連投 + 全体ボム抑止 |
 | `upload_verification.issue` | `draft_session_id` + `photobook_id` | session 内の連投抑止（30 分 / 20 回上限とは別軸の上限）|
+
+> **2026-04-30 commit 3.5 補足（実装上の scope_type 表現）**:
+> 2 軸の複合 scope は **scope_type='source_ip_hash'**（report.submit）/ **scope_type='draft_session_id'**（upload_verification.issue）に統一し、scope_hash に `sha256(主軸 || ":" || 副軸)` の合成 hex を入れる方式を採用した（migration v18 の CHECK 制約 4 種を維持しつつ複合表現を実現）。
+> 例:
+>   - `report.submit` の 5 分 3 件 → `scope_type='source_ip_hash'` / `scope_hash=sha256(ip_hash || ":" || photobook_id)`（主軸: ip）
+>   - `upload_verification.issue` の 1 時間 20 件 → `scope_type='draft_session_id'` / `scope_hash=sha256(session_id || ":" || photobook_id)`（主軸: session）
+> scope_type は「主観点の集計軸」として一貫した意味（同 IP 軸 / 同 session 軸）を持ち、scope_hash の hex 表現は単軸 / 複合の双方を含む。**「scope_type='photobook_id' を photobook 単体軸として誤読しない」**運用ガイドを runbook に明記する。
 | `publish.from_draft` | `source_ip_hash`（全体）| 業務知識 v4 §3.7 「同一作成元 1 時間に 5 冊」 |
 
 **理由**:
@@ -695,6 +702,7 @@ export type SubmitReportError =
 | **Cloud SQL 容量増加（cleanup 未自動化）** | retention 24h grace + 手動 cleanup SQL を runbook に明記 |
 | **cmd/ops の race**（運営が cleanup 中に増分が走る）| OK（読み取り専用なので race しても整合性に影響なし） |
 | **window 境界での「リセット直後」連投** | fixed window の本質的弱点。MVP は許容、必要なら後続で sliding window 検討 |
+| **report.submit の片方 consume 副作用** | 2 本の連続 CheckAndConsumeUsage（1: 5 分 3 件 / 2: 1 時間 20 件）を順に呼ぶため、1 を consume 成功した後 2 で deny されると「1 のカウントだけ進む」。MVP は許容（PR36 計画書）。後続候補: CheckOnly + Consume 分離 / TX 内 reservation 方式 / 1 SQL 内で複数 bucket atomic update（PostgreSQL stored procedure 化） |
 
 ### 17.3 fail-open / fail-closed の選択肢
 
@@ -751,3 +759,4 @@ export type SubmitReportError =
 | 日付 | 変更 |
 |------|------|
 | 2026-04-29 | 初版（PR36 計画書）。MVP scope（report.submit / upload_verification.issue / publish.from_draft の 3 endpoint × DB 単機 RateLimit）と §18 ユーザー判断 12 項目を整理 |
+| 2026-04-30 | commit 3.5 反映: §5.2 に scope_type 統一表現の補足を追加（report.submit は scope_type='source_ip_hash' で複合 hash を使う、photobook_id 単体軸とは誤読しない）/ §17.2 に「片方 consume 副作用」をリスク表に追記 |

@@ -189,12 +189,18 @@ func (u *SubmitReport) Execute(ctx context.Context, in SubmitReportInput) (Submi
 		ipHash = HashSourceIP(SaltVersionV1, u.ipHashSalt, in.RemoteIP)
 	}
 
-	// 4.5) UsageLimit 連動（PR36 commit 3）。
-	// 業務知識 v4 §3.7 / PR36 計画書 §4.2 / §5.2 に従い 2 本のレートリミット:
-	//   1. 同一 IP × 同一 photobook（scope_type='photobook_id'、scope_hash=sha256(ip||pid)）
-	//      window 5 分 / limit 3 → 同 photobook への spam 抑止
-	//   2. 同一 IP 全体（scope_type='source_ip_hash'、scope_hash=ip_hash hex）
-	//      window 1 時間 / limit 20 → 通報ボム抑止
+	// 4.5) UsageLimit 連動（PR36 commit 3 + 3.5）。
+	// 業務知識 v4 §3.7 / PR36 計画書 §4.2 / §5.2 / §6.4 に従い 2 本のレートリミット。
+	//
+	// **どちらも scope_type='source_ip_hash' で統一**（v4 「UsageLimit と Report で IP
+	// ハッシュソルト共有」と整合）。狭い制限の側は、IP × photobook の **複合 scope_hash**
+	// を 1 軸に圧縮して同じ source_ip_hash 軸 bucket に詰める設計。scope_type は
+	// 「主観点のラベル」として一貫した意味（source_ip_hash 軸の集計）を持たせる。
+	//
+	//   1. 「同一 IP × 同一 photobook」の 5 分 3 件:
+	//      scope_type='source_ip_hash' / scope_hash=sha256(ip_hash || ":" || pid)
+	//   2. 「同一 IP 全体」の 1 時間 20 件:
+	//      scope_type='source_ip_hash' / scope_hash=ip_hash hex
 	//
 	// MVP 仕様: 1 を consume 後に 2 で deny されると「片方だけ count が進む」副作用がある。
 	// PR36 計画書 §11 / §17 で許容済（CheckOnly + Consume 分離は後続検討）。
@@ -215,7 +221,7 @@ func (u *SubmitReport) Execute(ctx context.Context, in SubmitReportInput) (Submi
 			return SubmitReportOutput{}, fmt.Errorf("scope_hash ip: %w", err)
 		}
 		out1, err := u.usage.Execute(ctx, usagelimitwireup.CheckInput{
-			ScopeType:          usagelimitscopetype.PhotobookID(),
+			ScopeType:          usagelimitscopetype.SourceIPHash(),
 			ScopeHash:          composedScope,
 			Action:             usagelimitaction.ReportSubmit(),
 			Now:                in.Now,

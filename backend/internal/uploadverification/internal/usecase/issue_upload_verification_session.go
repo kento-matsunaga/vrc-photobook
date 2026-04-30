@@ -64,7 +64,7 @@ func (e *RateLimited) Error() string {
 func (e *RateLimited) Unwrap() error { return e.Cause }
 
 // mapUsageErr は usagelimit エラーを upload-verification 集約エラーに変換する。
-func mapUsageErr(err error, retryAfter int) error {
+func MapUsageErr(err error, retryAfter int) error {
 	switch {
 	case errors.Is(err, usagelimitwireup.ErrRateLimited):
 		if retryAfter < 1 {
@@ -179,7 +179,7 @@ func (u *IssueUploadVerificationSession) Execute(ctx context.Context, in IssueIn
 			RetentionGraceSecs: 86400,
 		})
 		if err != nil {
-			return IssueOutput{}, mapUsageErr(err, out.RetryAfterSeconds)
+			return IssueOutput{}, MapUsageErr(err, out.RetryAfterSeconds)
 		}
 	}
 
