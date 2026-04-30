@@ -167,3 +167,19 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         emit_json_tags: false
+
+  # PR36: UsageLimit / RateLimit 集約 (usage_counters)。FK なし、scope_hash は
+  # source_ip_hash の場合 REPORT_IP_HASH_SALT_V1 由来 hex（PR36 計画書 §6.4 / §7）。
+  # INSERT ... ON CONFLICT DO UPDATE で race-free atomic increment。
+  - engine: "postgresql"
+    schema:
+      - "migrations/00001_create_health_check.sql"
+      - "migrations/00018_create_usage_counters.sql"
+    queries: "internal/usagelimit/infrastructure/repository/rdb/queries"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/usagelimit/infrastructure/repository/rdb/sqlcgen"
+        sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        emit_json_tags: false
