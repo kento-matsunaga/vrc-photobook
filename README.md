@@ -6,14 +6,14 @@ VRChat 向けの **ログイン不要** フォトブック作成サービス。
 > **本リポジトリは公開前の Private リポジトリです。** 設計・運用判断・実装方針が大量に
 > 含まれます。ローンチ前の Public 化は予定していません（ローンチ判断時に再検討）。
 
-## 現在地（2026-04-28）
+## 現在地（2026-05-01）
 
-- **M2 終盤、ローンチ前運用整備フェーズ**（業務知識 v4 のフロー実装は主要動線が完了）
+- **M2 終盤、ローンチ前運用整備フェーズ**（業務知識 v4 のフロー実装は主要動線 + Moderation + Report + UsageLimit まで完了）
 - Backend Cloud Run + `https://api.vrc-photobook.com`（HTTPS、Google Trust Services 証明書）/ Cloud SQL `vrcpb-api-verify` で稼働中
 - Frontend Cloudflare Workers + `https://app.vrc-photobook.com`（Custom Domain）で稼働中
-- 主要動線（作成 → 編集 → 公開 → 管理 URL 保存 → 公開 Viewer → OGP 自動生成 → 公開配信）は本番経路で稼働
-- Outbox 副作用 handler（`photobook.published` → OGP 生成）は **Cloud Run Job 手動 execute** で運用中
-- 未実装: Moderation / Report / UsageLimit / LP / 利用規約 / Public repo 化 / 本番運用整備 / Email Provider 再選定（ADR-0006）
+- 主要動線（作成 → 編集 → 公開 → 管理 URL 保存 → 公開 Viewer → OGP 自動生成 → 公開配信 + 通報受付 + 運営 hide/unhide + RateLimit）は本番経路で稼働
+- Outbox 副作用 handler（`photobook.published` → OGP 生成 / `photobook.hidden` `photobook.unhidden` `report.submitted` no-op + log）は **Cloud Run Job 手動 execute** で運用中
+- 未実装: LP / 利用規約 / Public repo 化 / 本番運用整備 / Email Provider 再選定（ADR-0006）/ Moderation 拡張（softDelete / restore / purge / reissueManageUrl）
 - **詳細・現在地マーカー（新正典）**: [`docs/plan/vrc-photobook-final-roadmap.md`](./docs/plan/vrc-photobook-final-roadmap.md)
 
 ## 重要な運用ルール（必読）

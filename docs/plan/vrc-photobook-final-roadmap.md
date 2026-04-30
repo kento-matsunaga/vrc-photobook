@@ -52,18 +52,18 @@
 
 ---
 
-## 1. 現在地（2026-04-30 PR36 UsageLimit 実装中、commit 1〜5 完了 / Backend deploy・Workers deploy・Safari 429 smoke は未実施）
+## 1. 現在地（2026-05-01 PR36 UsageLimit 完了 / Backend deploy・Workers deploy・Safari 429 smoke 全工程実施済）
 
 ### 1.1 commit / revision
 
-- **PR35b 本体 commit（backend image 同梱）**: `f4427b1 feat(backend): add report submission and ops commands` → 修正 `4c95617 fix(report): apply L1-L4 turnstile defensive guards` → runbook `f3c5c9c docs(runbook): strengthen backend deploy public route smoke` → widget 安定化 `a450037 fix(frontend): stabilize turnstile widget rendering` → closeout `<commit 5>`
-- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00020-9jz`（image: `vrcpb-api:4c95617`、PR35b L1-L4 ガード反映済）
-- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:f4427b1`、`asia-northeast1`、
+- **PR36 commit（backend + frontend + cmd/ops + runbook + work-log 同梱）**: `bd29396 feat(backend): add usage limit domain foundation` → `e38d8a8 feat(backend): add usage limit repository and usecases` → `4ff9c01 feat(backend): enforce usage limits on write endpoints` → `9d36bfe test(backend): cover usage limit endpoint side effects` → `7205e3d test(backend): verify usage limit denies without side effects` → `d2edd80 feat(frontend): show usage limit errors` → `044899c feat(ops): add usage limit inspection commands` → final closeout commit
+- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00022-g4r`（image: `vrcpb-api:044899c`、PR36 UsageLimit 反映済）。rollback 候補 `vrcpb-api-00021-vl9` / `vrcpb-api:540cd1f`（PR36-0）
+- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:044899c`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
   **手動 execute 運用**（Cloud Scheduler 未作成）。`REPORT_IP_HASH_SALT_V1` は **Job に注入せず**（PR35b 案 A、SubmitReport は Backend HTTP service 側で salt を使うため）
-- **Cloud Workers Frontend Worker version**: `6da0447b-76eb-4b96-bbdb-a896f751fcb0`（PR35b 完了、Frontend `/p/[slug]/report` + ReportForm + L0 widget 安定 mount + L1-L3 多層ガード反映済、rollback 候補 `5d09172b-...` / `5838edec-...`）
-- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v17**（00014 moderation_actions + 00015 outbox CHECK + 00016 reports + 00017 outbox CHECK 拡張、PR34b/PR35b で適用）
-- **Secret Manager**: 既存 7 + 新規 `REPORT_IP_HASH_SALT_V1`（PR35b STOP β、runtime SA に secretAccessor 付与済、Cloud Run service `vrcpb-api` の secretKeyRef 10 件）
+- **Cloud Workers Frontend Worker version**: `ac2b884a-7c75-49d3-a21c-5c2a66c462ed`（PR36 commit 4/5 反映済、rate_limited 文言・retryAfter helper・Turnstile 区別 bundle 含有確認済）。rollback 候補 `ce64f95a-d4ce-405b-821a-f71c22a992db`（PR36-0）
+- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v18**（PR36 STOP α で 00018 `usage_counters` 適用済）
+- **Secret Manager**: 8 件（`DATABASE_URL` / `R2_*` ×5 / `REPORT_IP_HASH_SALT_V1` / `TURNSTILE_SECRET_KEY`）。Cloud Run service `vrcpb-api` の secretKeyRef も 8 件で完全一致
 
 ### 1.2 実装済み（重要なものから）
 
@@ -121,12 +121,23 @@
 ### 1.3 未実装（公開ローンチまでに必要）
 
 #### 運営機能（次の PR ライン）
-- ~~**Report 集約**（通報受付 + 運営対応 + Moderation 自動連動）→ **次の PR35**~~ → **PR35b 完了**（2026-04-29、Backend + Frontend + cmd/ops + Outbox handler + Safari 実機 smoke + 監査チェーン本番検証）。後続: report list/show 状態遷移系（mark-reviewed / dismiss / resolve-without-action）/ 90 日 NULL 化 reconciler / Web admin dashboard / Email 通知 → PR36 以降
-- **UsageLimit 集約（公開数制限 / abuse 抑止）→ 次の PR36**
-- Report mark-reviewed / dismiss / resolve-without-action（運営対応 UseCase、cmd/ops 拡張）→ PR36 以降
-- 90 日後の reports.detail / reporter_contact / source_ip_hash NULL 化 reconciler → PR36 以降
+- ~~**Report 集約**（通報受付 + 運営対応 + Moderation 自動連動）→ **次の PR35**~~ → **PR35b 完了**（2026-04-29、Backend + Frontend + cmd/ops + Outbox handler + Safari 実機 smoke + 監査チェーン本番検証）。後続: report list/show 状態遷移系（mark-reviewed / dismiss / resolve-without-action）/ 90 日 NULL 化 reconciler / Web admin dashboard / Email 通知 → 後続 PR
+- ~~**UsageLimit 集約（公開数制限 / abuse 抑止）→ 次の PR36**~~ → **PR36 完了**（2026-05-01、Backend + Frontend + cmd/ops + runbook + Safari 実機 429 smoke + cleanup + target 復元）。`report.submit` / `upload_verification.issue` / `publish.from_draft` の RateLimit MVP 完了。後続候補は §1.3 PR36 後続項目を参照
+- **SubmitReport の visibility 要件 再判断（PR36 STOP ε で発見）**: 現実装は `visibility=='public'` を厳格要求するが、業務知識 v4 §2.6 の MVP 既定値は `unlisted`。MVP では通常作成された photobook が **通報不可**になる。候補: A 仕様維持 / B SubmitReport を `!= 'private'` に緩和して unlisted も対象 / C 業務知識を更新して「通報は public のみ」と明文化。後続 PR で判断
+- Report mark-reviewed / dismiss / resolve-without-action（運営対応 UseCase、cmd/ops 拡張）→ 後続 PR
+- 90 日後の reports.detail / reporter_contact / source_ip_hash NULL 化 reconciler → 後続 PR
 - Moderation 拡張（`soft_delete` / `restore`（論理復元） / `purge` UseCase）→ PR34 拡張または別 PR（CHECK 制約は既に 6 種受け入れ済、追加コスト小）
 - `reissue_manage_url`（管理URL 再発行 + Session revoke + ManageUrlDelivery）→ Email Provider 確定後（PR32c 以降）
+- **PR36 後続候補**:
+  - `cmd/ops usage reset` / `cmd/ops usage cleanup --execute` / Cloud Run Job 化 / Scheduler
+  - `usage.abuse_detected` Outbox event（Phase 2）
+  - fail-open flag（`USAGE_LIMIT_FAIL_OPEN_ON_DB_ERROR`）
+  - report.submit 2 本制限の片方 consume 副作用解消（CheckOnly + Consume 分離 / reservation 方式 / stored procedure）
+  - upload-verification 経路の RemoteIP × photobook 複合 scope（現在は session × photobook のみ）
+  - SubmitReport 専用の実 DB 副作用なしテスト追加
+  - Upload / Publish 実機 rate_limited smoke（visibility=public な test photobook が増えた段階で実施）
+  - Cloud Armor / WAF / Redis 分散 rate-limit（Phase 2 / scale 到達時）
+  - Legal / privacy policy（PR37）への rate-limit 文言反映
 
 #### LP / 法務 / 公開判定
 - LP (`/`) / `/terms` / `/privacy` / `/about` → PR37
