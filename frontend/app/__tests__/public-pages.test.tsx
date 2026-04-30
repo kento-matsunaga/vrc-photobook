@@ -1,8 +1,8 @@
-// LP / Terms / Privacy / About + 共通 PublicPageFooter の SSR レンダリング検証。
+// LP / Terms / Privacy / About の SSR レンダリング検証（design rebuild 版）。
 //
 // 方針:
 //   - renderToStaticMarkup で初期 HTML を検証
-//   - data-testid と主要見出し・主要リンクを確認
+//   - data-testid と主要見出し・主要リンク・新コンポーネントの存在を確認
 //   - 動的データ（token / Cookie / Secret / 任意 ID）が出ないことを確認
 
 import { describe, expect, it } from "vitest";
@@ -12,7 +12,6 @@ import HomePage from "@/app/page";
 import TermsPage from "@/app/(public)/terms/page";
 import PrivacyPage from "@/app/(public)/privacy/page";
 import AboutPage from "@/app/(public)/about/page";
-import { PublicPageFooter } from "@/components/Public/PublicPageFooter";
 
 const FORBIDDEN_PATTERNS = [
   /\bSecret\s*[:=]\s*[A-Za-z0-9_+/=-]{12,}/i,
@@ -32,41 +31,25 @@ function expectNoSecret(html: string) {
   }
 }
 
-describe("PublicPageFooter", () => {
-  it("正常_既定リンク_5件_Top_About_Terms_Privacy_Help_を含む", () => {
-    const html = renderToStaticMarkup(<PublicPageFooter />);
-    expect(html).toContain('data-testid="public-page-footer"');
-    expect(html).toContain('href="/"');
-    expect(html).toContain('href="/about"');
-    expect(html).toContain('href="/terms"');
-    expect(html).toContain('href="/privacy"');
-    expect(html).toContain('href="/help/manage-url"');
-    expect(html).toContain("VRC PhotoBook（非公式ファンメイドサービス）");
-  });
-
-  it("正常_links_を引数で上書きできる", () => {
-    const html = renderToStaticMarkup(
-      <PublicPageFooter
-        links={[
-          { href: "/about", label: "About" },
-          { href: "/terms", label: "Terms" },
-        ]}
-      />,
-    );
-    expect(html).toContain('href="/about"');
-    expect(html).toContain('href="/terms"');
-    expect(html).not.toContain('href="/privacy"');
-  });
-});
-
 describe("HomePage（LP, /）", () => {
-  it("正常_主要セクション_features_cta_policy_と_footer_を含む", () => {
+  it("正常_主要セクション_hero_thumbs_features_policy_cta_block_を含む", () => {
     const html = renderToStaticMarkup(<HomePage />);
-    expect(html).toContain('data-testid="lp-header"');
+    expect(html).toContain('data-testid="lp-hero"');
+    expect(html).toContain('data-testid="lp-thumbs"');
     expect(html).toContain('data-testid="lp-features"');
-    expect(html).toContain('data-testid="lp-cta"');
     expect(html).toContain('data-testid="lp-policy"');
+    expect(html).toContain('data-testid="lp-cta-block"');
     expect(html).toContain('data-testid="public-page-footer"');
+    expect(html).toContain('data-testid="trust-strip"');
+    expect(html).toContain('data-testid="mock-book"');
+    // 5 thumbnails ある（最後の 1 つは sm:block で hidden）
+    expect(html).toContain('data-testid="mock-thumb-a"');
+    expect(html).toContain('data-testid="mock-thumb-b"');
+    expect(html).toContain('data-testid="mock-thumb-c"');
+    expect(html).toContain('data-testid="mock-thumb-d"');
+    expect(html).toContain('data-testid="mock-thumb-e"');
+    // 主要文言
+    expect(html).toContain("VRChat 写真を、");
     expect(html).toContain("ログイン不要");
     expect(html).toContain("管理 URL");
     expect(html).toContain("非公式ファンメイド");
@@ -81,44 +64,46 @@ describe("HomePage（LP, /）", () => {
 });
 
 describe("TermsPage（/terms）", () => {
-  it("正常_第1条〜第9条_の見出しを含む", () => {
+  it("正常_TOC_第1条〜第9条_PolicyArticle_を含む", () => {
     const html = renderToStaticMarkup(<TermsPage />);
     expect(html).toContain("利用規約");
-    expect(html).toContain("第 1 条 サービスの目的と性質");
-    expect(html).toContain("第 2 条 投稿される画像に関する権利と責任");
-    expect(html).toContain("第 3 条 禁止事項");
-    expect(html).toContain("第 4 条 運営の権限と運用");
-    expect(html).toContain("第 5 条 管理 URL の取り扱い");
-    expect(html).toContain("第 6 条 サービスの変更・停止");
-    expect(html).toContain("第 7 条 免責");
-    expect(html).toContain("第 8 条 お問い合わせ・準拠法");
-    expect(html).toContain("第 9 条 改訂");
+    expect(html).toContain('data-testid="policy-toc"');
+    expect(html).toContain('data-testid="policy-notice"');
+    // 各 article (id="terms-1" 〜 "terms-9")
+    for (let i = 1; i <= 9; i++) {
+      expect(html).toContain(`data-testid="policy-article-terms-${i}"`);
+    }
+    expect(html).toContain("第 1 条");
+    expect(html).toContain("第 9 条");
     expect(html).toContain("非公式ファンメイド");
     expect(html).toContain("法律文書としての専門家レビュー");
+    // Anchor scroll 用 href
+    expect(html).toContain('href="#terms-1"');
+    expect(html).toContain('href="#terms-9"');
     expect(html).toContain('data-testid="public-page-footer"');
+    // Terms には trust-strip 不要
+    expect(html).not.toContain('data-testid="trust-strip"');
     expectNoSecret(html);
   });
 });
 
 describe("PrivacyPage（/privacy）", () => {
-  it("正常_第1条〜第10条_の見出しを含む", () => {
+  it("正常_TOC_第1条〜第10条_外部サービスchip_を含む", () => {
     const html = renderToStaticMarkup(<PrivacyPage />);
     expect(html).toContain("プライバシーポリシー");
-    expect(html).toContain("第 1 条 取得する情報");
-    expect(html).toContain("第 2 条 利用目的");
-    expect(html).toContain("第 3 条 IP ハッシュ・scope ハッシュの取り扱い");
-    expect(html).toContain("第 4 条 第三者提供");
-    expect(html).toContain("第 5 条 利用する外部サービス");
-    expect(html).toContain("第 6 条 保持期間");
-    expect(html).toContain("第 7 条 削除請求・権利侵害申立て");
-    expect(html).toContain("第 8 条 未成年保護");
-    expect(html).toContain("第 9 条 SEO・検索エンジン");
-    expect(html).toContain("第 10 条 改訂");
+    expect(html).toContain('data-testid="policy-toc"');
+    expect(html).toContain('data-testid="policy-notice"');
+    expect(html).toContain('data-testid="privacy-external-services"');
+    for (let i = 1; i <= 10; i++) {
+      expect(html).toContain(`data-testid="policy-article-privacy-${i}"`);
+    }
+    expect(html).toContain("第 1 条");
+    expect(html).toContain("第 10 条");
+    expect(html).toContain("Cloudflare Workers");
+    expect(html).toContain("Google Cloud Run");
     expect(html).toContain("noindex, nofollow");
-    expect(html).toContain("非公式ファンメイド");
-    expect(html).toContain("Cloudflare");
-    expect(html).toContain("Google Cloud");
     expect(html).toContain('data-testid="public-page-footer"');
+    expect(html).not.toContain('data-testid="trust-strip"');
     expectNoSecret(html);
   });
 
@@ -129,17 +114,21 @@ describe("PrivacyPage（/privacy）", () => {
 });
 
 describe("AboutPage（/about）", () => {
-  it("正常_主要セクション_できること_できないこと_ポリシーと窓口_を含む", () => {
+  it("正常_位置づけ_できる6_できない4_ポリシー_trust_を含む", () => {
     const html = renderToStaticMarkup(<AboutPage />);
     expect(html).toContain("VRC PhotoBook について");
+    expect(html).toContain("サービスの位置づけ");
     expect(html).toContain("できること");
     expect(html).toContain("MVP ではできないこと");
     expect(html).toContain("ポリシーと窓口");
     expect(html).toContain("非公式ファンメイド");
+    expect(html).toContain("ERENOA");
+    expect(html).toContain("@Noa_Fortevita");
     expect(html).toContain('href="/terms"');
     expect(html).toContain('href="/privacy"');
     expect(html).toContain('href="/help/manage-url"');
     expect(html).toContain('data-testid="public-page-footer"');
+    expect(html).toContain('data-testid="trust-strip"');
     expectNoSecret(html);
   });
 });

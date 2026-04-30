@@ -1,6 +1,9 @@
 // ViewerLayout: 公開 Viewer のページ全体レイアウト。
 //
-// design 参照: design/mockups/prototype/screens-b.jsx Viewer / pc-screens-b.jsx PCViewer
+// design 参照:
+//   - design/mockups/prototype/screens-b.jsx Viewer / pc-screens-b.jsx PCViewer
+//   - harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md §4（footer は PublicPageFooter
+//     を流用、通報リンクは extraSlot として個別保持）
 //
 // セキュリティ:
 //   - URL に raw token を出さない（route 側で担保済み）
@@ -8,6 +11,7 @@
 
 import Link from "next/link";
 
+import { PublicPageFooter } from "@/components/Public/PublicPageFooter";
 import type { PublicPhotobook } from "@/lib/publicPhotobook";
 import { PhotoGrid } from "./PhotoGrid";
 
@@ -58,44 +62,17 @@ export function ViewerLayout({ photobook }: Props) {
         ))}
       </div>
 
-      <footer className="mt-12 border-t border-divider-soft pt-6 text-center">
-        <nav aria-label="サイト内リンク">
-          <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-ink-medium">
-            <li>
-              <Link href="/" className="underline hover:text-ink-strong">
-                トップ
-              </Link>
-            </li>
-            <li>
-              <Link href="/about" className="underline hover:text-ink-strong">
-                VRC PhotoBook について
-              </Link>
-            </li>
-            <li>
-              <Link href="/terms" className="underline hover:text-ink-strong">
-                利用規約
-              </Link>
-            </li>
-            <li>
-              <Link href="/privacy" className="underline hover:text-ink-strong">
-                プライバシーポリシー
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <p className="mt-3 text-sm">
+      <PublicPageFooter
+        extraSlot={
           <Link
             href={`/p/${photobook.slug}/report`}
-            className="underline text-ink-medium hover:text-ink-strong"
+            className="text-sm text-ink-medium underline hover:text-ink-strong"
             data-testid="viewer-report-link"
           >
             このフォトブックを通報
           </Link>
-        </p>
-        <p className="mt-3 text-xs text-ink-soft">
-          VRC PhotoBook（非公式ファンメイドサービス）
-        </p>
-      </footer>
+        }
+      />
     </main>
   );
 }

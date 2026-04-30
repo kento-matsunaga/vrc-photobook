@@ -3,12 +3,15 @@
 // 設計参照:
 //   - docs/plan/m2-email-provider-reselection-plan.md §7（採用候補 A の FAQ / 紛失時案内）
 //   - docs/adr/0006-email-provider-and-manage-url-delivery.md
+//   - harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md §4（PublicPageFooter に揃える）
 //
 // 公開ルートのため、middleware で X-Robots-Tag: noindex, nofollow / Referrer-Policy:
 // strict-origin-when-cross-origin が付与される（frontend/middleware.ts）。
 //
 // このページに raw token / 実管理 URL は出さない。
 import type { Metadata } from "next";
+
+import { PublicPageFooter } from "@/components/Public/PublicPageFooter";
 
 export const metadata: Metadata = {
   title: "管理 URL について｜VRC PhotoBook",
@@ -95,35 +98,7 @@ export default function ManageUrlHelpPage() {
         </p>
       </section>
 
-      <section className="space-y-3 border-t border-divider-soft pt-4">
-        <h2 className="text-lg font-semibold text-ink-strong">関連リンク</h2>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-brand-teal">
-          <li>
-            <a href="/" className="underline">
-              トップページ
-            </a>
-          </li>
-          <li>
-            <a href="/about" className="underline">
-              VRC PhotoBook について
-            </a>
-          </li>
-          <li>
-            <a href="/terms" className="underline">
-              利用規約
-            </a>
-          </li>
-          <li>
-            <a href="/privacy" className="underline">
-              プライバシーポリシー
-            </a>
-          </li>
-        </ul>
-      </section>
-
-      <footer className="border-t border-divider-soft pt-6 text-center text-xs text-ink-soft">
-        VRC PhotoBook（非公式ファンメイドサービス）
-      </footer>
+      <PublicPageFooter />
     </main>
   );
 }
