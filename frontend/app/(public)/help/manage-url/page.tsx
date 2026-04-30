@@ -103,6 +103,21 @@ export default function ManageUrlHelpPage() {
               トップページ
             </a>
           </li>
+          <li>
+            <a href="/about" className="underline">
+              VRC PhotoBook について
+            </a>
+          </li>
+          <li>
+            <a href="/terms" className="underline">
+              利用規約
+            </a>
+          </li>
+          <li>
+            <a href="/privacy" className="underline">
+              プライバシーポリシー
+            </a>
+          </li>
         </ul>
       </section>
 

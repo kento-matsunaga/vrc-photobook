@@ -58,16 +58,42 @@ export function ViewerLayout({ photobook }: Props) {
         ))}
       </div>
 
-      <footer className="mt-12 border-t border-divider-soft pt-6 text-center text-xs text-ink-soft">
-        <p>VRC PhotoBook（非公式ファンメイドサービス）</p>
-        <p className="mt-2">
+      <footer className="mt-12 border-t border-divider-soft pt-6 text-center">
+        <nav aria-label="サイト内リンク">
+          <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-ink-medium">
+            <li>
+              <Link href="/" className="underline hover:text-ink-strong">
+                トップ
+              </Link>
+            </li>
+            <li>
+              <Link href="/about" className="underline hover:text-ink-strong">
+                VRC PhotoBook について
+              </Link>
+            </li>
+            <li>
+              <Link href="/terms" className="underline hover:text-ink-strong">
+                利用規約
+              </Link>
+            </li>
+            <li>
+              <Link href="/privacy" className="underline hover:text-ink-strong">
+                プライバシーポリシー
+              </Link>
+            </li>
+          </ul>
+        </nav>
+        <p className="mt-3 text-sm">
           <Link
             href={`/p/${photobook.slug}/report`}
-            className="underline hover:text-ink-medium"
+            className="underline text-ink-medium hover:text-ink-strong"
             data-testid="viewer-report-link"
           >
             このフォトブックを通報
           </Link>
+        </p>
+        <p className="mt-3 text-xs text-ink-soft">
+          VRC PhotoBook（非公式ファンメイドサービス）
         </p>
       </footer>
     </main>
