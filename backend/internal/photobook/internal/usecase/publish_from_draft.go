@@ -90,6 +90,13 @@ func MapPublishUsageErr(err error, retryAfter int) error {
 	}
 }
 
+// ComputeIPHashHexForTest は test 用に exported な hex 計算関数。
+// PR36 commit 3.6 で追加した実 DB 副作用テストが usage_counters の pre-bucket を作る際に
+// salt+ip から本番と同じ scope_hash を生成するために使う。
+func ComputeIPHashHexForTest(salt, remoteIP string) string {
+	return computeIPHashHex(salt, remoteIP)
+}
+
 // computeIPHashHex は salt + sha256(remoteIP) の hex を返す。生 IP は保存せず、
 // 戻り値の hex も logs / chat に出さない（呼び出し側で redact）。
 //

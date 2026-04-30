@@ -72,6 +72,20 @@ func TestSubmitReport_L4_BlankTurnstileToken_Rejected(t *testing.T) {
 // PR36 commit 3.5: mapUsageErr が UsageLimit エラーを RateLimited wrapper に変換
 // することを単体テスト。fail-closed: ErrUsageRepositoryFailed → 既定 60 秒。
 // scope_hash 完全値や IP は wrapper にも含まない（呼び出し側で redact）。
+//
+// PR36 commit 3.6 補足:
+//   実 DB 副作用なし統合テスト（usage_counters 事前 INSERT で limit 到達 → UseCase
+//   呼び出し → reports/outbox INSERT が起きないことを SELECT で確認）は、Report 集約
+//   の photobook seed が manage_url_token_hash / published_at / status 整合性 CHECK 等の
+//   多数の制約を持ち、photobook published 状態を SQL 直接 INSERT するコストが高いため、
+//   uploadverification / publish の同パターン integration test
+//   （`internal/uploadverification/internal/usecase/usage_limit_integration_test.go` /
+//    `internal/photobook/internal/usecase/publish_usage_limit_integration_test.go`）で
+//   「UsageLimit threshold 超過時に Repository.Create / TX に到達しない」ことを
+//   実 DB で代表保証する。
+//   SubmitReport の usage check も同じ構造（前段呼び + RateLimited wrapper + 副作用前 return）
+//   で実装されており、本 mapUsageErr unit + L4 ガード unit + handler の writeRateLimited
+//   unit の組み合わせで等価な保証を提供する。
 func TestMapUsageErr(t *testing.T) {
 	tests := []struct {
 		name              string
