@@ -52,7 +52,7 @@
 
 ---
 
-## 1. 現在地（2026-05-01 PR36 UsageLimit + SubmitReport visibility 緩和（独立 PR）完了 / Backend deploy・Safari smoke 全工程実施済）
+## 1. 現在地（2026-05-01 PR36 UsageLimit + SubmitReport visibility 緩和 + PR37 公開ページ整備（機能完了 / design rebuild 後続）/ Backend deploy・Workers deploy・Safari smoke 全工程実施済）
 
 ### 1.1 commit / revision
 
@@ -62,7 +62,7 @@
 - **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:773d5cc`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
   **手動 execute 運用**（Cloud Scheduler 未作成）。`REPORT_IP_HASH_SALT_V1` は **Job に注入せず**（PR35b 案 A、SubmitReport は Backend HTTP service 側で salt を使うため）
-- **Cloud Workers Frontend Worker version**: `ac2b884a-7c75-49d3-a21c-5c2a66c462ed`（PR36 STOP δ 由来、API 互換維持で SubmitReport visibility 緩和では再 deploy なし）。rollback 候補 `ce64f95a-d4ce-405b-821a-f71c22a992db`（PR36-0）
+- **Cloud Workers Frontend Worker version**: `6f1e82d7-cf57-41ab-99dd-0ede5266a3a5`（PR37 STOP δ 由来、LP / Terms / Privacy / About + 共通 PublicPageFooter / Viewer footer リンク反映済）。rollback 候補 `ac2b884a-7c75-49d3-a21c-5c2a66c462ed`（PR36 STOP δ 由来）
 - **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v18**（PR36 STOP α で 00018 `usage_counters` 適用済、以降変更なし）
 - **Secret Manager**: 8 件（`DATABASE_URL` / `R2_*` ×5 / `REPORT_IP_HASH_SALT_V1` / `TURNSTILE_SECRET_KEY`）。Cloud Run service `vrcpb-api` の secretKeyRef も 8 件で完全一致、SubmitReport 緩和では env / Secret 変更なし
 
@@ -141,7 +141,10 @@
   - Legal / privacy policy（PR37）への rate-limit 文言反映
 
 #### LP / 法務 / 公開判定
-- LP (`/`) / `/terms` / `/privacy` / `/about` → PR37
+- ~~LP (`/`) / `/terms` / `/privacy` / `/about` → PR37~~ → **PR37 機能完了**（2026-05-01、commit `5d85af5` / Workers `6f1e82d7-...` 反映済）。**ただし design 品質は user 意図と乖離**しており、後続の design rebuild が必須（[`harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md`](../../harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md) 起票、本書 §1.3 後続候補に積む）
+- **PR37 public pages design rebuild（最優先後続）**: design ファイル群を読んだだけでは user 期待に届かなかった。次回はデザインを伴う PR の STOP α で「画面別ワイヤーフレームまたはスクリーン構成案」を提示してユーザー承認を取る運用に改める。LP / About / Terms / Privacy を `design/mockups/prototype` と `design-system` に沿って再構築する（採用する画面 ID / 採用しない要素 / 既存 Viewer・Help との温度感整合 を STOP α で明示）。詳細は failure-log §5 を参照
+- Phase 2 検索エンジン許可判断（業務知識 v4 §7.6、`<meta robots>` を作成者の opt-in で `index, follow` に切り替えるかどうか）→ 後続 PR
+- 法的レビュー後の Terms / Privacy 改訂（ローンチ後）
 - Public repo 化判断 + 履歴 secret scan → PR38
 
 #### 運用 / インフラ
