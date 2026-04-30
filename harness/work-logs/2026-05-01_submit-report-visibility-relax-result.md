@@ -1,8 +1,10 @@
-# SubmitReport visibility 緩和 実装結果（2026-05-01、進行中）
+# SubmitReport visibility 緩和 実装結果（2026-05-01、完了）
 
-> **状態**: STOP β 実装完了、STOP γ Backend deploy 承認待ち。
+> **状態**: STOP α / β / γ / ε / final closeout 全完了。
 > 設計判断: [`docs/plan/post-pr36-submit-report-visibility-decision.md`](../../docs/plan/post-pr36-submit-report-visibility-decision.md) 案 B 採用
 > 起点 commit: `da9e637 docs(plan): decide submit report visibility policy`
+> 実装 commit: `773d5cc fix(report): allow report submit on unlisted photobooks`
+> closeout commit: 本書反映 commit
 
 ## 0. 本書のスコープ
 
@@ -87,62 +89,125 @@ PR36 STOP ε で発見した SubmitReport visibility 不整合（公開 Viewer /
 | runbook `usage-limit.md` §11.3 | smoke target 条件を `!= private` に更新 |
 | roadmap §1.3 | 後続候補を完了扱いに |
 
-## 4. STOP γ Backend deploy（承認待ち）
+## 4. STOP γ Backend deploy（完了）
 
-`docs/runbook/backend-deploy.md` §1.4 に従い実施予定:
+| 項目 | 値 |
+|---|---|
+| Cloud Build ID | `c77ad798-6ee1-4ebb-b338-8516444254c8` SUCCESS（3M40S）|
+| 生成 image | `vrcpb-api:773d5cc` (digest `sha256:e93a02ca...`) |
+| Cloud Run service `vrcpb-api` | revision `vrcpb-api-00023-pwv` 100% traffic、image `:773d5cc` |
+| 直前 active（rollback 候補）| `vrcpb-api-00022-g4r` / `vrcpb-api:044899c`（PR36 final closeout 時点）|
+| secretKeyRef | 8 個（`DATABASE_URL` / `R2_*` ×5 / `REPORT_IP_HASH_SALT_V1` / `TURNSTILE_SECRET_KEY`、rev 22 と完全一致）|
+| plain env | 2 個（`ALLOWED_ORIGINS` / `APP_ENV`、不変）|
+| env 消失 | なし |
+| 7 分待機 | 18:25:46Z → 18:32:46Z |
+| `/health` | HTTP 200 |
+| `/readyz` | HTTP 200 |
+| public route handler bad-slug | HTTP 404 + `{"status":"not_found"}`（chi default plain text 落ちなし）|
+| Cloud Build log Secret grep | 0 件 |
+| Cloud Run log Secret grep | 起動時 `report endpoint enabled (turnstile + ip_hash_salt configured)` / `turnstile configured; upload-verifications endpoint enabled` のみ（**設定確認の文字列、値ではない**、PR36 STOP γ と同パターン）|
+| Cloud Run log raw UUID 形式 | 0 件 |
+| Cloud Run Job `vrcpb-outbox-worker` image | `vrcpb-api:773d5cc`（args / secretKeyRef 6 個 不変）|
+| Job 実行 | 未実行（execute コマンド未投入）|
 
-- Cloud Build manual submit で `vrcpb-api:<short-sha>` build
-- Cloud Run service `vrcpb-api` の image を新 SHA に更新（自動 traffic 100%）
-- Cloud Run Job `vrcpb-outbox-worker` の image も同 SHA に bump
-- env / secretKeyRef / args / cloudsql-instances は **触らない**
-- 5〜10 分待機 → public route handler smoke（`/health` 200 / `/readyz` 200 / bad-slug HTTP 404 + JSON）
-- Cloud Build / Cloud Run logs Secret grep（0 件期待）
-- rollback 候補: `vrcpb-api-00022-g4r` / image `vrcpb-api:044899c`（PR36 final closeout 時点）
+## 5. STOP δ Workers redeploy（不要、未実施）
 
-## 5. STOP δ Workers redeploy
+API 互換維持・bundle 変更なしのため Workers redeploy は不要と判断。実施なし。Worker version は PR36 STOP δ 由来 `ac2b884a-7c75-49d3-a21c-5c2a66c462ed` のまま 100% active。
 
-**不要**（API 互換維持、Frontend / bundle 変更なし）。
+## 6. STOP ε Safari 実機 smoke（完了）
 
-## 6. STOP ε Safari 実機 smoke（承認待ち）
+iPhone Safari で **unlisted smoke candidate** に対し submit 1 回 → **thanks view 成立**。
 
-iPhone Safari で **unlisted smoke candidate**（visibility=unlisted, hidden=false, smoke 用既存 photobook）に対し:
+| 確認項目 | 結果 |
+|---|---|
+| ReportForm 表示 | OK |
+| Turnstile 完了 | OK |
+| submit 1 回（連打なし）| OK |
+| thanks view 表示 | OK（visibility 緩和前は `not_found` 阻害だった経路が成立）|
+| `report_id` / `token` / `scope_hash` の画面・URL 露出 | なし |
+| レイアウト崩れ | なし |
+| Turnstile 失敗 / `not_found` / `rate_limited` / `internal_error` 文言 | なし |
 
-- submit 1 回のみ → thanks view 表示確認
-- report_id / token / scope_hash / raw URL の画面・URL 露出なし、レイアウト崩れなし
-- Turnstile 失敗文言・rate_limited 文言と区別されている
+### 6.1 副作用 delta（baseline_now_utc を cutoff として一意特定）
 
-副作用 cleanup（PR36 STOP ε と同流儀、`FOR UPDATE` lock + rowcount assert + ROLLBACK on mismatch）:
-- baseline: submit 前に reports / outbox / usage_counters の件数を取得
-- delta 検出: submit 後の件数差分から smoke 由来行を一意特定（target id_prefix / LIKE 条件は使わない）
-- DELETE `outbox.report.submitted` pending（worker 処理せず削除）
-- DELETE `reports`（smoke delta のみ）
-- DELETE `usage_counters`（smoke delta、report.submit のみ）
+| 観点 | baseline | post-Safari | post-cleanup |
+|---|---|---|---|
+| `reports` total | 1 | 2（+1）| **1**（baseline 一致）|
+| `reports` status=submitted (last 1h) | 0 | 1（+1）| 0 |
+| `reports` status=resolved_action_taken（PR35b 由来）| 1 | 1（不変）| 1（保持）|
+| `outbox.report.submitted` pending | 0 | 1（+1）| **0**（baseline 一致）|
+| `usage_counters` total | 0 | 2（+2、5min narrow + 1h broad）| **0**（baseline 一致）|
 
-target photobook は visibility / hidden を変更しない方針（unlisted のまま）。**public hidden target は触らない**（regression 回避）。
+smoke 由来行の特徴（redact 済）:
+- report row: status=submitted, reason=harassment_or_doxxing, detail_len=4 (smoke marker), contact_len=16, ip_hash 32 byte hex
+- outbox payload: 6 keys (`event_version` / `has_contact` / `occurred_at` / `reason` / `report_id` / `target_photobook_id`) のみ。**`reporter_contact` / `detail` / `source_ip_hash` は payload 不在**（PII clean、設計通り）
+- usage_counters: 5min 狭粒度 (count=1, limit=3) + 1h 広粒度 (count=1, limit=20)、両者 created_at 同一（同 TX）
 
-## 7. final closeout（後続）
+### 6.2 cleanup（delta-based、`FOR UPDATE` lock + rowcount assert）
 
-PR closeout チェックリスト（`.agents/rules/pr-closeout.md` §6 準拠）:
+- 対象は `submitted_at` / `created_at > baseline_now_utc` で一意特定（raw target id_prefix / LIKE 条件は使用せず）
+- DELETE `outbox_events`: 1 行（rowcount assert 一致）
+- DELETE `reports`: 1 行（rowcount assert 一致）
+- DELETE `usage_counters`: 2 行（複合 key で個別 DELETE、合計 rowcount assert 一致）
+- TX COMMIT 成功
+- `report.submitted` outbox は **worker 処理せず削除**（指示通り、本物の通報として残さない）
+- PR35b 由来 `resolved_action_taken` 行は不変（保持確認）
 
-- [ ] 実装 commit 単一化 + push 確認
-- [ ] STOP α / β / γ / ε 結果記録
-- [ ] Safari smoke 結果（unlisted submit 成功）
-- [ ] DB 副作用と cleanup 結果
-- [ ] target photobook 状態が変化していないこと
-- [ ] Workers / Cloud Run Job / migration / Secret に変更なし
-- [ ] roadmap / 業務知識 / m2-report-plan / runbook / 決定メモ §13 履歴 更新
-- [ ] stale-comments 結果 4 区分分類
-- [ ] Secret grep（0 件）+ raw id / hash / URL の redact
-- [ ] failure-log 起票要否判断
+### 6.3 target photobook 最終状態
 
-## 8. Secret / Privacy 取り扱い
+| 項目 | 開始時 | 終了時 |
+|---|---|---|
+| status | published | published |
+| visibility | unlisted | **unlisted**（不変）|
+| hidden_by_operator | false | false（不変）|
+| version | 1 | 1（不変）|
 
-- raw slug / raw photobook_id / raw report_id / raw URL / token / Cookie / DATABASE_URL / Secret 値 / source_ip_hash 完全値 / scope_hash 完全値 / reporter_contact 実値 / detail 実値: chat / commit / docs / failure-log には **未含有**
+`cmd/ops photobook hide / unhide` 不使用、moderation_actions 行も追加せず。
+
+### 6.4 final invariants
+
+```
+reports by status: resolved_action_taken: 1
+outbox by type/status:
+  photobook.hidden          processed  6
+  photobook.published       processed  1
+  photobook.unhidden        processed  6
+  report.submitted          processed  1
+outbox pending total: 0
+usage_counters total: 0
+```
+
+### 6.5 workspace cleanup
+
+- cloud-sql-proxy 停止、port 5433 クリア
+- `/tmp/dsn-prod.txt` / `/tmp/target-pid.txt` / `/tmp/target-slug.txt` / `/tmp/proxy.log` / `/tmp/stop-eps-relax-baseline.json` / `/tmp/build-stop-gamma-relax.log` 全削除
+- DSN / raw target id / raw slug は端末履歴・work-log・commit に未残存
+
+## 7. final closeout（完了）
+
+PR closeout チェックリスト（`.agents/rules/pr-closeout.md` §6 準拠、本 commit 完了時点）:
+
+- [x] 実装 commit 単一化 + push 確認（`773d5cc`、origin/main 同期）
+- [x] STOP α / β / γ / ε 結果記録（本 work-log §1〜§6）
+- [x] Safari smoke 結果（unlisted submit 成功）
+- [x] DB 副作用と cleanup 結果（§6.1〜§6.2）
+- [x] target photobook 状態が変化していないこと（§6.3）
+- [x] Workers / Cloud Run Job / migration / Secret に変更なし（Job image bump のみ、env 不変）
+- [x] roadmap / 業務知識 / m2-report-plan / runbook / 決定メモ §13 履歴 更新
+- [x] stale-comments 結果 4 区分分類（A: 既修正 / B: 後続候補（既存）/ C: 過去経緯 / D: 該当なし）
+- [x] redact 対象値 grep 0 件（commit / docs / work-log / failure-log にて未含有）
+- [x] failure-log 起票要否判断 = **不要**（仕様意図的緩和、設計判断メモで網羅）
+
+## 8. Secret / Privacy 取り扱い（PR 全期間）
+
+- redact 対象値（raw slug / raw photobook_id / raw report_id / raw URL / token / Cookie / DATABASE_URL / Secret 値 / source_ip_hash 完全値 / scope_hash 完全値 / reporter_contact 実値 / detail 実値）: chat / commit / docs / work-log / failure-log には **未含有**（grep 0 件）
 - smoke target は redact ラベル（"unlisted smoke candidate" / "public hidden target"）で参照
-- cmd/ops 出力は redact 形式で扱う（PR36 STOP ε で得た教訓を反映）
+- cmd/ops 出力 / Cloud Run logs / Cloud Build logs にも値漏えいなし
+- Safari 用 URL は chat 一回限り提示の規律で扱った
 
 ## 9. 履歴
 
 | 日付 | 変更 |
 |------|------|
 | 2026-05-01 | 初版（STOP β 完了時点）。STOP γ / ε / final closeout は未実施として記録 |
+| 2026-05-01 | STOP γ / ε / final closeout 完了を反映。本書を完了モードに更新 |

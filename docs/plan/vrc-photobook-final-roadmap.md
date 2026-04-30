@@ -52,18 +52,19 @@
 
 ---
 
-## 1. 現在地（2026-05-01 PR36 UsageLimit 完了 / Backend deploy・Workers deploy・Safari 429 smoke 全工程実施済）
+## 1. 現在地（2026-05-01 PR36 UsageLimit + SubmitReport visibility 緩和（独立 PR）完了 / Backend deploy・Safari smoke 全工程実施済）
 
 ### 1.1 commit / revision
 
-- **PR36 commit（backend + frontend + cmd/ops + runbook + work-log 同梱）**: `bd29396 feat(backend): add usage limit domain foundation` → `e38d8a8 feat(backend): add usage limit repository and usecases` → `4ff9c01 feat(backend): enforce usage limits on write endpoints` → `9d36bfe test(backend): cover usage limit endpoint side effects` → `7205e3d test(backend): verify usage limit denies without side effects` → `d2edd80 feat(frontend): show usage limit errors` → `044899c feat(ops): add usage limit inspection commands` → final closeout commit
-- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00022-g4r`（image: `vrcpb-api:044899c`、PR36 UsageLimit 反映済）。rollback 候補 `vrcpb-api-00021-vl9` / `vrcpb-api:540cd1f`（PR36-0）
-- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:044899c`、`asia-northeast1`、
+- **PR36 commit（backend + frontend + cmd/ops + runbook + work-log 同梱）**: `bd29396 feat(backend): add usage limit domain foundation` → `e38d8a8 feat(backend): add usage limit repository and usecases` → `4ff9c01 feat(backend): enforce usage limits on write endpoints` → `9d36bfe test(backend): cover usage limit endpoint side effects` → `7205e3d test(backend): verify usage limit denies without side effects` → `d2edd80 feat(frontend): show usage limit errors` → `044899c feat(ops): add usage limit inspection commands` → `dfad866 docs(work-log): finalize PR36 usage limit result`
+- **SubmitReport visibility 緩和（独立 PR、PR36 後続）**: `da9e637 docs(plan): decide submit report visibility policy` → `773d5cc fix(report): allow report submit on unlisted photobooks` → final closeout commit。詳細: [`docs/plan/post-pr36-submit-report-visibility-decision.md`](./post-pr36-submit-report-visibility-decision.md) / [`harness/work-logs/2026-05-01_submit-report-visibility-relax-result.md`](../../harness/work-logs/2026-05-01_submit-report-visibility-relax-result.md)
+- **Cloud Run vrcpb-api revision（traffic 100%）**: `vrcpb-api-00023-pwv`（image: `vrcpb-api:773d5cc`、SubmitReport `assessReportEligibility` で `visibility != private` 受入軸を採用）。rollback 候補 `vrcpb-api-00022-g4r` / `vrcpb-api:044899c`（PR36 final closeout 時点）
+- **Cloud Run Job vrcpb-outbox-worker**: image `vrcpb-api:773d5cc`、`asia-northeast1`、
   `--once --max-events 1 --timeout 60s`、parallelism=1 / max-retries=0、cloudsql-instances 設定済、
   **手動 execute 運用**（Cloud Scheduler 未作成）。`REPORT_IP_HASH_SALT_V1` は **Job に注入せず**（PR35b 案 A、SubmitReport は Backend HTTP service 側で salt を使うため）
-- **Cloud Workers Frontend Worker version**: `ac2b884a-7c75-49d3-a21c-5c2a66c462ed`（PR36 commit 4/5 反映済、rate_limited 文言・retryAfter helper・Turnstile 区別 bundle 含有確認済）。rollback 候補 `ce64f95a-d4ce-405b-821a-f71c22a992db`（PR36-0）
-- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v18**（PR36 STOP α で 00018 `usage_counters` 適用済）
-- **Secret Manager**: 8 件（`DATABASE_URL` / `R2_*` ×5 / `REPORT_IP_HASH_SALT_V1` / `TURNSTILE_SECRET_KEY`）。Cloud Run service `vrcpb-api` の secretKeyRef も 8 件で完全一致
+- **Cloud Workers Frontend Worker version**: `ac2b884a-7c75-49d3-a21c-5c2a66c462ed`（PR36 STOP δ 由来、API 互換維持で SubmitReport visibility 緩和では再 deploy なし）。rollback 候補 `ce64f95a-d4ce-405b-821a-f71c22a992db`（PR36-0）
+- **Cloud SQL**: `vrcpb-api-verify`（asia-northeast1、検証用名のまま **本番相当に使用継続**）。migration **v18**（PR36 STOP α で 00018 `usage_counters` 適用済、以降変更なし）
+- **Secret Manager**: 8 件（`DATABASE_URL` / `R2_*` ×5 / `REPORT_IP_HASH_SALT_V1` / `TURNSTILE_SECRET_KEY`）。Cloud Run service `vrcpb-api` の secretKeyRef も 8 件で完全一致、SubmitReport 緩和では env / Secret 変更なし
 
 ### 1.2 実装済み（重要なものから）
 
