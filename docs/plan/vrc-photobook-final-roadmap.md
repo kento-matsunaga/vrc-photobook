@@ -52,7 +52,7 @@
 
 ---
 
-## 1. 現在地（2026-04-29 PR35b + PR36-0 完了、PR36 UsageLimit 計画書作成中）
+## 1. 現在地（2026-04-30 PR36 UsageLimit 実装中、commit 1〜5 完了 / Backend deploy・Workers deploy・Safari 429 smoke は未実施）
 
 ### 1.1 commit / revision
 
