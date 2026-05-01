@@ -1,4 +1,10 @@
-// POST /api/photobooks クライアント wrapper（Browser から呼ぶ）。
+// POST /api/photobooks クライアント wrapper（Browser から Backend API base に投げる）。
+//
+// 配信構成:
+//   - Frontend は Cloudflare Workers（OpenNext）で配信される app Worker
+//   - Backend は Cloud Run の独立サービス（api.vrc-photobook.com）
+//   - Browser → `${NEXT_PUBLIC_API_BASE_URL}/api/photobooks` に直接 POST する
+//     （app Worker への相対 fetch だと Backend に届かないため getApiBaseUrl() 経由で base を解決する）
 //
 // 設計参照:
 //   - docs/plan/m2-create-entry-plan.md §7（API 設計）
@@ -6,11 +12,19 @@
 //
 // セキュリティ:
 //   - turnstile_token / draft_edit_token / photobook_id を console.* に出さない
-//   - response の draft_edit_token は呼び出し側が即座に window.location.replace で消費する設計。
+//   - response の draft_edit_token は本関数では返さず、呼び出し側が即座に
+//     `window.location.replace(out.draftEditUrlPath)` で raw token を消費する設計。
 //     localStorage / sessionStorage に保存しない、再利用しない、URL bar に表示しない
 //   - 失敗時の詳細は kind だけ返す。Cloudflare 側のエラー詳細を画面・log に出さない
 
-const ENDPOINT = "/api/photobooks";
+/** Backend のベース URL を取得する。NEXT_PUBLIC_API_BASE_URL は build 時に inline される公開値。 */
+function getApiBaseUrl(): string {
+  const url = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+  if (url === "") {
+    throw new Error("NEXT_PUBLIC_API_BASE_URL is not set");
+  }
+  return url.replace(/\/$/, "");
+}
 
 /** photobook_type の列挙値（backend `photobook_type.Parse` と一致）。 */
 export const PHOTOBOOK_TYPES = [
@@ -76,9 +90,10 @@ export async function createPhotobook(
     turnstile_token: input.turnstileToken,
   });
 
+  const url = `${getApiBaseUrl()}/api/photobooks`;
   let res: Response;
   try {
-    res = await fetch(ENDPOINT, {
+    res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,

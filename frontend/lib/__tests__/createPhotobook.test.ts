@@ -2,6 +2,7 @@
 //
 // 観点:
 //   - L3 trim guard（空 / 空白のみで fetch せず即 reject）
+//   - API base URL（NEXT_PUBLIC_API_BASE_URL 経由で Backend に POST）
 //   - 成功 path（response の draft_edit_url_path を返す）
 //   - error mapping（400 / 403 / 503 / その他 / network）
 //   - response の draft_edit_token は **本関数では返さない**（呼び出し側で window.location.replace 想定）
@@ -14,12 +15,16 @@ import {
   type CreatePhotobookError,
 } from "@/lib/createPhotobook";
 
+const ORIGINAL_API = process.env.NEXT_PUBLIC_API_BASE_URL;
+
 describe("createPhotobook L3 trim guard", () => {
   beforeEach(() => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.test";
     vi.stubGlobal("fetch", vi.fn());
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    process.env.NEXT_PUBLIC_API_BASE_URL = ORIGINAL_API;
   });
 
   it("正常_空文字tokenでfetch呼ばずturnstile_failedをreject", async () => {
@@ -46,10 +51,12 @@ describe("createPhotobook L3 trim guard", () => {
 
 describe("createPhotobook success path", () => {
   beforeEach(() => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.test";
     vi.stubGlobal("fetch", vi.fn());
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    process.env.NEXT_PUBLIC_API_BASE_URL = ORIGINAL_API;
   });
 
   it("正常_201で_draftEditUrlPath_と_draftExpiresAt_を返す", async () => {
@@ -73,6 +80,57 @@ describe("createPhotobook success path", () => {
     expect(out.draftExpiresAt).toBe("2026-05-08T12:34:56Z");
   });
 
+  it("正常_NEXT_PUBLIC_API_BASE_URL先のapi_photobooksにPOSTする", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        photobook_id: "id-1",
+        draft_edit_token: "tok-1",
+        draft_edit_url_path: "/draft/tok-1",
+        draft_expires_at: "2026-05-08T00:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await createPhotobook({ type: "memory", turnstileToken: "valid-token" });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("https://api.test/api/photobooks");
+    expect(init.method).toBe("POST");
+    expect(init.cache).toBe("no-store");
+  });
+
+  it("正常_NEXT_PUBLIC_API_BASE_URL末尾スラッシュは除去されてfetchされる", async () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.test/";
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        draft_edit_url_path: "/draft/tok-2",
+        draft_expires_at: "2026-05-08T00:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await createPhotobook({ type: "memory", turnstileToken: "valid-token" });
+
+    const [calledUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("https://api.test/api/photobooks");
+  });
+
+  it("異常_NEXT_PUBLIC_API_BASE_URL未設定でErrorをthrow", async () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "";
+    const mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+
+    await expect(
+      createPhotobook({ type: "memory", turnstileToken: "valid-token" }),
+    ).rejects.toThrow("NEXT_PUBLIC_API_BASE_URL is not set");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("正常_response_に_draft_edit_url_path_が無い場合_server_error", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
@@ -87,10 +145,12 @@ describe("createPhotobook success path", () => {
 
 describe("createPhotobook error mapping", () => {
   beforeEach(() => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.test";
     vi.stubGlobal("fetch", vi.fn());
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    process.env.NEXT_PUBLIC_API_BASE_URL = ORIGINAL_API;
   });
 
   const cases: Array<{ status: number; want: CreatePhotobookError["kind"] }> = [
