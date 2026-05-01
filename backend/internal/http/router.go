@@ -42,6 +42,7 @@ type RouterConfig struct {
 	PhotobookManageHandlers    *photobookhttp.ManageHandlers
 	PhotobookEditHandlers      *photobookhttp.EditHandlers
 	PhotobookPublishHandlers   *photobookhttp.PublishHandlers
+	PhotobookCreateHandlers    *photobookhttp.CreateHandlers
 	OgpPublicHandlers          *ogphttp.PublicHandlers
 	ImageUploadHandlers        *imageuploadhttp.Handlers
 	UploadVerificationHandlers *uvhttp.Handlers
@@ -69,6 +70,13 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	if cfg.PhotobookHandlers != nil {
 		r.Post("/api/auth/draft-session-exchange", cfg.PhotobookHandlers.DraftSessionExchange)
 		r.Post("/api/auth/manage-session-exchange", cfg.PhotobookHandlers.ManageSessionExchange)
+	}
+
+	// 作成導線 endpoint（認可不要、Turnstile 必須、docs/plan/m2-create-entry-plan.md）。
+	// Cookie / session middleware は経由しない。LP「今すぐ作る」→ /create → POST /api/photobooks
+	// → response.draft_edit_token を Frontend が即消費して /draft/<token> に redirect。
+	if cfg.PhotobookCreateHandlers != nil {
+		r.Post("/api/photobooks", cfg.PhotobookCreateHandlers.CreatePhotobook)
 	}
 
 	// imageupload endpoint。draft session middleware を chain。

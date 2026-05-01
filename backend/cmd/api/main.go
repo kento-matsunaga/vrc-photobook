@@ -181,6 +181,23 @@ func main() {
 	} else if pool != nil {
 		logger.Info("report endpoint disabled (turnstile or REPORT_IP_HASH_SALT_V1 not configured)")
 	}
+	// 作成導線 endpoint（POST /api/photobooks）。Turnstile が configured かつ pool 利用可能な
+	// ときに有効化（docs/plan/m2-create-entry-plan.md、UsageLimit 連動なし＝案 U2）。
+	// turnstileAction は "photobook-create" を hardcode（env / Secret / Cloudflare ダッシュボード変更不要）。
+	if pool != nil && cfg.TurnstileSecretKey != "" {
+		createVerifier := turnstile.NewCloudflareVerifier(turnstile.CloudflareConfig{
+			Secret: cfg.TurnstileSecretKey,
+		})
+		routerCfg.PhotobookCreateHandlers = wireup.BuildCreateHandlers(
+			pool,
+			createVerifier,
+			cfg.TurnstileHostname,
+			"photobook-create",
+		)
+		logger.Info("create endpoint enabled (turnstile configured)")
+	} else if pool != nil {
+		logger.Info("create endpoint disabled (turnstile not configured)")
+	}
 	// session validator は draft / manage 共通（session_type は middleware が渡す）。
 	if imageUploadHandlers != nil || uvHandlers != nil || photobookManageHandlers != nil || photobookEditHandlers != nil {
 		validator := sessionintegration.NewSessionValidator(pool)

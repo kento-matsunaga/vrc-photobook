@@ -97,6 +97,15 @@ export default function HomePage() {
             個人運営の非公式ファンメイドサービス。VRChat 公式とは関係ありません。
           </p>
           <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:flex-wrap">
+            {/* Primary CTA: 作成導線（作成導線追加 PR で /create に直結） */}
+            <Link
+              href="/create"
+              data-testid="lp-hero-cta-create"
+              className="inline-flex h-12 items-center justify-center rounded bg-brand-teal px-5 text-sm font-bold text-white hover:bg-brand-teal-hover"
+            >
+              今すぐ作る
+            </Link>
+            {/* Secondary CTAs: サービス説明 / 管理 URL ヘルプ */}
             {ctaLinks.map((c) => (
               <Link
                 key={c.href}
@@ -215,22 +224,22 @@ export default function HomePage() {
         className="mt-10 rounded-lg border border-brand-teal bg-brand-teal-soft p-5 text-center sm:p-6"
       >
         <p className="flex items-center justify-center gap-3 text-xs font-medium text-ink-strong before:h-px before:w-4 before:bg-ink-soft after:h-px after:w-4 after:bg-ink-soft">
-          サービスの全体像をまず確認
+          さあ、思い出をフォトブックにまとめよう
         </p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <Link
-            href="/about"
-            data-testid="lp-cta-block-about"
+            href="/create"
+            data-testid="lp-cta-block-create"
             className="inline-flex h-12 items-center justify-center rounded bg-brand-teal px-6 text-sm font-bold text-white hover:bg-brand-teal-hover"
           >
-            VRC PhotoBook について
+            今すぐ作る
           </Link>
           <Link
-            href="/help/manage-url"
-            data-testid="lp-cta-block-help"
+            href="/about"
+            data-testid="lp-cta-block-about"
             className="inline-flex h-12 items-center justify-center rounded border border-brand-teal bg-surface px-6 text-sm font-bold text-brand-teal hover:bg-surface-soft"
           >
-            管理 URL の使い方
+            VRC PhotoBook について
           </Link>
         </div>
         <p className="mt-3 text-xs text-ink-medium">ログイン不要・スマホで完結</p>

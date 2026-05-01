@@ -53,7 +53,11 @@ describe("HomePage（LP, /）", () => {
     expect(html).toContain("ログイン不要");
     expect(html).toContain("管理 URL");
     expect(html).toContain("非公式ファンメイド");
-    // CTA リンク先（about / help/manage-url）
+    // Primary CTA は /create（作成導線追加 PR）
+    expect(html).toContain('data-testid="lp-hero-cta-create"');
+    expect(html).toContain('href="/create"');
+    expect(html).toContain('data-testid="lp-cta-block-create"');
+    // Secondary CTA リンク先（about / help/manage-url）
     expect(html).toContain('href="/about"');
     expect(html).toContain('href="/help/manage-url"');
     // policy リンク

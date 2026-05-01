@@ -26,6 +26,7 @@ import (
 	"vrcpb/backend/internal/photobook/infrastructure/session_adapter"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
 	"vrcpb/backend/internal/photobook/internal/usecase"
+	"vrcpb/backend/internal/turnstile"
 	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
 
@@ -188,6 +189,26 @@ func CreateAndPublishForCLI(
 		Slug:               slug,
 		OutboxPendingCount: outboxCount,
 	}, nil
+}
+
+// BuildCreateHandlers は POST /api/photobooks 用の HTTP Handlers を組み立てる
+// （作成導線追加 PR、docs/plan/m2-create-entry-plan.md）。
+//
+// pool / verifier のいずれかが nil なら nil を返す（main.go 側で endpoint を登録しない判断）。
+// turnstileAction は "photobook-create" を hardcode で渡す（env 変更不要、既存
+// TURNSTILE_SECRET_KEY 流用、Cloudflare ダッシュボード変更不要）。
+func BuildCreateHandlers(
+	pool *pgxpool.Pool,
+	verifier turnstile.Verifier,
+	turnstileHostname string,
+	turnstileAction string,
+) *photobookhttp.CreateHandlers {
+	if pool == nil || verifier == nil {
+		return nil
+	}
+	repo := photobookrdb.NewPhotobookRepository(pool)
+	createUC := usecase.NewCreateDraftPhotobook(repo)
+	return photobookhttp.NewCreateHandlers(createUC, verifier, turnstileHostname, turnstileAction, photobookhttp.SystemClock{})
 }
 
 // BuildEditHandlers は編集 UI 本格化（PR27）用の HTTP Handlers を組み立てる。
