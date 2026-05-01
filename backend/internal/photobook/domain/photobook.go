@@ -447,20 +447,26 @@ func (p Photobook) IsPublished() bool { return p.status.IsPublished() }
 
 // === helpers ===
 
+// validateTitle は draft 作成時の title 検証（length-only）。
+//
+// title は業務知識 v4 §3.1 で **任意**。draft 作成時に空文字を許容する（初回入口で
+// ユーザに必須記入を強要しない設計）。publish 時に title の必須性が必要な場合は
+// CanPublish 等の publish-time path で別途検証する。
+//
+// ErrEmptyTitle 定数は publish_handler のエラーマッピング（情報漏洩抑止のため
+// 理由を区別しない）が引き続き参照するため保持する。
 func validateTitle(s string) error {
-	if s == "" {
-		return ErrEmptyTitle
-	}
 	if len([]rune(s)) > maxTitleLen {
 		return ErrTitleTooLong
 	}
 	return nil
 }
 
+// validateCreatorName は draft 作成時の creator_display_name 検証（length-only）。
+//
+// creator_display_name は業務知識 v4 §3.1 で **任意**。draft 作成時に空文字を許容する。
+// publish 時の必須性は CanPublish (creatorDisplayName == "" を直接 check) で別途担保される。
 func validateCreatorName(s string) error {
-	if s == "" {
-		return ErrEmptyCreatorName
-	}
 	if len([]rune(s)) > maxCreatorNameLen {
 		return ErrCreatorNameTooLong
 	}

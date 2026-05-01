@@ -47,16 +47,16 @@ func TestCreateDraftPhotobook_Execute(t *testing.T) {
 			wantStatus:  "draft",
 		},
 		{
-			name:        "異常_空title",
-			description: "Given: title='', When: Execute, Then: ErrEmptyTitle",
+			name:        "正常_空title許容",
+			description: "Given: title='' (任意項目), When: Execute, Then: 成功（domain validation を通過、CreateCalls=1）",
 			modify:      func(in *usecase.CreateDraftPhotobookInput) { in.Title = "" },
-			wantErr:     true,
+			wantStatus:  "draft",
 		},
 		{
-			name:        "異常_空creator",
-			description: "Given: creator_display_name='', When: Execute, Then: ErrEmptyCreatorName",
+			name:        "正常_空creator許容",
+			description: "Given: creator_display_name='' (任意項目), When: Execute, Then: 成功（domain validation を通過、CreateCalls=1。publish 時は CanPublish で別途 reject される）",
 			modify:      func(in *usecase.CreateDraftPhotobookInput) { in.CreatorDisplayName = "" },
-			wantErr:     true,
+			wantStatus:  "draft",
 		},
 	}
 	for _, tc := range cases {

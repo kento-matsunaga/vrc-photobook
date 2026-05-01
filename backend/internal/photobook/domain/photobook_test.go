@@ -61,10 +61,9 @@ func TestNewDraftPhotobook(t *testing.T) {
 			description: "Given: 必須項目を指定, When: NewDraftPhotobook, Then: status=draft / version=0 / draft_expires_at が now+ttl",
 		},
 		{
-			name:        "異常_空title",
-			description: "Given: title='', When: NewDraftPhotobook, Then: ErrEmptyTitle",
+			name:        "正常_空title許容",
+			description: "Given: title='' (任意項目), When: NewDraftPhotobook, Then: 成功（draft 作成時は空文字許容、publish 時は CanPublish で別途検証）",
 			modify:      func(p *domain.NewDraftPhotobookParams) { p.Title = "" },
-			wantErr:     domain.ErrEmptyTitle,
 		},
 		{
 			name:        "異常_長すぎtitle",
@@ -84,10 +83,9 @@ func TestNewDraftPhotobook(t *testing.T) {
 			wantErr: domain.ErrTitleTooLong,
 		},
 		{
-			name:        "異常_空creator_name",
-			description: "Given: creator_display_name='', When: NewDraftPhotobook, Then: ErrEmptyCreatorName",
+			name:        "正常_空creator_name許容",
+			description: "Given: creator_display_name='' (任意項目), When: NewDraftPhotobook, Then: 成功（draft 作成時は空文字許容、publish 時は CanPublish で creatorDisplayName==\"\" を別途 reject）",
 			modify:      func(p *domain.NewDraftPhotobookParams) { p.CreatorDisplayName = "" },
-			wantErr:     domain.ErrEmptyCreatorName,
 		},
 		{
 			name:        "異常_負のTTL",

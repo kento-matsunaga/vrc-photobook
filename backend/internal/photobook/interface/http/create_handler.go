@@ -38,8 +38,10 @@ const (
 	// error mapping と整合: SubmitReport / Upload / Publish の lib も "invalid_payload"）
 	bodyInvalidPayload = `{"status":"invalid_payload"}`
 
-	// title / creator_display_name の上限。業務知識 v4 §3.1 と既存 photobook 制約に揃える。
-	maxTitleLen              = 100
+	// title / creator_display_name の上限。domain の maxTitleLen / maxCreatorNameLen と一致させる。
+	// 不一致だと 80〜100 文字 title が handler 通過後 domain で 500 を返す経路が発生するため
+	// （詳細: docs/plan/m2-create-entry-optional-fields-fix-plan.md §1.2）。
+	maxTitleLen              = 80
 	maxCreatorDisplayNameLen = 50
 
 	// draft_expires_at = now + 7 day（業務知識 v4 §3.1 / §6.13）

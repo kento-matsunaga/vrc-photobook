@@ -23,6 +23,8 @@ import (
 	"strings"
 	"testing"
 
+	"vrcpb/backend/internal/photobook/internal/usecase"
+	usecasetests "vrcpb/backend/internal/photobook/internal/usecase/tests"
 	"vrcpb/backend/internal/turnstile"
 )
 
@@ -254,6 +256,85 @@ func TestCreatePhotobook_TurnstileVerifyFailures(t *testing.T) {
 			}
 			if verifier.called != 1 {
 				t.Errorf("verifier called = %d, want 1", verifier.called)
+			}
+		})
+	}
+}
+
+// TestCreatePhotobook_Success_OptionalFields は title / creator_display_name が任意項目
+// であり、空文字 / 境界長で submit したとき HTTP 201 が返ることを検証する。
+//
+// 起点: docs/plan/m2-create-entry-optional-fields-fix-plan.md §1
+// 既存の TestCreatePhotobook_LengthValidation（過長 → 400）と対をなし、handler が
+// optional fields を正しく UseCase に渡し domain も空文字を許容することを担保する。
+func TestCreatePhotobook_Success_OptionalFields(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		title       string
+		creator     string
+	}{
+		{
+			name:        "正常_title空_creator空でも201",
+			description: "Given: title='' / creator='' (任意項目を未入力), When: POST + Turnstile siteverify 成功, Then: 201 Created（domain validation 通過）",
+			title:       "",
+			creator:     "",
+		},
+		{
+			name:        "正常_title空のみ_201",
+			description: "Given: title='' / creator=値あり, When: POST, Then: 201 Created",
+			title:       "",
+			creator:     "Tester",
+		},
+		{
+			name:        "正常_creator空のみ_201",
+			description: "Given: title=値あり / creator='', When: POST, Then: 201 Created",
+			title:       "smoke title",
+			creator:     "",
+		},
+		{
+			name:        "正常_境界_title80_creator50で201",
+			description: "Given: title=80 文字 / creator=50 文字 (それぞれ上限ちょうど), When: POST, Then: 201 Created",
+			title:       strings.Repeat("a", maxTitleLen),
+			creator:     strings.Repeat("b", maxCreatorDisplayNameLen),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := &fakeVerifier{}
+			repo := usecasetests.NewFakePhotobookRepository()
+			uc := usecase.NewCreateDraftPhotobook(repo)
+			h := NewCreateHandlers(uc, verifier, "test.example", "photobook-create", nil)
+
+			body, _ := json.Marshal(createRequest{
+				Type:               "memory",
+				Title:              tt.title,
+				CreatorDisplayName: tt.creator,
+				TurnstileToken:     "valid-token",
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/photobooks", bytes.NewReader(body))
+			rec := httptest.NewRecorder()
+
+			h.CreatePhotobook(rec, req)
+
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("status = %d, want %d (body=%q)", rec.Code, http.StatusCreated, rec.Body.String())
+			}
+			if repo.CreateCalls != 1 {
+				t.Errorf("repo.CreateCalls = %d, want 1", repo.CreateCalls)
+			}
+			if rec.Header().Get("Cache-Control") != "no-store" {
+				t.Errorf("Cache-Control = %q, want no-store", rec.Header().Get("Cache-Control"))
+			}
+			// raw draft_edit_token は response body にだけ 1 度返る（呼び出し側が即 replace
+			// する設計）。本 test では token 形式のみ確認、値は assert しない。
+			var resp createResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if resp.PhotobookID == "" || resp.DraftEditToken == "" || resp.DraftEditURLPath == "" {
+				t.Errorf("response missing required fields (photobook_id / draft_edit_token / draft_edit_url_path)")
 			}
 		})
 	}
