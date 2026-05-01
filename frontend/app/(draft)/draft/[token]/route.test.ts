@@ -41,7 +41,9 @@ describe("GET /draft/[token] success path", () => {
   it("正常_Backend200で302+Set-Cookie+Locationにtoken無し", async () => {
     // Given: Backend が 200 を返し、{session_token, photobook_id, expires_at} を返す
     // When: Route Handler の GET が呼ばれる
-    // Then: 302 redirect / Location が /edit/<photobook_id> / Set-Cookie に必須属性 / Location にも body にも raw token が出ない
+    // Then: 302 redirect / Location が /prepare/<photobook_id> (Upload Staging 画面、
+    //       docs/plan/m2-upload-staging-plan.md §5.2) / Set-Cookie に必須属性 /
+    //       Location にも body にも raw token が出ない
     const draftRaw = fakeToken43("draft-success");
     const sessionRaw = fakeToken43("session-draft");
     const photobookId = "01234567-89ab-cdef-0123-456789abcdef";
@@ -67,7 +69,7 @@ describe("GET /draft/[token] success path", () => {
     expect(res.status).toBe(302);
 
     const loc = res.headers.get("location") ?? "";
-    expect(loc).toBe(`http://localhost:3000/edit/${photobookId}`);
+    expect(loc).toBe(`http://localhost:3000/prepare/${photobookId}`);
     expect(loc.includes(draftRaw)).toBe(false);
     expect(loc.includes(sessionRaw)).toBe(false);
 

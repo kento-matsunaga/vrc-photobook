@@ -454,17 +454,23 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
         ))
       )}
 
-      <section className="space-y-3 rounded-lg border border-divider bg-surface p-4 shadow-sm">
-        <h2 className="text-h2 text-ink">写真を追加</h2>
-        <p className="text-sm text-ink-medium">
-          JPEG / PNG / WebP、最大 10MB。HEIC / HEIF は未対応です。
+      {/* /prepare で複数画像を一括投入する導線が主。/edit ではフォールバックとして 1 枚ずつ
+          追加できる導線を残す（docs/plan/m2-upload-staging-plan.md §7.1）。 */}
+      <section
+        data-testid="edit-upload-fallback"
+        className="space-y-2 rounded-md border border-divider bg-surface-soft p-3 text-sm"
+      >
+        <h3 className="text-sm font-bold text-ink">写真を 1 枚ずつ追加</h3>
+        <p className="text-xs text-ink-medium">
+          まとめて投稿したい場合は新しい photobook 作成時の「写真を追加」画面をご利用ください。
+          ここからは 1 枚ずつ追加できます（JPEG / PNG / WebP、最大 10MB、HEIC / HEIF 未対応）。
         </p>
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleFileSelect}
           disabled={isBusy || uploadStatus.kind === "verifying" || uploadStatus.kind === "uploading" || uploadStatus.kind === "completing"}
-          className="block w-full text-sm"
+          className="block w-full text-xs"
         />
         {pendingFile && (
           <div className="space-y-3">

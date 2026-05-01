@@ -1,10 +1,11 @@
 // /draft/[token] Route Handler。
 //
-// 役割（ADR-0003 / 業務知識 v4 §6.13 / 計画 m2-photobook-session-integration-plan.md §12）:
+// 役割（ADR-0003 / 業務知識 v4 §6.13 / 計画 m2-photobook-session-integration-plan.md §12,
+//      docs/plan/m2-upload-staging-plan.md §5.2 採用案 A）:
 //   1. URL path から raw draft_edit_token を取り出す
 //   2. Backend `/api/auth/draft-session-exchange` を呼ぶ
 //   3. 返ってきた raw session_token を **本 Route Handler で Set-Cookie**
-//   4. `/edit/<photobook_id>` へ 302 redirect
+//   4. `/prepare/<photobook_id>` へ 302 redirect（Upload Staging 画面）
 //
 // セキュリティ:
 //   - raw draft_edit_token / session_token はログに出さない（console.* / error message にも含めない）
@@ -46,7 +47,7 @@ export async function GET(
     const out = await exchangeDraftToken(token);
 
     const res = NextResponse.redirect(
-      buildEditPageUrl(out.photobookId),
+      buildPreparePageUrl(out.photobookId),
       302,
     );
     res.cookies.set({
@@ -74,10 +75,11 @@ function redirectInvalid(): Response {
   return res;
 }
 
-/** /edit/<photobook_id> の絶対 URL を組み立てる。 */
-function buildEditPageUrl(photobookId: string): string {
+/** /prepare/<photobook_id> の絶対 URL を組み立てる（Upload Staging 画面）。
+ *  next=query で柔軟化する案 B は open redirect リスクのため不採用、ハードコード固定。 */
+function buildPreparePageUrl(photobookId: string): string {
   const base = (process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  return `${base}/edit/${photobookId}`;
+  return `${base}/prepare/${photobookId}`;
 }
 
 /** エラー時 redirect 先。 */
