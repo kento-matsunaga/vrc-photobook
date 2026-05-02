@@ -70,6 +70,17 @@ export type EditSettings = {
   coverTitle?: string;
 };
 
+/** photobook 配下の image 1 件分（attach 済 / 未配置 を問わず列挙）。
+ *  reload 復元 + progress UI の ground truth に使う（plan v2 §3.2 P0-b）。 */
+export type EditImageView = {
+  imageId: string;
+  status: "uploading" | "processing" | "available" | "failed";
+  sourceFormat: string;
+  originalByteSize: number;
+  failureReason?: string;
+  createdAt: string;
+};
+
 export type EditView = {
   photobookId: string;
   status: string;
@@ -80,10 +91,18 @@ export type EditView = {
   pages: EditPage[];
   processingCount: number;
   failedCount: number;
+  /** photobook 全 image。reload 後の queue 復元に使う（β-3）。 */
+  images: EditImageView[];
   draftExpiresAt?: string;
 };
 
-/** Server Component から edit-view を取得する（Cookie ヘッダを手動転送）。 */
+/**
+ * Server Component から edit-view を取得する（Cookie ヘッダを手動転送）。
+ *
+ * SSR 専用。Edge runtime / Next.js Server Component では cross-origin fetch に対して
+ * ブラウザ的な credentials 動作を期待できないため、`headers()` から取得した Cookie
+ * を直接転送する。
+ */
 export async function fetchEditView(
   photobookId: string,
   cookieHeader: string,
@@ -96,6 +115,36 @@ export async function fetchEditView(
       method: "GET",
       cache: "no-store",
       headers: cookieHeader === "" ? {} : { Cookie: cookieHeader },
+      signal,
+    });
+  } catch {
+    throw { kind: "network" } satisfies EditApiError;
+  }
+  if (res.status === 200) {
+    const body = (await res.json()) as ApiEditViewPayload;
+    return mapEditViewPayload(body);
+  }
+  throw mapStatusToError(res.status);
+}
+
+/**
+ * Browser Client Component から edit-view を取得する（credentials: include）。
+ *
+ * cross-origin での Cookie 送信のため `credentials: "include"` を必須にする。
+ * Cookie ヘッダ手動転送（SSR 経路）と取り違えないこと。client polling が
+ * Cookie 無しで 401 になり止まる事故の再発防止（plan v2 §3.4 P0-a）。
+ */
+export async function fetchEditViewClient(
+  photobookId: string,
+  signal?: AbortSignal,
+): Promise<EditView> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/edit-view`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
       signal,
     });
   } catch {
@@ -231,6 +280,36 @@ export async function addPage(
   return { pageId: body.page_id, displayOrder: body.display_order };
 }
 
+/**
+ * /prepare の「編集へ進む」押下時に呼ぶ bulk attach API（plan v2 §3.4 P0-d）。
+ *
+ * Backend は available + 未配置の image を photobook 内に bulk attach する。
+ * response は count-only（raw image_id / page_id / photo_id を返さない）。
+ */
+export type AttachPrepareImagesResult = {
+  attachedCount: number;
+  pageCount: number;
+  skippedCount: number;
+};
+
+export async function prepareAttachImages(
+  photobookId: string,
+  expectedVersion: number,
+): Promise<AttachPrepareImagesResult> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/prepare/attach-images`;
+  const res = await mutate(url, "POST", { expected_version: expectedVersion });
+  const body = (await res.json()) as {
+    attached_count: number;
+    page_count: number;
+    skipped_count: number;
+  };
+  return {
+    attachedCount: body.attached_count,
+    pageCount: body.page_count,
+    skippedCount: body.skipped_count,
+  };
+}
+
 // === payload mapping ===
 
 type ApiPresignedURL = { url: string; width: number; height: number; expires_at: string };
@@ -238,6 +317,14 @@ type ApiVariantSet = { display: ApiPresignedURL; thumbnail: ApiPresignedURL };
 type ApiPhoto = { photo_id: string; image_id: string; display_order: number; caption?: string; variants: ApiVariantSet };
 type ApiPage = { page_id: string; display_order: number; caption?: string; photos: ApiPhoto[] };
 type ApiSettings = { type: string; title: string; description?: string; layout: string; opening_style: string; visibility: string; cover_title?: string };
+type ApiImage = {
+  image_id: string;
+  status: string;
+  source_format: string;
+  original_byte_size: number;
+  failure_reason?: string;
+  created_at: string;
+};
 type ApiEditViewPayload = {
   photobook_id: string;
   status: string;
@@ -248,6 +335,7 @@ type ApiEditViewPayload = {
   pages: ApiPage[];
   processing_count: number;
   failed_count: number;
+  images?: ApiImage[];
   draft_expires_at?: string;
 };
 
@@ -289,6 +377,27 @@ function mapEditViewPayload(p: ApiEditViewPayload): EditView {
     })),
     processingCount: p.processing_count,
     failedCount: p.failed_count,
+    images: (p.images ?? []).map(mapImage),
     draftExpiresAt: p.draft_expires_at,
   };
+}
+
+function mapImage(i: ApiImage): EditImageView {
+  const status = normalizeImageStatus(i.status);
+  return {
+    imageId: i.image_id,
+    status,
+    sourceFormat: i.source_format,
+    originalByteSize: i.original_byte_size,
+    failureReason: i.failure_reason,
+    createdAt: i.created_at,
+  };
+}
+
+function normalizeImageStatus(s: string): EditImageView["status"] {
+  if (s === "uploading" || s === "processing" || s === "available" || s === "failed") {
+    return s;
+  }
+  // 未知の状態（例: deleted / purged）は failed に倒す（UI で混乱しないよう defensive）。
+  return "failed";
 }

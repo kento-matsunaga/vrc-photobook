@@ -1,13 +1,15 @@
 // Upload Staging 画面の image tile（presentational）。
 //
 // 設計参照: docs/plan/m2-upload-staging-plan.md §6.5
+// β-3: server 復元 tile（origin="server"）にも対応
 //
 // 役割:
-//   - 1 image の status badge / filename / progress を表示
+//   - 1 image の status badge / displayLabel / progress を表示
 //   - retry / remove は P1 で追加（本 P0 では UI のみ表示、ハンドラ無し）
 //
 // セキュリティ:
-//   - file.name は表示するが、imageId / storage_key / R2 URL は表示しない
+//   - displayLabel（filename or "復元された画像"）は表示するが、
+//     imageId / storage_key / R2 URL / data-testid に raw image_id を出さない
 //   - failed 時の reason は user-friendly な固定文言にマッピング（敵対者対策で詳細を出さない）
 
 import type { QueueTile, TileFailureReason } from "@/components/Prepare/UploadQueue";
@@ -73,8 +75,8 @@ export function ImageTile({ tile }: Props) {
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs text-ink-strong" title={tile.file.name}>
-          {tile.file.name}
+        <span className="truncate text-xs text-ink-strong" title={tile.displayLabel}>
+          {tile.displayLabel}
         </span>
         <span
           className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-medium ${statusColorClass(tile)}`}
@@ -90,7 +92,7 @@ export function ImageTile({ tile }: Props) {
       )}
 
       {tile.status.kind === "processing" && (
-        <p className="text-[10px] text-ink-medium">最大 5 分ほどお待ちください</p>
+        <p className="text-[10px] text-ink-medium">通常 1〜2 分ほどで完了します</p>
       )}
 
       {isFailed && tile.status.kind === "failed" && (
@@ -99,9 +101,11 @@ export function ImageTile({ tile }: Props) {
         </p>
       )}
 
-      <p className="text-[10px] text-ink-medium">
-        {Math.round(tile.file.size / 1024).toLocaleString()} KB
-      </p>
+      {tile.byteSize > 0 && (
+        <p className="text-[10px] text-ink-medium">
+          {Math.round(tile.byteSize / 1024).toLocaleString()} KB
+        </p>
+      )}
     </div>
   );
 }

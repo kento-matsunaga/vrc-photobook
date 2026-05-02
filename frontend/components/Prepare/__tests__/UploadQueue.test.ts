@@ -15,13 +15,16 @@ import {
   activeUploadCount,
   canProceedToEdit,
   emptyQueue,
+  imageIdOf,
   isAllSettled,
   markStatus,
+  mergeServerImages,
   pollDelaySeconds,
   reconcileWithServer,
   selectNextRunnable,
   summary,
   type QueueTile,
+  type ServerImageForMerge,
 } from "@/components/Prepare/UploadQueue";
 
 // File を test 用に組み立てる helper。
@@ -253,5 +256,259 @@ describe("pollDelaySeconds (exponential backoff)", () => {
     expect(pollDelaySeconds(3)).toBe(20);
     expect(pollDelaySeconds(4)).toBe(60);
     expect(pollDelaySeconds(20)).toBe(60);
+  });
+});
+
+describe("mergeServerImages (β-3 reload restore)", () => {
+  type Case = {
+    name: string;
+    description: string;
+    initialQueue: () => ReturnType<typeof emptyQueue>;
+    serverImages: ServerImageForMerge[];
+    placedImageIds: Set<string>;
+    labelLookup?: (imageId: string) => string | null;
+    assert: (tiles: QueueTile[]) => void;
+  };
+
+  const tests: Case[] = [
+    {
+      name: "正常_空 queue に server processing image を新規 server-restored tile として追加",
+      description: "Given: 空 queue + server に processing image 1 件, When: merge, Then: 1 tile が origin=server status=processing で追加",
+      initialQueue: () => emptyQueue(),
+      serverImages: [
+        {
+          imageId: "img-aaa",
+          status: "processing",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].origin).toBe("server");
+        expect(tiles[0].status.kind).toBe("processing");
+        expect(tiles[0].file).toBeUndefined();
+        expect(tiles[0].byteSize).toBe(1_000_000);
+        expect(tiles[0].displayLabel).toBe("復元された画像");
+      },
+    },
+    {
+      name: "正常_labelLookup から filename を復元",
+      description: "Given: localStorage に filename がある, When: merge, Then: displayLabel が filename になる",
+      initialQueue: () => emptyQueue(),
+      serverImages: [
+        {
+          imageId: "img-bbb",
+          status: "available",
+          originalByteSize: 2_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(),
+      labelLookup: (id) => (id === "img-bbb" ? "vacation.jpg" : null),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].displayLabel).toBe("vacation.jpg");
+        expect(tiles[0].status.kind).toBe("available");
+      },
+    },
+    {
+      name: "正常_既に placed の image は queue から除外",
+      description: "Given: server image が placedImageIds 含む, When: merge, Then: tile に追加されない",
+      initialQueue: () => emptyQueue(),
+      serverImages: [
+        {
+          imageId: "img-ccc",
+          status: "available",
+          originalByteSize: 1_500_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(["img-ccc"]),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(0);
+      },
+    },
+    {
+      name: "正常_既存 local tile (imageId 一致) の status を server で更新",
+      description: "Given: queue に processing tile, When: server で available, Then: tile.status が available に",
+      initialQueue: () => {
+        let s = addFiles(emptyQueue(), [new File([new Uint8Array(8)], "x.jpg", { type: "image/jpeg" })], () => "t-1");
+        s = markStatus(s, "t-1", { kind: "processing", imageId: "img-ddd" });
+        return s;
+      },
+      serverImages: [
+        {
+          imageId: "img-ddd",
+          status: "available",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].id).toBe("t-1");
+        expect(tiles[0].origin).toBe("local"); // 既存 tile を維持
+        expect(tiles[0].status.kind).toBe("available");
+      },
+    },
+    {
+      name: "正常_failed image を tile failed (processing_failed) で復元、raw failure_reason は出さない",
+      description: "Given: server に failed image, When: merge, Then: tile.status.reason='processing_failed'",
+      initialQueue: () => emptyQueue(),
+      serverImages: [
+        {
+          imageId: "img-eee",
+          status: "failed",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].status.kind).toBe("failed");
+        if (tiles[0].status.kind === "failed") {
+          expect(tiles[0].status.reason).toBe("processing_failed");
+        }
+      },
+    },
+    {
+      name: "正常_uploading image は tile uploading で復元",
+      description: "Given: server に uploading image, When: merge, Then: tile.status.kind='uploading'",
+      initialQueue: () => emptyQueue(),
+      serverImages: [
+        {
+          imageId: "img-fff",
+          status: "uploading",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].status.kind).toBe("uploading");
+      },
+    },
+    {
+      name: "正常_local upload chain 中 tile (imageId 未割当) は影響しない",
+      description: "Given: queue に queued tile (imageId なし), When: merge, Then: そのまま保持",
+      initialQueue: () => addFiles(emptyQueue(), [new File([new Uint8Array(8)], "y.jpg", { type: "image/jpeg" })], () => "t-1"),
+      serverImages: [],
+      placedImageIds: new Set(),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(1);
+        expect(tiles[0].id).toBe("t-1");
+        expect(tiles[0].status.kind).toBe("queued");
+      },
+    },
+    {
+      name: "正常_既存 tile の imageId が placedImageIds に含まれたら tile を queue から削除",
+      description: "Given: queue に processing tile, When: server が placed に移動, Then: tile が削除される",
+      initialQueue: () => {
+        let s = addFiles(emptyQueue(), [new File([new Uint8Array(8)], "z.jpg", { type: "image/jpeg" })], () => "t-1");
+        s = markStatus(s, "t-1", { kind: "processing", imageId: "img-ggg" });
+        return s;
+      },
+      serverImages: [
+        {
+          imageId: "img-ggg",
+          status: "available",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+      placedImageIds: new Set(["img-ggg"]),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(0);
+      },
+    },
+    {
+      name: "正常_複数 server images が createdAt 順で追加される",
+      description: "Given: 3 server images (createdAt 異なる), When: merge, Then: 古い順に並ぶ",
+      initialQueue: () => emptyQueue(),
+      serverImages: [
+        {
+          imageId: "img-third",
+          status: "available",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:30Z",
+        },
+        {
+          imageId: "img-first",
+          status: "available",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:10Z",
+        },
+        {
+          imageId: "img-second",
+          status: "available",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:20Z",
+        },
+      ],
+      placedImageIds: new Set(),
+      assert: (tiles) => {
+        expect(tiles).toHaveLength(3);
+        // 各 tile.id は idGen 注入で順に t-1, t-2, t-3 になる（追加順 = createdAt 順）
+        expect(tiles.map((t) => t.id)).toEqual(["t-1", "t-2", "t-3"]);
+      },
+    },
+  ];
+
+  for (const tt of tests) {
+    it(tt.name, () => {
+      const idGen = (): (() => string) => {
+        let n = 0;
+        return () => `t-${++n}`;
+      };
+      const lookup = tt.labelLookup ?? (() => null);
+      const merged = mergeServerImages(
+        tt.initialQueue(),
+        tt.serverImages,
+        tt.placedImageIds,
+        lookup,
+        idGen(),
+      );
+      tt.assert(merged.tiles);
+    });
+  }
+});
+
+describe("imageIdOf", () => {
+  it("正常_processing tile の imageId を返す", () => {
+    const t: QueueTile = {
+      id: "t-1",
+      displayLabel: "x",
+      byteSize: 0,
+      origin: "local",
+      status: { kind: "processing", imageId: "img-x" },
+    };
+    expect(imageIdOf(t)).toBe("img-x");
+  });
+
+  it("正常_queued tile は null", () => {
+    const t: QueueTile = {
+      id: "t-1",
+      displayLabel: "x",
+      byteSize: 0,
+      origin: "local",
+      status: { kind: "queued" },
+    };
+    expect(imageIdOf(t)).toBeNull();
+  });
+
+  it("正常_failed tile (imageId なし) は null", () => {
+    const t: QueueTile = {
+      id: "t-1",
+      displayLabel: "x",
+      byteSize: 0,
+      origin: "local",
+      status: { kind: "failed", reason: "network" },
+    };
+    expect(imageIdOf(t)).toBeNull();
   });
 });

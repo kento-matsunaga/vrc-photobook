@@ -1,16 +1,20 @@
 // /prepare/<photobookId> Client Component（Upload Staging 画面）。
 //
-// 設計参照: docs/plan/m2-upload-staging-plan.md §6
+// 設計参照:
+//   - docs/plan/m2-upload-staging-plan.md §6
+//   - plan v2 m2-prepare-resilience-and-throughput §3.4（β-3 Frontend）
 //
 // 役割:
 //   - 複数画像の一括選択 + concurrency=2 並列 upload + tile 状態管理
 //   - 5 sec polling + exponential backoff + max 10 min duration + Page Visibility API
-//   - 全 available になったら「編集へ進む」ボタンで /edit/<photobookId> 遷移
+//   - SSR initialView.images からの reload 復元 + polling 中の server merge
+//   - 「編集へ進む」押下時に attach-images bulk API → /edit/<id> 遷移
 //
 // セキュリティ:
-//   - raw imageId / storage_key / upload URL を console / DOM に出さない
+//   - raw imageId / storage_key / upload URL を console / DOM / data-testid / aria-label に出さない
 //   - Turnstile token / verification token / Cookie 値は state にも保持しない（catch 後即破棄）
 //   - failed 時の reason は user-friendly mapping のみ
+//   - localStorage は filename 補助だけに使う（imageId は key 保管のみ、UI 露出させない）
 
 "use client";
 
@@ -23,20 +27,28 @@ import {
   emptyQueue,
   isAllSettled,
   markStatus,
+  mergeServerImages,
   pollDelaySeconds,
   reconcileWithServer,
   selectNextRunnable,
   summary,
   type QueueState,
   type QueueTile,
+  type ServerImageForMerge,
   type TileFailureReason,
 } from "@/components/Prepare/UploadQueue";
 import { TurnstileWidget } from "@/components/TurnstileWidget";
-import { fetchEditView, type EditView } from "@/lib/editPhotobook";
+import {
+  fetchEditViewClient,
+  isEditApiError,
+  prepareAttachImages,
+  type EditView,
+} from "@/lib/editPhotobook";
 import {
   CompressionError,
   compressImageForUpload,
 } from "@/lib/imageCompression";
+import { lookupLabel, rememberLabel } from "@/lib/prepareLocalLabels";
 import {
   completeUpload,
   issueUploadIntent,
@@ -51,8 +63,9 @@ import {
 } from "@/lib/uploadVerificationCache";
 
 const CONCURRENCY = 2;
-const MAX_TILES = 20; // upload-verification session の allowed_intent_count 上限と整合
-const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 分
+const MAX_TILES = 20;
+const MAX_POLL_DURATION_MS = 10 * 60 * 1000;
+const SLOW_NOTICE_THRESHOLD_MS = 10 * 60 * 1000;
 
 type Props = {
   photobookId: string;
@@ -61,10 +74,12 @@ type Props = {
 };
 
 type ViewState = {
+  version: number;
   processingCount: number;
   failedCount: number;
   placedImageIds: Set<string>;
   placedPhotoCount: number;
+  images: ServerImageForMerge[];
 };
 
 function viewToState(v: EditView): ViewState {
@@ -76,11 +91,19 @@ function viewToState(v: EditView): ViewState {
       count++;
     }
   }
+  const images: ServerImageForMerge[] = v.images.map((img) => ({
+    imageId: img.imageId,
+    status: img.status,
+    originalByteSize: img.originalByteSize,
+    createdAt: img.createdAt,
+  }));
   return {
+    version: v.version,
     processingCount: v.processingCount,
     failedCount: v.failedCount,
     placedImageIds: placed,
     placedPhotoCount: count,
+    images,
   };
 }
 
@@ -110,20 +133,28 @@ function mapUploadErrorToReason(kind: string): TileFailureReason {
 }
 
 export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Props) {
-  const [queue, setQueue] = useState<QueueState>(() => emptyQueue());
   const [view, setView] = useState<ViewState>(() => viewToState(initialView));
+  // initial mount で server 復元 tile を生成しておく（reload 後も「全部消えた」状態にしない）。
+  const [queue, setQueue] = useState<QueueState>(() => {
+    const initialState = viewToState(initialView);
+    return mergeServerImages(
+      emptyQueue(),
+      initialState.images,
+      initialState.placedImageIds,
+      (imgId) => lookupLabel(photobookId, imgId),
+      newTileId,
+    );
+  });
   const [turnstileToken, setTurnstileToken] = useState<string>("");
   const [globalError, setGlobalError] = useState<string>("");
+  const [proceeding, setProceeding] = useState<boolean>(false);
+  const [proceedError, setProceedError] = useState<string>("");
 
-  // queue の最新値を非同期処理から参照するため、ref で保持。
   const queueRef = useRef<QueueState>(queue);
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
 
-  // Issue A hotfix: concurrency=2 並列 upload で issueUploadVerification が二重実行され
-  // 2 つ目が Turnstile token 単回使用制約で 403 になる race condition を解消する。
-  // useRef で同期に in-flight Promise / 取得済 token を共有し、queue 全体で 1 回だけ呼ぶ。
   const verificationCacheRef = useRef<UploadVerificationCache | null>(null);
   if (verificationCacheRef.current === null) {
     verificationCacheRef.current = createUploadVerificationCache((tok) =>
@@ -131,7 +162,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     );
   }
 
-  // turnstile callback は useCallback で安定化（widget の remount loop 回避）。
   const handleTurnstileVerify = useCallback((tok: string) => {
     setTurnstileToken(tok);
   }, []);
@@ -147,12 +177,10 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     verificationCacheRef.current?.reset();
   }, []);
 
-  // ファイル選択 → 軽量検証（HEIC など）→ クライアント圧縮（VRChat PNG 13-18MB を JPEG 化）
-  // → validateFile（10MB 以下 / 形式チェック）→ queue 追加
   const onFileSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const incoming = e.target.files ? Array.from(e.target.files) : [];
-      e.target.value = ""; // 同じファイルを再度選択できるよう
+      e.target.value = "";
       if (incoming.length === 0) return;
 
       const accepted: File[] = [];
@@ -160,7 +188,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
       let rejectedTooHuge = 0;
       let recompressed = 0;
       for (const f of incoming) {
-        // 形式チェック（HEIC / 非画像）は圧縮前に実施。type が未知の場合も拒否。
         if (
           f.type !== "image/jpeg" &&
           f.type !== "image/png" &&
@@ -172,7 +199,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         try {
           const result = await compressImageForUpload(f);
           if (result.recompressed) recompressed++;
-          // 念のため最終 validate（target>=10MB を満たす想定）
           const v = validateFile(result.file);
           if (v) {
             rejectedTooHuge++;
@@ -181,7 +207,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
           accepted.push(result.file);
         } catch (err) {
           if (err instanceof CompressionError) {
-            // input_too_large / still_too_large / decode_failed / encode_failed をひと括りに「過大」扱い
             rejectedTooHuge++;
           } else {
             rejectedTooHuge++;
@@ -205,7 +230,7 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         }
         setGlobalError(parts.join(" / "));
       } else if (recompressed > 0) {
-        setGlobalError(""); // 再エンコードは正常動作のため error 表示しない（必要なら toast 化を P1 で）
+        setGlobalError("");
       } else {
         setGlobalError("");
       }
@@ -213,29 +238,29 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     [],
   );
 
-  // 1 tile の upload chain（verifying → uploading → completing → processing）を駆動
   const runUpload = useCallback(
     async (tile: QueueTile) => {
-      // L2: Turnstile token 必須（widget 完了前に submit を素通りさせない）
       const tok = turnstileToken;
       if (typeof tok !== "string" || tok.trim() === "") {
         setQueue((q) => markStatus(q, tile.id, { kind: "failed", reason: "verification_failed" }));
+        return;
+      }
+      const file = tile.file;
+      if (file === undefined) {
+        // server 復元 tile を upload chain に通すことはない（origin guard）
         return;
       }
 
       try {
         setQueue((q) => markStatus(q, tile.id, { kind: "verifying" }));
 
-        // upload-verification session を queue 全体で 1 回だけ取得し再利用する。
-        // race condition は cache 内の in-flight Promise 共有で吸収する（Issue A hotfix）。
         const cache = verificationCacheRef.current;
         if (cache === null) {
           throw { kind: "unknown" };
         }
         const vtok = await cache.ensure(tok);
 
-        // uploading
-        const sf = sourceFormatOf(tile.file.type);
+        const sf = sourceFormatOf(file.type);
         if (sf === null) {
           setQueue((q) =>
             markStatus(q, tile.id, { kind: "failed", reason: "validation_failed" }),
@@ -245,18 +270,18 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         const intent = await issueUploadIntent(
           photobookId,
           vtok,
-          tile.file.type,
-          tile.file.size,
+          file.type,
+          file.size,
           sf,
         );
+        // upload 開始時点で imageId を取得できる。filename を localStorage に保存。
+        rememberLabel(photobookId, intent.imageId, file.name);
         setQueue((q) => markStatus(q, tile.id, { kind: "uploading" }));
-        await putToR2(intent.uploadUrl, tile.file.type, tile.file);
+        await putToR2(intent.uploadUrl, file.type, file);
 
-        // completing
         setQueue((q) => markStatus(q, tile.id, { kind: "completing" }));
         await completeUpload(photobookId, intent.imageId, intent.storageKey);
 
-        // processing（image-processor が available にするまで polling 待ち）
         setQueue((q) =>
           markStatus(q, tile.id, { kind: "processing", imageId: intent.imageId }),
         );
@@ -268,8 +293,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
             reason: mapUploadErrorToReason(kind),
           }),
         );
-        // verification 系の失敗は session も破棄して、user に Turnstile 再完了を促す。
-        // turnstileToken は consume 済（single-use）なのでクリア、widget 再操作が必要。
         if (kind === "verification_failed" || kind === "rate_limited") {
           verificationCacheRef.current?.reset();
           setTurnstileToken("");
@@ -279,16 +302,14 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     [photobookId, turnstileToken],
   );
 
-  // queue の状態が変わるたびに、concurrency 上限まで queued tile を起動
   useEffect(() => {
     const next = selectNextRunnable(queue, CONCURRENCY);
     if (next === null) return;
     if (typeof turnstileToken !== "string" || turnstileToken.trim() === "") return;
     void runUpload(next);
-    // 直後の state 更新で再 run も検知できるよう、useEffect を queue に依存させる
   }, [queue, turnstileToken, runUpload]);
 
-  // ===== polling: edit-view を再取得し、processing tile を reconcile =====
+  // ===== polling: edit-view を再取得し、queue を server で reconcile / merge =====
   const tickRef = useRef<number>(0);
   const startedAtRef = useRef<number>(0);
   const visibleRef = useRef<boolean>(true);
@@ -303,12 +324,22 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
 
   const pollOnce = useCallback(async () => {
     try {
-      const v = await fetchEditView(photobookId, "");
+      // β-3: client polling は credentials: include 経路を使う（401 で止まらない）
+      const v = await fetchEditViewClient(photobookId);
       const next = viewToState(v);
       setView(next);
-      setQueue((q) => reconcileWithServer(q, next.placedImageIds, next.processingCount));
+      setQueue((q) => {
+        const reconciled = reconcileWithServer(q, next.placedImageIds, next.processingCount);
+        return mergeServerImages(
+          reconciled,
+          next.images,
+          next.placedImageIds,
+          (imgId) => lookupLabel(photobookId, imgId),
+          newTileId,
+        );
+      });
     } catch {
-      // 失敗は無視（次の tick で再試行、敵対者対策で詳細はログに出さない）
+      // 失敗詳細は外に出さない（敵対者対策）。次の tick で再試行。
     }
   }, [photobookId]);
 
@@ -325,7 +356,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     }, delay);
   }, [pollOnce, stopPolling]);
 
-  // queue に processing / active がある間、または server processing が残っている間 polling
   const needPolling =
     view.processingCount > 0 ||
     queue.tiles.some(
@@ -350,12 +380,10 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     return () => stopPolling();
   }, [needPolling, schedulePoll, stopPolling]);
 
-  // Page Visibility API: background 中は polling を一時停止、復帰時に再開
   useEffect(() => {
     const onVisChange = () => {
       visibleRef.current = !document.hidden;
       if (!document.hidden && needPolling) {
-        // 復帰時は backoff を初期化して即時 1 回 fetch
         tickRef.current = 0;
         schedulePoll();
       } else if (document.hidden) {
@@ -366,15 +394,64 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     return () => document.removeEventListener("visibilitychange", onVisChange);
   }, [needPolling, schedulePoll, stopPolling]);
 
+  // 10 分超過時の遅延通知（plan v2 §3.4 P0-c の progress UI 要件）
+  const [slowNotice, setSlowNotice] = useState<boolean>(false);
+  useEffect(() => {
+    if (!needPolling) {
+      setSlowNotice(false);
+      return;
+    }
+    const t = setInterval(() => {
+      if (startedAtRef.current === 0) return;
+      const elapsed = Date.now() - startedAtRef.current;
+      if (elapsed > SLOW_NOTICE_THRESHOLD_MS) {
+        setSlowNotice(true);
+      }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [needPolling]);
+
   // ===== UI rendering =====
   const sum = useMemo(() => summary(queue), [queue]);
-  const proceed = canProceedToEdit(queue, view.processingCount, view.placedPhotoCount);
+  const proceed =
+    !proceeding &&
+    canProceedToEdit(queue, view.processingCount, view.placedPhotoCount);
   const tilesAtCap = queue.tiles.length >= MAX_TILES;
   const turnstileReady = turnstileToken !== "" && turnstileToken.trim() !== "";
 
-  const onProceed = () => {
-    window.location.assign(`/edit/${photobookId}`);
-  };
+  const onProceed = useCallback(async () => {
+    if (proceeding) return;
+    setProceedError("");
+    setProceeding(true);
+    try {
+      await prepareAttachImages(photobookId, view.version);
+      window.location.assign(`/edit/${photobookId}`);
+    } catch (e) {
+      let msg = "編集画面へ進めませんでした。少し時間をおいて再度お試しください。";
+      if (isEditApiError(e)) {
+        switch (e.kind) {
+          case "unauthorized":
+            msg = "セッションが切れています。トップから再度入り直してください。";
+            break;
+          case "not_found":
+            msg = "対象のフォトブックが見つかりません。";
+            break;
+          case "version_conflict":
+            msg = "他の操作によって状態が変わりました。画面を再読み込みしてください。";
+            break;
+          case "bad_request":
+            msg = "リクエスト内容に問題があります。再度お試しください。";
+            break;
+        }
+      }
+      setProceedError(msg);
+      setProceeding(false);
+    }
+  }, [photobookId, proceeding, view.version]);
+
+  // n/m progress: completed / total（local + server-restored）
+  const totalKnown = sum.total + view.placedPhotoCount;
+  const completedKnown = sum.available + view.placedPhotoCount;
 
   return (
     <main
@@ -442,15 +519,30 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         data-testid="prepare-summary"
         className="rounded-lg border border-divider bg-surface p-4 text-sm text-ink-medium"
       >
-        <p>
-          合計 <strong className="text-ink-strong font-num">{sum.total}</strong> 枚 / 完了{" "}
+        <p data-testid="prepare-progress">
+          進捗 <strong className="text-ink-strong font-num">{completedKnown}</strong>
+          {" / "}
+          <strong className="text-ink-strong font-num">{totalKnown}</strong>
+        </p>
+        <p className="mt-1 text-xs text-ink-soft">
+          合計 <span className="font-num">{sum.total}</span> 枚 / 完了{" "}
           <span className="text-status-success font-num">{sum.available}</span> / 処理中{" "}
           <span className="text-brand-teal font-num">{sum.processing + sum.active}</span> / 失敗{" "}
           <span className="text-status-error font-num">{sum.failed}</span>
         </p>
-        {view.processingCount > 0 && (
-          <p className="mt-1 text-xs text-ink-soft">
-            画像処理は最大 5 分ほどかかることがあります。画面を開いたままお待ちください。
+        {(view.processingCount > 0 || sum.processing > 0 || sum.active > 0) && !slowNotice && (
+          <p className="mt-1 text-xs text-ink-soft" data-testid="prepare-normal-notice">
+            画像の処理は通常 1〜2 分ほどで完了します。画面を開いたままお待ちください。
+          </p>
+        )}
+        {slowNotice && (
+          <p
+            className="mt-1 text-xs text-status-warning"
+            data-testid="prepare-slow-notice"
+            role="status"
+          >
+            画像の処理に時間がかかっています（10 分以上）。混み合っている可能性があります。
+            一度ブラウザを再読み込みしてもこれまでの進捗は保持されます。
           </p>
         )}
       </section>
@@ -478,13 +570,24 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
           data-testid="prepare-proceed"
           className="inline-flex h-12 items-center justify-center rounded bg-brand-teal px-6 text-sm font-bold text-white hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {proceed
-            ? "編集へ進む"
-            : isAllSettled(queue) && view.processingCount === 0
-              ? "対象の画像がありません"
-              : "全ての画像処理が終わるまでお待ちください"}
+          {proceeding
+            ? "準備中…"
+            : proceed
+              ? "編集へ進む"
+              : isAllSettled(queue) && view.processingCount === 0
+                ? "対象の画像がありません"
+                : "全ての画像処理が終わるまでお待ちください"}
         </button>
       </section>
+      {proceedError !== "" && (
+        <p
+          role="alert"
+          data-testid="prepare-proceed-error"
+          className="text-xs text-status-error"
+        >
+          {proceedError}
+        </p>
+      )}
     </main>
   );
 }

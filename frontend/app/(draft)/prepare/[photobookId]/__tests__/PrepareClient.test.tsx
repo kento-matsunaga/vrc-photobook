@@ -32,6 +32,7 @@ function emptyView(photobookId: string): EditView {
     pages: [],
     processingCount: 0,
     failedCount: 0,
+    images: [],
   };
 }
 
@@ -113,7 +114,7 @@ describe("PrepareClient 初期描画", () => {
     expect(html).toContain("失敗");
   });
 
-  it("正常_processingCount > 0 のとき待機メッセージが出る", () => {
+  it("正常_processingCount > 0 のとき通常 1〜2 分案内が出る", () => {
     const view = emptyView("pb-test-redacted");
     view.processingCount = 2;
     const html = renderToStaticMarkup(
@@ -123,7 +124,8 @@ describe("PrepareClient 初期描画", () => {
         initialView={view}
       />,
     );
-    expect(html).toContain("画像処理は最大 5 分ほどかかることがあります");
+    expect(html).toContain("通常 1〜2 分ほどで完了します");
+    expect(html).toContain('data-testid="prepare-normal-notice"');
   });
 
   it("正常_Cookie / token / Secret 値が HTML に出ない", () => {
@@ -189,5 +191,114 @@ describe("PrepareClient 初期描画", () => {
     expect(buttonMatch).not.toBeNull();
     expect(buttonMatch?.[0] ?? "").not.toMatch(/disabled=""/);
     expect(html).toContain("編集へ進む");
+  });
+
+  it("正常_server images から reload 復元 tile が描画される（processing / available / failed）", () => {
+    const SECRET_IMG_PROC = "img-secret-processing-zzz1111";
+    const SECRET_IMG_AVAIL = "img-secret-available-zzz2222";
+    const SECRET_IMG_FAILED = "img-secret-failed-zzz3333";
+    const view: EditView = {
+      ...emptyView("pb-test-redacted"),
+      version: 7,
+      processingCount: 1,
+      failedCount: 1,
+      images: [
+        {
+          imageId: SECRET_IMG_PROC,
+          status: "processing",
+          sourceFormat: "jpeg",
+          originalByteSize: 2_500_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          imageId: SECRET_IMG_AVAIL,
+          status: "available",
+          sourceFormat: "png",
+          originalByteSize: 3_500_000,
+          createdAt: "2026-05-02T00:00:01Z",
+        },
+        {
+          imageId: SECRET_IMG_FAILED,
+          status: "failed",
+          sourceFormat: "jpeg",
+          originalByteSize: 4_000_000,
+          createdAt: "2026-05-02T00:00:02Z",
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={view}
+      />,
+    );
+    expect(html).toContain('data-testid="prepare-tiles"');
+    expect(html).toContain("復元された画像");
+    expect(html).toContain("処理中");
+    expect(html).toContain("完了");
+    expect(html).toContain("失敗");
+    // raw image_id が UI / DOM / data-testid / aria-label / title に出ない（最重要）
+    expect(html).not.toContain(SECRET_IMG_PROC);
+    expect(html).not.toContain(SECRET_IMG_AVAIL);
+    expect(html).not.toContain(SECRET_IMG_FAILED);
+  });
+
+  it("正常_progress UI に n/m 表示が出る", () => {
+    const view: EditView = {
+      ...emptyView("pb-test-redacted"),
+      version: 1,
+      processingCount: 1,
+      images: [
+        {
+          imageId: "img-restore-aaa",
+          status: "available",
+          sourceFormat: "jpeg",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+        {
+          imageId: "img-restore-bbb",
+          status: "processing",
+          sourceFormat: "jpeg",
+          originalByteSize: 2_000_000,
+          createdAt: "2026-05-02T00:00:01Z",
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={view}
+      />,
+    );
+    expect(html).toContain('data-testid="prepare-progress"');
+    expect(html).toContain("進捗");
+  });
+
+  it("正常_processing 中のとき normal 通知（10 分未満）が出る、slow 通知は出ない", () => {
+    const view: EditView = {
+      ...emptyView("pb-test-redacted"),
+      processingCount: 1,
+      images: [
+        {
+          imageId: "img-x",
+          status: "processing",
+          sourceFormat: "jpeg",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={view}
+      />,
+    );
+    expect(html).toContain('data-testid="prepare-normal-notice"');
+    expect(html).not.toContain('data-testid="prepare-slow-notice"');
   });
 });
