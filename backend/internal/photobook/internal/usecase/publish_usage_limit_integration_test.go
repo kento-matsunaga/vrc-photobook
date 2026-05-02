@@ -88,6 +88,7 @@ func TestPublishFromDraft_429_NoSideEffects(t *testing.T) {
 	out, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
 		ExpectedVersion: beforeVersion,
+		RightsAgreed:    true, // 2026-05-03 STOP α P0 v2: publish 時同意必須
 		Now:             now,
 		RemoteIP:        remoteIP,
 		IPHashSalt:      salt,

@@ -102,6 +102,7 @@ func createDraftAndPublish(t *testing.T, pool *pgxpool.Pool) (string, string) {
 	pub, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pubOut.Photobook.ID(),
 		ExpectedVersion: pubOut.Photobook.Version(),
+		RightsAgreed:    true, // 2026-05-03 STOP α P0 v2: publish 時同意必須
 		Now:             now,
 	})
 	if err != nil {

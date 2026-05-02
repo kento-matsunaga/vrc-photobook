@@ -172,6 +172,14 @@ func TestPhotobook_CanPublish(t *testing.T) {
 				return domaintests.NewPhotobookBuilder().WithCreatorName("").Build(t)
 			},
 		},
+		{
+			name:        "正常_WithRightsAgreed適用後はpublish可_p0v2",
+			description: "Given: rights_agreed=false の draft + WithRightsAgreed(now) 適用, When: CanPublish, Then: nil（2026-05-03 STOP α P0 v2: publish 時同意経路）",
+			build: func(t *testing.T) domain.Photobook {
+				pb := domaintests.NewPhotobookBuilder().WithRightsAgreed(false).Build(t)
+				return pb.WithRightsAgreed(time.Now())
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -188,6 +196,41 @@ func TestPhotobook_CanPublish(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPhotobook_WithRightsAgreed は 2026-05-03 STOP α P0 v2 で追加した同意適用メソッドの test。
+func TestPhotobook_WithRightsAgreed(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
+
+	t.Run("正常_falseからtrueに反映", func(t *testing.T) {
+		pb := domaintests.NewPhotobookBuilder().WithRightsAgreed(false).Build(t)
+		if pb.RightsAgreed() {
+			t.Fatalf("precondition: rights_agreed must be false before")
+		}
+		updated := pb.WithRightsAgreed(now)
+		if !updated.RightsAgreed() {
+			t.Errorf("rights_agreed=false want true after WithRightsAgreed")
+		}
+		if at := updated.RightsAgreedAt(); at == nil || !at.Equal(now) {
+			t.Errorf("rights_agreed_at=%v want %v", at, now)
+		}
+		// 不変性: 元の pb は変わらない
+		if pb.RightsAgreed() {
+			t.Errorf("source mutated: rights_agreed should remain false on original")
+		}
+	})
+
+	t.Run("正常_既にtrueでもnow更新", func(t *testing.T) {
+		pb := domaintests.NewPhotobookBuilder().WithRightsAgreed(true).Build(t)
+		updated := pb.WithRightsAgreed(now)
+		if !updated.RightsAgreed() {
+			t.Errorf("rights_agreed=false want true")
+		}
+		if at := updated.RightsAgreedAt(); at == nil || !at.Equal(now) {
+			t.Errorf("rights_agreed_at=%v want %v", at, now)
+		}
+	})
 }
 
 func TestPhotobook_Publish(t *testing.T) {

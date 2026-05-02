@@ -276,6 +276,11 @@ func RestorePhotobook(p RestorePhotobookParams) (Photobook, error) {
 // 空欄拒否を外す。長期方針（B 案: /edit に creator 入力欄追加 + settings API
 // 拡張）は後続 PR で扱う。ErrEmptyCreatorName 定数は publish_handler の error
 // マッピング（情報漏洩抑止）が引き続き参照する可能性があるため定義は残す。
+//
+// 2026-05-03 STOP α P0 v2: rights_agreed gate は維持。/edit publish UI で
+// 同意チェックを取り、UseCase が pb.WithRightsAgreed(now) で domain を更新し、
+// 同 TX 内で rights_agreed=true / rights_agreed_at=now を DB に永続化する。
+// 同意の取得と publish は不可分（partial に同意だけ残らない）。
 func (p Photobook) CanPublish() error {
 	if !p.status.IsDraft() {
 		return ErrNotDraft
@@ -284,6 +289,20 @@ func (p Photobook) CanPublish() error {
 		return ErrRightsNotAgreed
 	}
 	return nil
+}
+
+// WithRightsAgreed は rights_agreed=true / rights_agreed_at=now を反映した新しい
+// Photobook を返す（不変、DB 副作用は持たない）。
+//
+// 業務知識 v4 §3.1（公開前の権利・配慮確認）に基づき、publish 操作と同じ TX で
+// 同意を保存する経路で使う。UseCase 側で本メソッド → CanPublish → repository.PublishFromDraft
+// の順で呼び、同意のみ残って publish 失敗 / publish のみ通って同意未保存の状態を作らない。
+func (p Photobook) WithRightsAgreed(now time.Time) Photobook {
+	out := p
+	out.rightsAgreed = true
+	at := now
+	out.rightsAgreedAt = &at
+	return out
 }
 
 // Publish は draft → published の状態遷移を行う。

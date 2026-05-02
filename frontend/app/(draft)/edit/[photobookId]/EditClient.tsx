@@ -248,36 +248,69 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   );
 
   // === publish ===
-  const onPublish = useCallback(async () => {
-    try {
-      const res = await publishPhotobook(view.photobookId, view.version);
-      setPublishResult(res);
-      setErrorMsg(null);
-      setConflict("ok");
-    } catch (e) {
-      if (isPublishApiError(e)) {
-        if (e.kind === "version_conflict") {
-          setConflict("conflict");
-          setErrorMsg("公開条件に合致しません。最新を取得して再度確認してください。");
+  // 2026-05-03 STOP α P0 v2: rightsAgreed checkbox 値を Backend に転送。
+  // 409 response の status / reason を見て UX 別文言を出し、「最新を取得」CTA は
+  // version_conflict のときのみ表示する（reason ベースの publish_precondition_failed
+  // ではユーザが直す対象が別なので reload しても解消しない）。
+  const onPublish = useCallback(
+    async (rightsAgreed: boolean) => {
+      try {
+        const res = await publishPhotobook(view.photobookId, view.version, rightsAgreed);
+        setPublishResult(res);
+        setErrorMsg(null);
+        setConflict("ok");
+      } catch (e) {
+        if (isPublishApiError(e)) {
+          if (e.kind === "version_conflict") {
+            setConflict("conflict");
+            setErrorMsg("他の編集が反映されました。最新を取得して再度公開してください。");
+            return;
+          }
+          if (e.kind === "publish_precondition_failed") {
+            // reason 別の具体文言（authenticated owner 向け、reload は案内しない）
+            setConflict("ok");
+            switch (e.reason) {
+              case "rights_not_agreed":
+                setErrorMsg(
+                  "公開前に権利・配慮確認への同意が必要です。チェックを入れてから公開してください。",
+                );
+                return;
+              case "not_draft":
+                setErrorMsg(
+                  "このフォトブックは既に公開済み、または編集できない状態です。",
+                );
+                return;
+              case "empty_creator":
+                setErrorMsg("作者名が未設定です。現在の画面では修正できません。");
+                return;
+              case "empty_title":
+                setErrorMsg("タイトルを入力してください。");
+                return;
+              case "unknown_precondition":
+                setErrorMsg("公開条件を満たしていません。入力内容を確認してください。");
+                return;
+            }
+            return;
+          }
+          if (e.kind === "unauthorized") {
+            setErrorMsg("認可セッションが切れました。draft URL から入り直してください。");
+            return;
+          }
+          if (e.kind === "rate_limited") {
+            // PR36: 1 時間 5 冊上限到達時の文言（業務知識 v4 §3.7）
+            setErrorMsg(
+              `公開操作の上限に達しました。1 時間あたりの公開数には上限があります。${formatRetryAfterDisplay(e.retryAfterSeconds)}時間をおいて再度お試しください。`,
+            );
+            return;
+          }
+          setErrorMsg(`公開に失敗しました（${e.kind}）。`);
           return;
         }
-        if (e.kind === "unauthorized") {
-          setErrorMsg("認可セッションが切れました。draft URL から入り直してください。");
-          return;
-        }
-        if (e.kind === "rate_limited") {
-          // PR36: 1 時間 5 冊上限到達時の文言（業務知識 v4 §3.7）
-          setErrorMsg(
-            `公開操作の上限に達しました。1 時間あたりの公開数には上限があります。${formatRetryAfterDisplay(e.retryAfterSeconds)}時間をおいて再度お試しください。`,
-          );
-          return;
-        }
-        setErrorMsg(`公開に失敗しました（${e.kind}）。`);
-        return;
+        setErrorMsg("公開に失敗しました。");
       }
-      setErrorMsg("公開に失敗しました。");
-    }
-  }, [view.photobookId, view.version]);
+    },
+    [view.photobookId, view.version],
+  );
 
   // === page 追加 ===
   const onAddPage = useCallback(async () => {

@@ -1,4 +1,8 @@
-// PublishSettingsPanel: 公開前の設定編集 + 公開ボタン placeholder（PR28 で本実装）。
+// PublishSettingsPanel: 公開前の設定編集 + 公開ボタン。
+//
+// 2026-05-03 STOP α P0 v2: 業務知識 v4 §3.1 に基づき公開前の権利・配慮確認を必須化。
+// settings の dirty とは独立した同意 state を持ち、checkbox にチェックがある場合のみ
+// 「公開へ進む」を enabled にし、onPublish に rightsAgreed=true を渡す。
 "use client";
 
 import { useState } from "react";
@@ -10,7 +14,9 @@ type Props = {
   disabled?: boolean;
   publishDisabledReason?: string;
   onSave: (next: EditSettings) => Promise<void>;
-  onPublish?: () => Promise<void>;
+  /** 2026-05-03 STOP α P0 v2: rightsAgreed は checkbox 値、Frontend が publish 経路で
+   *  Backend に送る。false で publish 不可は呼び出し側でも防ぐが、UI でも disable する。 */
+  onPublish?: (rightsAgreed: boolean) => Promise<void>;
 };
 
 const TYPES = ["event", "daily", "portfolio", "avatar", "world", "memory", "free"] as const;
@@ -29,6 +35,9 @@ export function PublishSettingsPanel({
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [savedFlash, setSavedFlash] = useState<"none" | "saved" | "error">("none");
+  // 2026-05-03 STOP α P0 v2: 権利・配慮確認同意 (業務知識 v4 §3.1)。
+  // settings の dirty とは独立した state。settings 保存とは別に publish request にだけ乗せる。
+  const [rightsAgreed, setRightsAgreed] = useState<boolean>(false);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
 
   const update = <K extends keyof EditSettings>(k: K, v: EditSettings[K]) =>
@@ -149,17 +158,39 @@ export function PublishSettingsPanel({
         <SaveFlash state={savedFlash} />
       </div>
 
-      <div className="space-y-2 border-t border-divider pt-4">
+      <div className="space-y-3 border-t border-divider pt-4">
         {onPublish ? (
           <>
+            {/* 2026-05-03 STOP α P0 v2: 公開前の権利・配慮確認 (業務知識 v4 §3.1) */}
+            <label className="flex items-start gap-2 text-sm text-ink-strong">
+              <input
+                type="checkbox"
+                checked={rightsAgreed}
+                disabled={disabled || publishing}
+                onChange={(e) => setRightsAgreed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0"
+                data-testid="publish-rights-agreed"
+              />
+              <span className="text-xs leading-relaxed">
+                投稿する画像について必要な権利・許可を確認し、写っている人やアバター、
+                ワールド等に配慮した内容であることを確認しました。
+              </span>
+            </label>
             <button
               type="button"
-              disabled={Boolean(publishDisabledReason) || disabled || publishing || dirty}
+              disabled={
+                Boolean(publishDisabledReason) ||
+                disabled ||
+                publishing ||
+                dirty ||
+                !rightsAgreed
+              }
               onClick={async () => {
                 if (!onPublish) return;
+                if (!rightsAgreed) return;
                 setPublishing(true);
                 try {
-                  await onPublish();
+                  await onPublish(rightsAgreed);
                 } finally {
                   setPublishing(false);
                 }
@@ -174,6 +205,11 @@ export function PublishSettingsPanel({
             )}
             {dirty && !publishDisabledReason && (
               <p className="text-xs text-ink-medium">変更を保存してから公開してください。</p>
+            )}
+            {!rightsAgreed && !publishDisabledReason && !dirty && (
+              <p className="text-xs text-ink-medium" data-testid="publish-rights-required-hint">
+                公開前に権利・配慮確認への同意が必要です。
+              </p>
             )}
           </>
         ) : (

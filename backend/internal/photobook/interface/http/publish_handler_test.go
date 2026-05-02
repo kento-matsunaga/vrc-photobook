@@ -1,13 +1,19 @@
 // PublishHandlers の HTTP layer テスト。
 //
 // 観点:
-//   - 200: draft photobook を publish → response に slug / public_url_path /
-//     manage_url_path / published_at が入る
-//   - 409: 既に published / version 不一致
+//   - 200: rights_agreed=true + draft → publish 成功、response に slug / public_url_path /
+//     manage_url_path / published_at が入る、DB の rights_agreed=true / rights_agreed_at non-null
+//   - 409 publish_precondition_failed reason=rights_not_agreed: rights_agreed=false / 不在
+//   - 409 publish_precondition_failed reason=not_draft: 既に published で再 publish
+//   - 409 version_conflict: expected_version mismatch
 //   - 400: body 不正
+//   - 404: invalid uuid
 //   - body に raw token / hash 値が含まれない（manage_url_path の path に raw token を含むのは
 //     仕様、ただし body 経由 1 回のみ提示で再表示しないことが work-log / UI 側のルール）
 //   - Cache-Control: no-store / X-Robots-Tag: noindex,nofollow
+//
+// 2026-05-03 STOP α P0 v2: 旧来は全 409 を bodyConflict (status=conflict のみ) に
+// 集約していたが、authenticated owner の復旧導線のため status / reason に分離した。
 package http_test
 
 import (
@@ -62,7 +68,8 @@ func TestPublishHandler(t *testing.T) {
 		truncateAllForHandler(t, pool)
 		idStr := seedDraftDirect(t, pool)
 		router := setupPublishRouter(t, pool)
-		body, _ := json.Marshal(map[string]any{"expected_version": 0})
+		// 2026-05-03 STOP α P0 v2: rights_agreed=true 必須
+		body, _ := json.Marshal(map[string]any{"expected_version": 0, "rights_agreed": true})
 		req := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
 			bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -103,22 +110,22 @@ func TestPublishHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("異常_already_published_は_409", func(t *testing.T) {
+	t.Run("異常_already_published_は_409_not_draft", func(t *testing.T) {
 		truncateAllForHandler(t, pool)
 		idStr := seedDraftDirect(t, pool)
 		router := setupPublishRouter(t, pool)
 		// 1 度目: 200
-		body0, _ := json.Marshal(map[string]any{"expected_version": 0})
+		body0, _ := json.Marshal(map[string]any{"expected_version": 0, "rights_agreed": true})
 		req0 := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
 			bytes.NewReader(body0))
 		req0.Header.Set("Content-Type", "application/json")
 		rr0 := httptest.NewRecorder()
 		router.ServeHTTP(rr0, req0)
 		if rr0.Code != http.StatusOK {
-			t.Fatalf("first publish status=%d", rr0.Code)
+			t.Fatalf("first publish status=%d body=%s", rr0.Code, rr0.Body.String())
 		}
-		// 2 度目: 409 (status は既に published、version も進んでいる)
-		body1, _ := json.Marshal(map[string]any{"expected_version": 1})
+		// 2 度目: 409 publish_precondition_failed reason=not_draft
+		body1, _ := json.Marshal(map[string]any{"expected_version": 1, "rights_agreed": true})
 		req1 := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
 			bytes.NewReader(body1))
 		req1.Header.Set("Content-Type", "application/json")
@@ -127,13 +134,14 @@ func TestPublishHandler(t *testing.T) {
 		if rr1.Code != http.StatusConflict {
 			t.Errorf("second publish status=%d want 409", rr1.Code)
 		}
+		assertPreconditionReason(t, rr1.Body.Bytes(), "not_draft")
 	})
 
-	t.Run("異常_version_mismatch_409", func(t *testing.T) {
+	t.Run("異常_version_mismatch_409_version_conflict", func(t *testing.T) {
 		truncateAllForHandler(t, pool)
 		idStr := seedDraftDirect(t, pool)
 		router := setupPublishRouter(t, pool)
-		body, _ := json.Marshal(map[string]any{"expected_version": 999})
+		body, _ := json.Marshal(map[string]any{"expected_version": 999, "rights_agreed": true})
 		req := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
 			bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -141,6 +149,71 @@ func TestPublishHandler(t *testing.T) {
 		router.ServeHTTP(rr, req)
 		if rr.Code != http.StatusConflict {
 			t.Errorf("status=%d want 409", rr.Code)
+		}
+		assertVersionConflict(t, rr.Body.Bytes())
+	})
+
+	t.Run("異常_rights_agreed_false_409_rights_not_agreed", func(t *testing.T) {
+		truncateAllForHandler(t, pool)
+		idStr := seedDraftDirect(t, pool)
+		router := setupPublishRouter(t, pool)
+		body, _ := json.Marshal(map[string]any{"expected_version": 0, "rights_agreed": false})
+		req := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
+			bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusConflict {
+			t.Errorf("status=%d want 409", rr.Code)
+		}
+		assertPreconditionReason(t, rr.Body.Bytes(), "rights_not_agreed")
+	})
+
+	t.Run("異常_rights_agreed_missing_409_rights_not_agreed", func(t *testing.T) {
+		truncateAllForHandler(t, pool)
+		idStr := seedDraftDirect(t, pool)
+		router := setupPublishRouter(t, pool)
+		// rights_agreed field を含めない（zero-value false が割り当てられる）
+		body, _ := json.Marshal(map[string]any{"expected_version": 0})
+		req := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
+			bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusConflict {
+			t.Errorf("status=%d want 409", rr.Code)
+		}
+		assertPreconditionReason(t, rr.Body.Bytes(), "rights_not_agreed")
+	})
+
+	t.Run("正常_publish成功時にDBのrights_agreed_atが永続化される", func(t *testing.T) {
+		truncateAllForHandler(t, pool)
+		idStr := seedDraftDirect(t, pool)
+		router := setupPublishRouter(t, pool)
+		body, _ := json.Marshal(map[string]any{"expected_version": 0, "rights_agreed": true})
+		req := httptest.NewRequest(http.MethodPost, "/api/photobooks/"+idStr+"/publish",
+			bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+		}
+		// DB を直接確認: rights_agreed=true、rights_agreed_at 非 null
+		var rightsAgreed bool
+		var rightsAgreedAtNotNull bool
+		row := pool.QueryRow(context.Background(),
+			`SELECT rights_agreed, rights_agreed_at IS NOT NULL FROM photobooks WHERE id = $1`,
+			idStr,
+		)
+		if err := row.Scan(&rightsAgreed, &rightsAgreedAtNotNull); err != nil {
+			t.Fatalf("query: %v", err)
+		}
+		if !rightsAgreed {
+			t.Errorf("rights_agreed=false want true")
+		}
+		if !rightsAgreedAtNotNull {
+			t.Errorf("rights_agreed_at is null want non-null")
 		}
 	})
 
@@ -171,4 +244,36 @@ func TestPublishHandler(t *testing.T) {
 			t.Errorf("status=%d want 400", rr.Code)
 		}
 	})
+}
+
+// assertPreconditionReason は 409 publish_precondition_failed body の status / reason を検証する。
+func assertPreconditionReason(t *testing.T, body []byte, wantReason string) {
+	t.Helper()
+	var resp struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, string(body))
+	}
+	if resp.Status != "publish_precondition_failed" {
+		t.Errorf("status=%q want %q (body=%s)", resp.Status, "publish_precondition_failed", string(body))
+	}
+	if resp.Reason != wantReason {
+		t.Errorf("reason=%q want %q (body=%s)", resp.Reason, wantReason, string(body))
+	}
+}
+
+// assertVersionConflict は 409 version_conflict body の status を検証する。
+func assertVersionConflict(t *testing.T, body []byte) {
+	t.Helper()
+	var resp struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("unmarshal: %v body=%s", err, string(body))
+	}
+	if resp.Status != "version_conflict" {
+		t.Errorf("status=%q want version_conflict (body=%s)", resp.Status, string(body))
+	}
 }

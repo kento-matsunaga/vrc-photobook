@@ -91,6 +91,7 @@ func TestPublishFromDraft_TxCommit_RevokesDraftSessions(t *testing.T) {
 	pubOut, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
 		ExpectedVersion: createOut.Photobook.Version(),
+		RightsAgreed:    true, // 2026-05-03 STOP α P0 v2: publish 時同意必須
 		Now:             time.Now().UTC(),
 	})
 	if err != nil {
@@ -150,6 +151,7 @@ func TestPublishFromDraft_TxRollback_OnRevokerError(t *testing.T) {
 	_, err = publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
 		ExpectedVersion: createOut.Photobook.Version(),
+		RightsAgreed:    true, // 2026-05-03 STOP α P0 v2: publish 時同意必須（rollback 試験のため revoker エラーまで到達させる）
 		Now:             time.Now().UTC(),
 	})
 	if err == nil {
@@ -199,6 +201,7 @@ func TestReissueManageUrl_TxCommit_RevokesOldManageSessions(t *testing.T) {
 	if _, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
 		ExpectedVersion: createOut.Photobook.Version(),
+		RightsAgreed:    true, // 2026-05-03 STOP α P0 v2: publish 時同意必須
 		Now:             time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("Publish: %v", err)

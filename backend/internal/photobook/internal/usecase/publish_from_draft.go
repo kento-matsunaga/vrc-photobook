@@ -59,9 +59,16 @@ func (e *PublishRateLimited) Unwrap() error { return e.Cause }
 //
 // PR36: RemoteIP / IPHashSalt は UsageLimit 連動用（業務知識 v4 §3.7 「同一作成元
 // 1 時間 5 冊」）。空文字なら UsageLimit を skip。
+//
+// 2026-05-03 STOP α P0 v2: RightsAgreed は publish 時の権利・配慮確認同意フラグ
+// （業務知識 v4 §3.1）。false / 不在の場合は early reject で domain.ErrRightsNotAgreed
+// を返す。true の場合は同 TX 内で domain.WithRightsAgreed(Now) → CanPublish →
+// repository.PublishFromDraft の順で実行し、同意も published_at と同時刻で
+// DB に永続化する。
 type PublishFromDraftInput struct {
 	PhotobookID     photobook_id.PhotobookID
 	ExpectedVersion int
+	RightsAgreed    bool
 	Now             time.Time
 	RemoteIP        string
 	IPHashSalt      string
@@ -157,6 +164,13 @@ func (u *PublishFromDraft) Execute(
 	ctx context.Context,
 	in PublishFromDraftInput,
 ) (PublishFromDraftOutput, error) {
+	// 2026-05-03 STOP α P0 v2: 権利・配慮確認同意 (rights_agreed) を必須化。
+	// false の場合は UsageLimit / TX 開始の前に early reject（無駄なリソース消費を避ける）。
+	// 業務知識 v4 §3.1: 公開前の権利・配慮確認は必須、同意日時も記録する。
+	if !in.RightsAgreed {
+		return PublishFromDraftOutput{}, domain.ErrRightsNotAgreed
+	}
+
 	// PR36: UsageLimit 連動（業務知識 v4 §3.7 同一作成元 1 時間 5 冊）。
 	// salt 未設定 / RemoteIP 空 / usage nil ならいずれも skip し、Turnstile に依存。
 	if u.usage != nil && in.IPHashSalt != "" && in.RemoteIP != "" {
@@ -201,6 +215,11 @@ func (u *PublishFromDraft) Execute(
 			}
 			return err
 		}
+		// 2026-05-03 STOP α P0 v2: domain に同意を反映してから CanPublish。
+		// 同意のみ残って publish 失敗 / publish のみ通って同意未保存 を回避するため、
+		// repository.PublishFromDraft の SQL も rights_agreed=true / rights_agreed_at=$4
+		// を同 UPDATE で書く（同 TX、同行）。
+		pb = pb.WithRightsAgreed(in.Now)
 		if err := pb.CanPublish(); err != nil {
 			return err
 		}

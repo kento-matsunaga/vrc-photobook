@@ -136,6 +136,10 @@ UPDATE photobooks
    AND version = $3;
 
 -- name: PublishPhotobookFromDraft :execrows
+-- 2026-05-03 STOP α P0 v2: 同 TX で rights_agreed=true / rights_agreed_at=$4 を保存。
+-- /edit publish UI の同意チェック → UseCase が pb.WithRightsAgreed(now) で domain を更新 →
+-- 本 SQL で永続化、までを 1 つの operation として扱う（業務知識 v4 §3.1）。
+-- 同意のみ残って publish 失敗 / publish のみ通って同意未保存の状態を作らない。
 UPDATE photobooks
    SET status                   = 'published',
        public_url_slug          = $2,
@@ -144,6 +148,8 @@ UPDATE photobooks
        draft_edit_token_hash    = NULL,
        draft_expires_at         = NULL,
        published_at             = $4,
+       rights_agreed            = true,
+       rights_agreed_at         = $4,
        updated_at               = $4,
        version                  = version + 1
  WHERE id      = $1

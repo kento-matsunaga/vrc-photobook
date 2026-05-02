@@ -30,6 +30,7 @@ func TestPublishFromDraftCreatesOutboxEvent(t *testing.T) {
 	if _, err := uc.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pb.ID(),
 		ExpectedVersion: pb.Version(),
+		RightsAgreed:    true, // 2026-05-03 STOP α P0 v2: publish 時同意必須
 		Now:             time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("PublishFromDraft: %v", err)
