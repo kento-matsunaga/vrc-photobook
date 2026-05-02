@@ -77,16 +77,23 @@
 - **`unplacedImages: []` のような全 image 一覧 field が無い**
 - → server に image はあるが Frontend から「どの image がどの状態か」が見えない
 
-### 2.4 image-processor が photobook_photos に attach していない
+### 2.4 attach 経路の確定結果（既存設計の重大欠陥）
 
-`backend/internal/imageprocessor/internal/usecase/process_image.go:111-347`:
-- variant 生成 → `MarkAvailable` で `images.status='available'` に遷移
-- `AttachVariant` で `image_variants` を作成
-- **`photobook_photos` への INSERT は行わない**（現行設計）
-- → image は available だが page には配置されない
-- 既存 `/edit` UI の handleFileSelect 後 `reload()` で edit-view を取り直すと page に photo として現れている → ということは別経路で attach されている可能性？
+**結論**: 既存 production には **upload した image を `photobook_photos` に attach する HTTP 経路が存在しない**。
 
-要追加調査: 既存 EditClient での upload 後 photo grid に出るのは、edit-view のどこかで「available image をページに自動配置」しているか、別 endpoint（`addPhoto`）が呼ばれているか。**STOP β 実装着手前にコード調査で確定する**。
+事実関係:
+- `backend/internal/imageprocessor/internal/usecase/process_image.go:111-347`: variant 生成 + `MarkAvailable` + `AttachVariant` のみ。`photobook_photos` には触れない
+- `backend/internal/photobook/internal/usecase/add_photo.go:37-90`: `AddPhoto` UseCase は **存在する**（page_id + image_id を受け、20 上限 + OCC + image owner/status 検証 + 同一 TX 内で `photobook_photos` INSERT）
+- **`AddPhoto` の HTTP handler が無い**: `grep -rn 'AddPhoto' backend/internal/photobook/interface/http/ backend/internal/http/ backend/cmd/api/ --include='*.go'` のヒット 0 件
+- `frontend/lib/editPhotobook.ts` に `addPhoto` 系 export 無し（`addPage` のみ）
+
+帰結:
+- 既存 EditClient で upload しても、image-processor が available 化した後に **photobook_photos には何も入らない**
+- `/edit` の `view.pages.*.photos` には photo が並ばない
+- 既存 production の `/edit` 利用者も実は同じ問題を踏んでいた可能性が高いが、create-entry 完成前に publish まで到達したユーザがいなかったため発覚していなかった
+- /prepare で 15 枚 upload → 全 available 化 → `/edit` で見えない、という今回の症状はこの欠陥の **初観測**
+
+→ **§3.4 で bulk attach API は "必須"**（オプションではない）。これがないと /edit に画像が出ず、publish 経路も成立しない。
 
 ### 2.5 Scheduler 5 min が VRChat 撮影セッション UX に合わない
 
@@ -169,33 +176,39 @@ PrepareClient initialization:
    - 別端末 / Private モード / clearStorage 後は name 不在 → `displayLabel` を `Image #N (size, status)` にフォールバック
    - localStorage に raw token / Cookie / draft_edit_token 等は保存しない
 
-### 3.4 P0-d: 「編集へ進む」時 bulk attach（**Backend 変更必須**）
+### 3.4 P0-d: 「編集へ進む」時 bulk attach（**必須、Backend 変更必須**）
 
-現状 image-processor は available 化するだけで `photobook_photos` に attach しない（§2.4 要追加調査）。
+§2.4 の確認結果より、**`photobook_photos` に attach する HTTP 経路が現行 production に存在しない**。本 PR で必ず公開する。これがないと:
+- `/edit` で image が見えない
+- publish 経路（page.photos が 1 枚以上必要）も成立しない
+- 既存の /edit single upload 経路も実は壊れている
 
-採用案: **`POST /api/photobooks/{id}/prepare/attach-images`** 新設。
+採用案: **`POST /api/photobooks/{id}/prepare/attach-images`** 新設（既存 `AddPhoto` UseCase を内部で呼んで bulk 化）。
 
 仕様（詳細は §5）:
 - 認可: draft session cookie
 - 処理:
   - photobook の `status=available && unplaced` image をすべて draft photobook の photo として attach
-  - 既存 page が無ければ作成、20 枚で page 分割（業務知識 v4 §6.x の page 20 枚上限と整合）
+  - 既存 page が無ければ作成、20 枚で page 分割（業務知識 v4 §6.x の page 20 枚上限と整合、§5.4 の P-1 案）
   - 同一 TX で `photobook_photos` INSERT + photobook OCC version+1
   - `image.became_available` の outbox event とは独立（image-processor の責務分離は維持）
-- response: `{ attached_count, page_count }` のみ、raw ID は返さない
+- response: `{ attached_count, page_count, skipped_count }` のみ、raw ID は返さない
 - 失敗時: 部分成功は許容しない（rollback）
 
-### 3.5 P0-e: throughput
+**副次効果**: 既存 `/edit` の single upload も attach 経路が必要なので、同 endpoint を `/edit` からも呼べるようにする（または別途 single attach handler を公開するかは §5.x で判断、最小スコープなら attach-images 単一で兼用）。
+
+### 3.5 P0-e: throughput（user feedback に基づき immediate trigger を P0 候補化）
 
 #### 3.5.1 Scheduler 1 min（実施済 STOP immediate）
 
 - 2026-05-02T13:19:59 UTC に `vrcpb-image-processor-tick` を `*/5` → `* * * * *` に更新済
 - 直後の natural tick (13:20:26) で picked=5 / success=5、続く 13:21:17 で picked=0 / success=0 で drain 完了
 - 前 photobook の 25 件 success（11 分）→ 1 min 化後に同様の量を **drain 約 3〜4 分**で吸収可能と推定
+- ただし「待ち時間ゼロ」ではない。次 §3.5.4 immediate trigger と組合せて初めて **「即座に処理が始まる」体感**が成立する
 
-#### 3.5.2 max-images 増加判断は overlap guard 後（本 PR では `--max-images 10` 維持）
+#### 3.5.2 overlap guard（max-images / parallelism 増加 / immediate trigger 採用の前提）
 
-#### 3.5.3 overlap guard 案（要 user 判断、STOP β で 1 案を採用）
+要 user 判断、STOP β で 1 案を採用:
 
 | 案 | 内容 | migration | 複雑度 | リスク |
 |---|---|---|---|---|
@@ -206,16 +219,88 @@ PrepareClient initialization:
 **推奨: G-1（advisory lock）**
 - migration 不要、最小 invasive
 - crash 時の lock leak は pgx の session-scoped lock が接続切断で解放されるため実害低
-- max-images 30 化は本案実装後の P1 候補（本 PR では plan のみ）
+- §3.5.3 / §3.5.4 の前提条件（overlap guard 不在では throughput を上げられない）
 
-#### 3.5.4 immediate trigger（P1 候補、本 PR では設計のみ）
+#### 3.5.3 max-images 増加（条件付き、明確な閾値で判断）
 
-- complete handler が batch 終了を検知して Cloud Run Job を即時 invoke
-- 「複数 upload の最後の complete から 30 秒以内に 1 度だけ trigger」のような debounce 設計
-- Backend → Cloud Run Admin API call（OAuth）+ Job-level `roles/run.invoker` 必要
-- 即時感 max < 1 分まで短縮可能
-- 設計 risk: trigger 失敗時のリカバリ（Scheduler が backup として fall-through するため安全）
-- **本 PR では P1 として roadmap 起票のみ**
+「いつ何を満たしたら上げるか」を **基準 (acceptance criteria) ベース**で確定:
+
+| 段階 | max-images | 適用条件 | 期待効果 |
+|---|---|---|---|
+| **現状** | 10 | Scheduler 1 min + max-images 10（暫定）| 30 枚で max 3〜4 min |
+| **昇格候補 1** | **30** | G-1 advisory lock 実装 + STOP ε で 30 枚 smoke が **3 分以内**に収まらない場合 | 30 枚で max 1〜2 min |
+| **昇格候補 2** | **50** | 上記 30 でも収まらず、かつ image-processor の memory / CPU / Cloud SQL connection に余裕がある場合 | 50 枚で max 2 min 想定 |
+
+**Scheduler 1 min + max-images 10 は暫定改善であり最終解ではない**ことを本 PR で明記。STOP ε smoke の実測値を根拠に閾値判定。
+
+#### 3.5.4 immediate trigger（**user feedback 受領で P0 候補に昇格**）
+
+「Scheduler 1 min ですらまだ "待ち" であり、user 要求は "できればすぐ処理してほしい"」とのフィードバックを受け、**P0 設計比較**に昇格させる。
+
+##### 設計案 IT-1: complete handler から Cloud Run Job を即時 invoke
+
+```
+complete handler (HTTP 200 返した後の background job として):
+  - photobook_id ごとに「直近の complete 後 N 秒間 trigger を抑制」debounce
+  - Cloud Run Admin API "POST /apis/run.googleapis.com/v1/.../jobs/vrcpb-image-processor:run"
+  - OAuth token（既存 Cloud Scheduler と同 SA、roles/run.invoker は付与済）
+```
+
+##### 設計案 IT-2: complete handler が outbox に "process_now" event を入れる
+
+```
+complete handler 同 TX で outbox INSERT (event_type=image.process_requested)
+outbox-worker が拾って Cloud Run Job を invoke
+```
+→ 既存 outbox-worker は手動実行 / Scheduler 化していないため、間接化メリット薄い。**却下**。
+
+##### 設計案 IT-3: complete handler が image-processor を直接呼ぶ（同期処理）
+
+→ `m2-image-processor-job-automation-plan.md` §3.2 で既に却下（Cloud Run timeout / メモリ / retry）。**却下**。
+
+##### 設計案 IT-4: Frontend が attach 直前に Job を invoke（`/prepare/attach-images` handler 内で trigger）
+
+```
+attach-images handler:
+  - photobook_photos INSERT が成功したら、追加で Cloud Run Job invoke
+  - ただし attach 時には image は既に available（attach 不可なら failed）なので、ここで trigger する意味が薄い
+```
+→ trigger するなら「complete 直後」が正しい。**却下**。
+
+##### IT-1 採用時の詳細仕様
+
+- **debounce**: photobook_id を key とした in-memory map で「直近 30 秒以内に trigger 済 → skip」（多重起動を抑止）
+- **idempotency**: Job 側で advisory lock (G-1) があれば多重起動しても安全
+- **fallback**: trigger 失敗（Cloud Run Admin API 障害 / IAM 失効）でも Scheduler 1 min が backup
+- **権限**: 既存 compute SA に `roles/run.invoker` は Cloud Run Job レベルで付与済（STOP γ で適用）。本 PR で追加付与不要
+- **コスト**: Job 起動回数増（1 photobook 1 起動 + Scheduler 1 起動 / min）、月 < $5 想定
+
+##### 採用判定の鍵
+
+- **G-1 advisory lock が前提**（IT-1 では複数 trigger / Scheduler tick が同時に走る可能性が現実化、G-1 がないと二重処理リスク）
+- 実装 cost 中（complete handler に async trigger 追加 + debounce）
+
+→ **G-1 + IT-1 の組合せを P0 として採用候補に**。STOP β-2 で実装、STOP ε smoke で acceptance criteria 達成判定。
+
+### 3.6 acceptance criteria（**user feedback 反映、STOP ε 合格条件**）
+
+STOP ε（Chrome/Edge smoke）で以下を **すべて満たす**ことを合格条件とする:
+
+| # | criteria | 期待値 |
+|---|---|---|
+| AC-1 | **10 枚 upload**: complete から全 available 化までの実測時間（最後の 1 枚） | **通常 1〜2 分以内** |
+| AC-2 | **15 枚 upload**: 同上 | **通常 2 分以内** |
+| AC-3 | **30 枚 upload**: 同上 | **3 分以内**（max-images 10 のままで G-1 + IT-1 採用なら達成想定。未達なら max-images 30 に昇格） |
+| AC-4 | **10 分以上経過**しても全 available にならない場合 | UI が「処理が遅れています。再読み込みしても進捗は保持されます」を **表示**する |
+| AC-5 | **processing 中に reload** | progress count（n/m、6 段階）が **同じ値で復元**される。tile が消失しない |
+| AC-6 | **「編集へ進む」押下後**: bulk attach 完了 → /edit redirect | `/edit` の grid に 全 image が photo として並ぶ |
+| AC-7 | smoke 中に発生する R2 / Cloud SQL / Cloud Run のエラー | **0 件**（ログで確認） |
+| AC-8 | smoke 期間中に raw `imageId` / `storage_key` / Cookie / Secret | DOM / Console / Network response に **露出 0 件** |
+
+達成判定:
+- AC-3 が 3 分超過 → **max-images 30 に昇格して再 smoke**（STOP ε 内で 1 回まで）
+- AC-3 が再 smoke でも未達 → max-images 50 / immediate trigger debounce 値短縮 を別 PR で検討
+- AC-1〜AC-2 が達成できない場合は IT-1 設計の見直し（debounce / fallback）を STOP β-2 に差し戻し
 
 ---
 
@@ -343,13 +428,19 @@ COMMIT;
 
 ---
 
-## 6. Issue B（後段、本 PR 内に含める）
+## 6. Issue B（**設計のみ本 plan に記載、実装は別 STOP / 別 PR で分離**）
 
-### 6.1 課題
+### 6.1 user feedback による分離方針
+
+> "Issue B を同 PR に含めるのは少し危険。Bot 認証削除は重要ですが、P0 が多すぎます。いま同時にやると、reload / attach / throughput の検証が濁ります。私なら Issue B は同 plan に載せるが、実装は別 STOP / 別 PR に分けます。"
+
+→ **本 plan には設計（§6.2〜§6.4）を記載するが、実装・deploy・smoke は本 PR の STOP β/γ/δ/ε から除外**。`m2-prepare-upload-turnstile-ux-relax` を別 PR として、本 PR closeout 後に独立計画化する。
+
+### 6.2 課題
 
 `/create` で Bot 検証済みなのに `/prepare` で Turnstile widget が再表示される UX。ユーザは「2 度認証要求」を冗長と感じる。
 
-### 6.2 案比較
+### 6.3 案比較
 
 | 案 | Frontend | Backend | UX | 実装 cost |
 |---|---|---|---|---|
@@ -357,46 +448,51 @@ COMMIT;
 | B-2 | invisible Turnstile（widget 非表示で内部 siteverify） | 不変 | 中 | 小 |
 | B-3 | 現状維持 | — | 後退 | 0 |
 
-**推奨: B-1**（plan §6 user 指示と一致）
+**別 PR での推奨: B-1**
 
-### 6.3 セキュリティレビュー
+### 6.4 セキュリティレビュー（別 PR で実施）
 
 B-1 採用時の attack surface 検討:
 - draft session cookie を持つ攻撃者 = `/create` を突破済 = Bot 検証 1 回通過済
 - → upload-verifications/ に Turnstile を強制する追加防御は冗長
 - spam 抑止は UsageLimit `upload_verification.issue`（既存）で十分（rate limit + window）
-- 既存 PR36 で UsageLimit は実装済、本 PR で再 review
+- 既存 PR36 で UsageLimit は実装済、別 PR で再 review
 
-### 6.4 実装位置
+### 6.5 実装着手の前提条件（本 PR 完了が条件）
 
-- 本 PR の **STOP β-3** として、P0-a〜P0-e 完了後に着手
-- 順序: P0 完了 → smoke OK → B-1 設計レビュー → 実装 → smoke
+- 本 PR `m2-prepare-resilience-and-throughput` の STOP ε / final closeout 完了
+- 別 PR `m2-prepare-upload-turnstile-ux-relax` の STOP α 計画書を新規作成
+- → 本 plan §7 STOP 設計から β-3/β-4 を除外（次節で更新）
 
 ---
 
-## 7. Deploy / STOP 設計
+## 7. Deploy / STOP 設計（**Issue B 分離後の最終形**）
 
 | STOP | 内容 | 課金 | コード変更 | 承認 |
 |---|---|---|---|---|
-| **α**（**本 commit**） | 計画書 push（コード変更なし） | なし | あり（plan のみ） | 完了 |
+| **α**（**本 commit / v2 で再提示**） | 計画書 push（コード変更なし） | なし | あり（plan のみ） | 完了 |
 | **immediate**（**実施済**） | Scheduler 5min → 1min（gcloud 1 行）+ work-log 記録 | 軽 | なし | 完了 |
-| **β-1** | Frontend: P0-a（client fetch credentials）+ P0-c（reload 復元の client 側） + tests | なし | 中 | 別途 |
-| **β-2** | Backend: P0-b（edit-view images 拡張）+ P0-d（bulk attach handler）+ G-1 advisory lock + tests | なし | 大 | 別途 |
-| **β-3** | Backend: B-1 Turnstile 緩和（upload-verifications/ の認可変更）+ tests | なし | 中 | 別途 |
-| **β-4** | Frontend: B-1 Turnstile widget 削除 + UX 4.1〜4.4 の表示仕様実装 + tests | なし | 中 | 別途 |
-| **γ** | Backend deploy（β-2/β-3 反映） | 軽 | なし | **要承認** |
-| **δ** | Workers redeploy（β-1/β-4 反映） | 軽 | なし | **要承認** |
-| **ε** | Chrome/Edge smoke: 10〜15 枚 upload + processing 中 reload + 復元確認 + 「編集へ進む」 → /edit | 軽（draft 1 件残置） | なし | **要承認** |
-| **ζ** | Safari / iPhone Safari smoke | 軽 | なし | **要承認** |
-| **final** | work-log / roadmap / runbook / failure-log / docs 更新 | なし | あり（docs のみ） | 完了報告 |
+| **β-1** | Frontend: P0-a（client fetch credentials 経路分離）+ P0-c（reload 復元の client 側、SSR images から queue 復元 + localStorage 補助）+ §4 UX 表示仕様（n/m 6 段階 / 待機メッセージ / enable 条件）+ tests | なし | 中 | 別途 |
+| **β-2** | Backend: P0-b（edit-view を `images: [{imageId, status, byteSize, sourceFormat, ...}]` で拡張）+ P0-d（bulk attach handler `POST /api/photobooks/{id}/prepare/attach-images`）+ G-1 advisory lock（image-processor claim）+ IT-1（complete handler から Cloud Run Job 即時 invoke + debounce）+ tests | なし | 大 | 別途 |
+| ~~β-3~~ | ~~B-1 Turnstile 緩和~~ → **別 PR `m2-prepare-upload-turnstile-ux-relax` に分離**（user feedback 反映） | — | — | 別 PR |
+| ~~β-4~~ | ~~B-1 Turnstile widget 削除~~ → **同上、別 PR に分離** | — | — | 別 PR |
+| **γ** | Backend deploy（β-2 反映、Cloud Build manual submit） | 軽 | なし | **要承認** |
+| **δ** | Workers redeploy（β-1 反映、subshell wrangler deploy） | 軽 | なし | **要承認** |
+| **ε** | Chrome/Edge smoke: §3.6 acceptance criteria AC-1〜AC-8 全達成判定。10/15/30 枚 upload で時間計測、reload 中の復元検証、「編集へ進む」→ `/edit` で全 image 表示 | 軽（draft 1 件残置） | なし | **要承認** |
+| **ζ** | Safari / iPhone Safari smoke（同 acceptance criteria + Safari 特有観点） | 軽 | なし | **要承認** |
+| **final** | work-log / roadmap / runbook / failure-log §8 起票 / docs 更新（CLAUDE.md / `m2-image-processor-job-automation-plan.md` の Scheduler 設定値 / `m2-upload-staging-plan.md` の reload 復元欠落記述） | なし | あり（docs のみ） | 完了報告 |
 
-### 7.1 STOP β の細分理由
+### 7.1 STOP β の細分理由（v2、β-3/β-4 削除後）
 
-P0 を 4 つに分けたのは:
-- β-1 / β-4 は Frontend のみ（Workers redeploy で完結）
-- β-2 / β-3 は Backend（Cloud Build deploy）
+P0 を 2 つに分けたのは:
+- β-1 は **Frontend のみ**（Workers redeploy で完結）
+- β-2 は **Backend のみ**（Cloud Build deploy）
 - 互い独立に implement / test 可能で、レビュー単位を小さく保てる
-- ただし **deploy 順は β-2 → β-3（Backend）→ β-1 → β-4（Frontend）が安全**（Backend 先行 = Frontend が古い API 期待でも fallback 可、逆順だと Frontend が新 API を呼んで 404）
+- **deploy 順は β-2（Backend 先行）→ β-1（Frontend）が安全**（Backend 先行 = Frontend が古い API 期待でも fallback 可、逆順だと Frontend が新 API を呼んで 404）
+
+### 7.2 Issue B 別 PR の起票タイミング
+
+本 PR `m2-prepare-resilience-and-throughput` の **final closeout 完了後**に、新 PR `m2-prepare-upload-turnstile-ux-relax` の STOP α 計画書を独立で起票する。本 PR では plan §6 に設計を残すのみで、実装・deploy・smoke は別 PR に集約。
 
 ---
 
@@ -433,3 +529,4 @@ P0 を 4 つに分けたのは:
 | 日付 | 変更 |
 |------|------|
 | 2026-05-02 | 初版作成。STOP ε 中に発覚した reload-loss + throughput 不足 + UX 進捗フィードバック不足を統合 PR として独立計画化。Scheduler 1 min 化を STOP immediate として先行実施 |
+| 2026-05-02 (v2) | user feedback (75 点評価) に基づき改訂: (1) §2.4 を確認結果として確定（既存に attach 経路 HTTP handler 無し）、(2) §3.4 で bulk attach API を必須と明記、(3) §3.5.4 immediate trigger を P0 候補に昇格 + 設計案 IT-1〜IT-4 の比較追加、(4) §3.5.3 max-images 増加条件を criteria 化、(5) §3.6 acceptance criteria AC-1〜AC-8 を新規追加（10/15/30 枚の時間目標 + reload 復元 + 遅延通知 + Secret 非露出）、(6) §6 Issue B を「設計のみ記載、実装は別 PR」に分離、§7 から β-3/β-4 を削除、(7) §7.2 Issue B 別 PR 起票タイミングを明記 |
