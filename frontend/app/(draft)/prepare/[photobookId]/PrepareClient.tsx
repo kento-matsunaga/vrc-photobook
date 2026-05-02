@@ -45,6 +45,10 @@ import {
   sourceFormatOf,
   validateFile,
 } from "@/lib/upload";
+import {
+  createUploadVerificationCache,
+  type UploadVerificationCache,
+} from "@/lib/uploadVerificationCache";
 
 const CONCURRENCY = 2;
 const MAX_TILES = 20; // upload-verification session の allowed_intent_count 上限と整合
@@ -109,7 +113,6 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
   const [queue, setQueue] = useState<QueueState>(() => emptyQueue());
   const [view, setView] = useState<ViewState>(() => viewToState(initialView));
   const [turnstileToken, setTurnstileToken] = useState<string>("");
-  const [verificationToken, setVerificationToken] = useState<string>("");
   const [globalError, setGlobalError] = useState<string>("");
 
   // queue の最新値を非同期処理から参照するため、ref で保持。
@@ -117,6 +120,16 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+
+  // Issue A hotfix: concurrency=2 並列 upload で issueUploadVerification が二重実行され
+  // 2 つ目が Turnstile token 単回使用制約で 403 になる race condition を解消する。
+  // useRef で同期に in-flight Promise / 取得済 token を共有し、queue 全体で 1 回だけ呼ぶ。
+  const verificationCacheRef = useRef<UploadVerificationCache | null>(null);
+  if (verificationCacheRef.current === null) {
+    verificationCacheRef.current = createUploadVerificationCache((tok) =>
+      issueUploadVerification(photobookId, tok),
+    );
+  }
 
   // turnstile callback は useCallback で安定化（widget の remount loop 回避）。
   const handleTurnstileVerify = useCallback((tok: string) => {
@@ -127,11 +140,11 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
   }, []);
   const handleTurnstileExpired = useCallback(() => {
     setTurnstileToken("");
-    setVerificationToken("");
+    verificationCacheRef.current?.reset();
   }, []);
   const handleTurnstileTimeout = useCallback(() => {
     setTurnstileToken("");
-    setVerificationToken("");
+    verificationCacheRef.current?.reset();
   }, []);
 
   // ファイル選択 → 軽量検証（HEIC など）→ クライアント圧縮（VRChat PNG 13-18MB を JPEG 化）
@@ -210,15 +223,16 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         return;
       }
 
-      // verifying（必要なら upload-verification を 1 度だけ取得し session として再利用）
       try {
         setQueue((q) => markStatus(q, tile.id, { kind: "verifying" }));
-        let vtok = verificationToken;
-        if (vtok === "") {
-          const uv = await issueUploadVerification(photobookId, tok);
-          vtok = uv.uploadVerificationToken;
-          setVerificationToken(vtok);
+
+        // upload-verification session を queue 全体で 1 回だけ取得し再利用する。
+        // race condition は cache 内の in-flight Promise 共有で吸収する（Issue A hotfix）。
+        const cache = verificationCacheRef.current;
+        if (cache === null) {
+          throw { kind: "unknown" };
         }
+        const vtok = await cache.ensure(tok);
 
         // uploading
         const sf = sourceFormatOf(tile.file.type);
@@ -254,14 +268,15 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
             reason: mapUploadErrorToReason(kind),
           }),
         );
-        // verification 系の失敗は session も破棄（次の tile で再取得させる）
+        // verification 系の失敗は session も破棄して、user に Turnstile 再完了を促す。
+        // turnstileToken は consume 済（single-use）なのでクリア、widget 再操作が必要。
         if (kind === "verification_failed" || kind === "rate_limited") {
-          setVerificationToken("");
+          verificationCacheRef.current?.reset();
           setTurnstileToken("");
         }
       }
     },
-    [photobookId, turnstileToken, verificationToken],
+    [photobookId, turnstileToken],
   );
 
   // queue の状態が変わるたびに、concurrency 上限まで queued tile を起動
