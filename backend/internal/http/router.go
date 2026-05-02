@@ -135,6 +135,9 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			sub.Delete("/photos/{photoId}", cfg.PhotobookEditHandlers.RemovePhoto)
 			sub.Patch("/cover-image", cfg.PhotobookEditHandlers.SetCoverImage)
 			sub.Delete("/cover-image", cfg.PhotobookEditHandlers.ClearCoverImage)
+			// /prepare/attach-images（plan v2 §3.4 / §5）。draft session 認可、
+			// available 未 attach image を bulk attach（image_id は server ground truth から取得）。
+			sub.Post("/prepare/attach-images", cfg.PhotobookEditHandlers.AttachPrepareImages)
 			if cfg.PhotobookPublishHandlers != nil {
 				sub.Post("/publish", cfg.PhotobookPublishHandlers.Publish)
 			}

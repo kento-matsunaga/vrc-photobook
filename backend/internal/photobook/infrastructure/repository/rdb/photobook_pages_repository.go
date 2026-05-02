@@ -349,6 +349,91 @@ func (r *PhotobookRepository) FindPageMetaByPageID(
 	return pageMetaFromRow(row), nil
 }
 
+// === bulk attach helpers (m2-prepare-resilience-and-throughput, plan v2 §3.4 / §5) ===
+//
+// AttachAvailableImages usecase が 1 TX 内で N image を bulk attach する際に使う 4 method。
+// 既存 AddPage / AddPhoto は内部で version bump を都度実行するため、bulk loop 内で呼ぶと
+// 複数回 bump されてしまう（atomicity は保てるが意味的に奇妙）。本 helper 群は版を bump
+// せず INSERT のみに専念し、loop 終了後に BumpVersion を **1 度だけ**呼ぶ設計を可能にする。
+//
+// すべて DBTX (pgx.Tx 経由) で呼び出す前提。pool 直で呼ぶ用途は無い。
+
+// ListAvailableUnattachedImageIDs は photobook の available + 未 attach な image_id を返す。
+//
+// SQL は queries/photobook_pages.sql#ListAvailableUnattachedImageIDsByPhotobook 参照。
+// status='available' 以外（uploading / processing / failed / deleted / purged）は除外され、
+// photobook_photos に既に attach 済の image も NOT EXISTS で除外される。
+func (r *PhotobookRepository) ListAvailableUnattachedImageIDs(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+) ([]image_id.ImageID, error) {
+	rows, err := r.q.ListAvailableUnattachedImageIDsByPhotobook(ctx,
+		pgtype.UUID{Bytes: photobookID.UUID(), Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]image_id.ImageID, 0, len(rows))
+	for _, row := range rows {
+		id, err := image_id.FromUUID(row.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+// CreatePageInTx は photobook_pages INSERT のみを実行する（version bump せず）。
+//
+// 呼び出し側の TX 内で N 回呼んだ後、最後に BumpVersion を 1 度だけ呼ぶ設計。
+// 単発 page 作成には既存 AddPage を使うこと（version bump 込み）。
+func (r *PhotobookRepository) CreatePageInTx(
+	ctx context.Context,
+	page domain.Page,
+) error {
+	return r.q.CreatePhotobookPage(ctx, sqlcgen.CreatePhotobookPageParams{
+		ID:           pgtype.UUID{Bytes: page.ID().UUID(), Valid: true},
+		PhotobookID:  pgtype.UUID{Bytes: page.PhotobookID().UUID(), Valid: true},
+		DisplayOrder: int32(page.DisplayOrder().Int()),
+		Caption:      captionPtr(page.Caption()),
+		CreatedAt:    pgtype.Timestamptz{Time: page.CreatedAt(), Valid: true},
+		UpdatedAt:    pgtype.Timestamptz{Time: page.UpdatedAt(), Valid: true},
+	})
+}
+
+// CreatePhotoInTx は photobook_photos INSERT のみを実行する（version bump せず）。
+//
+// 呼び出し側で image owner / status を保証している前提（AttachAvailableImages では
+// ListAvailableUnattachedImageIDs で available + owner=photobook を SQL で保証済み）。
+// 単発 photo attach には既存 AddPhoto を使うこと（owner+status FOR UPDATE 検証 + version
+// bump 込み）。
+func (r *PhotobookRepository) CreatePhotoInTx(
+	ctx context.Context,
+	photo domain.Photo,
+) error {
+	return r.q.CreatePhotobookPhoto(ctx, sqlcgen.CreatePhotobookPhotoParams{
+		ID:           pgtype.UUID{Bytes: photo.ID().UUID(), Valid: true},
+		PageID:       pgtype.UUID{Bytes: photo.PageID().UUID(), Valid: true},
+		ImageID:      pgtype.UUID{Bytes: photo.ImageID().UUID(), Valid: true},
+		DisplayOrder: int32(photo.DisplayOrder().Int()),
+		Caption:      captionPtr(photo.Caption()),
+		CreatedAt:    pgtype.Timestamptz{Time: photo.CreatedAt(), Valid: true},
+	})
+}
+
+// BumpVersion は photobooks の version+1 + status=draft 検証を実行する（public）。
+//
+// AttachAvailableImages usecase の TX 末尾で 1 度だけ呼ぶ用途。挙動は private bumpVersion
+// と同一（0 行 UPDATE → ErrOptimisticLockConflict）。
+func (r *PhotobookRepository) BumpVersion(
+	ctx context.Context,
+	id photobook_id.PhotobookID,
+	expectedVersion int,
+	now time.Time,
+) error {
+	return r.bumpVersion(ctx, id, expectedVersion, now)
+}
+
 // === helpers ===
 
 // bumpVersion は photobooks の version+1 + status=draft 検証を実行する。

@@ -293,6 +293,50 @@ func (q *Queries) FindPhotobookPhotoByID(ctx context.Context, id pgtype.UUID) (P
 	return i, err
 }
 
+const listAvailableUnattachedImageIDsByPhotobook = `-- name: ListAvailableUnattachedImageIDsByPhotobook :many
+SELECT i.id
+FROM images i
+WHERE i.owner_photobook_id = $1
+  AND i.status            = 'available'
+  AND i.deleted_at        IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM photobook_photos pp
+      JOIN photobook_pages pg ON pp.page_id = pg.id
+      WHERE pg.photobook_id = $1
+        AND pp.image_id     = i.id
+  )
+ORDER BY i.uploaded_at ASC
+`
+
+// /prepare/attach-images（plan v2 §3.4 / §5）で「photobook の available + 未 attach な
+// image」を bulk 取得する。
+// ・status='available' のみ（uploading / processing / failed / deleted / purged は対象外）
+// ・既に photobook_photos に attach 済の image は NOT EXISTS で除外
+//
+//	（photobook_photos には photobook_id 直接 column が無いため photobook_pages 経由で JOIN）
+//
+// ・並び順は uploaded_at ASC（attach 順序の決定論性を担保）
+func (q *Queries) ListAvailableUnattachedImageIDsByPhotobook(ctx context.Context, ownerPhotobookID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listAvailableUnattachedImageIDsByPhotobook, ownerPhotobookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPhotobookPagesByPhotobookID = `-- name: ListPhotobookPagesByPhotobookID :many
 SELECT id, photobook_id, display_order, caption, created_at, updated_at
 FROM photobook_pages

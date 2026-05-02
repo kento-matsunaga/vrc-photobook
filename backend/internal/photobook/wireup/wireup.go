@@ -229,5 +229,7 @@ func BuildEditHandlers(pool *pgxpool.Pool, r2Client r2.Client) *photobookhttp.Ed
 		usecase.NewRemovePhoto(pool),
 		usecase.NewSetCoverImage(pool),
 		usecase.NewClearCoverImage(pool),
+		// /prepare/attach-images（plan v2 §3.4 / §5）。bulk attach UseCase。
+		usecase.NewAttachAvailableImages(pool),
 	)
 }

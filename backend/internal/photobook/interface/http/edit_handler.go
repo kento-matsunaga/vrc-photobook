@@ -36,15 +36,19 @@ const (
 
 // EditHandlers は編集画面の HTTP handler 群。
 type EditHandlers struct {
-	getEditView         *usecase.GetEditView
-	updatePhotoCaption  *usecase.UpdatePhotoCaption
-	bulkReorder         *usecase.BulkReorderPhotosOnPage
-	updateSettings      *usecase.UpdatePhotobookSettings
-	addPage             *usecase.AddPage
-	removePage          *usecase.RemovePage
-	removePhoto         *usecase.RemovePhoto
-	setCoverImage       *usecase.SetCoverImage
-	clearCoverImage     *usecase.ClearCoverImage
+	getEditView        *usecase.GetEditView
+	updatePhotoCaption *usecase.UpdatePhotoCaption
+	bulkReorder        *usecase.BulkReorderPhotosOnPage
+	updateSettings     *usecase.UpdatePhotobookSettings
+	addPage            *usecase.AddPage
+	removePage         *usecase.RemovePage
+	removePhoto        *usecase.RemovePhoto
+	setCoverImage      *usecase.SetCoverImage
+	clearCoverImage    *usecase.ClearCoverImage
+	// attachAvailableImages は /prepare/attach-images で「photobook の available 未 attach
+	// image を 1 TX で bulk attach」する usecase（plan v2 §3.4 / §5）。nil なら handler は
+	// 503 を返す（main.go で wire しない選択肢を残す）。
+	attachAvailableImages *usecase.AttachAvailableImages
 }
 
 // NewEditHandlers は EditHandlers を組み立てる。
@@ -58,12 +62,14 @@ func NewEditHandlers(
 	removePhoto *usecase.RemovePhoto,
 	setCover *usecase.SetCoverImage,
 	clearCover *usecase.ClearCoverImage,
+	attachAvailableImages *usecase.AttachAvailableImages,
 ) *EditHandlers {
 	return &EditHandlers{
 		getEditView: getEditView, updatePhotoCaption: updatePhotoCaption,
 		bulkReorder: bulkReorder, updateSettings: updateSettings,
 		addPage: addPage, removePage: removePage, removePhoto: removePhoto,
 		setCoverImage: setCover, clearCoverImage: clearCover,
+		attachAvailableImages: attachAvailableImages,
 	}
 }
 
@@ -147,7 +153,19 @@ type editViewPayload struct {
 	Pages           []editPagePayload      `json:"pages"`
 	ProcessingCount int                    `json:"processing_count"`
 	FailedCount     int                    `json:"failed_count"`
-	DraftExpiresAt  *time.Time             `json:"draft_expires_at,omitempty"`
+	// Images は photobook 内の全 active image（plan v2 §3.2 P0-b）。
+	// reload 復元 + progress UI ground truth、attach 済 / 未配置 を問わず列挙。
+	Images         []editImagePayload `json:"images"`
+	DraftExpiresAt *time.Time         `json:"draft_expires_at,omitempty"`
+}
+
+type editImagePayload struct {
+	ImageID          string    `json:"image_id"`
+	Status           string    `json:"status"`
+	SourceFormat     string    `json:"source_format"`
+	OriginalByteSize int64     `json:"original_byte_size"`
+	FailureReason    *string   `json:"failure_reason,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // GetEditView は GET /api/photobooks/{id}/edit-view ハンドラ。
@@ -217,6 +235,17 @@ func toEditViewPayload(v usecase.EditPhotobookView) editViewPayload {
 		t := v.DraftExpiresAt.UTC()
 		draftExp = &t
 	}
+	images := make([]editImagePayload, 0, len(v.Images))
+	for _, img := range v.Images {
+		images = append(images, editImagePayload{
+			ImageID:          img.ImageID,
+			Status:           img.Status,
+			SourceFormat:     img.SourceFormat,
+			OriginalByteSize: img.OriginalByteSize,
+			FailureReason:    img.FailureReason,
+			CreatedAt:        img.CreatedAt.UTC(),
+		})
+	}
 	return editViewPayload{
 		PhotobookID: v.PhotobookID, Status: v.Status, Version: v.Version,
 		Settings: editSettingsPayload{
@@ -226,6 +255,7 @@ func toEditViewPayload(v usecase.EditPhotobookView) editViewPayload {
 		},
 		CoverImageID: v.CoverImageID, Cover: cover, Pages: pages,
 		ProcessingCount: v.ProcessingCount, FailedCount: v.FailedCount,
+		Images:         images,
 		DraftExpiresAt: draftExp,
 	}
 }
@@ -645,4 +675,84 @@ func writeEditMutationError(w http.ResponseWriter, err error) {
 	default:
 		writeJSONStatus(w, http.StatusInternalServerError, bodyServerError)
 	}
+}
+
+// === POST /api/photobooks/{id}/prepare/attach-images ===
+//
+// /prepare の「編集へ進む」が呼ぶ bulk attach endpoint（plan v2 §3.4 / §5）。
+// request body は expected_version のみで image_id 配列は受け取らない（user 指示 §6.1、
+// server ground truth から ListAvailableUnattachedImageIDs で取得して attach する）。
+// response は count-only、raw image_id / page_id / photo_id を返さない。
+
+type attachPrepareImagesRequest struct {
+	ExpectedVersion int `json:"expected_version"`
+}
+
+type attachPrepareImagesResponse struct {
+	AttachedCount int `json:"attached_count"`
+	PageCount     int `json:"page_count"`
+	SkippedCount  int `json:"skipped_count"`
+}
+
+// AttachPrepareImages は POST /api/photobooks/{id}/prepare/attach-images ハンドラ。
+//
+// 認可: draft session middleware が photobook id 一致の Cookie を検証済の前提。
+// 失敗 mapping:
+//   - 400 bad_request: JSON decode 失敗
+//   - 404 not_found: photobook 不存在
+//   - 409 version_conflict: status != draft / OCC version 不一致 / draft 期限切れ
+//   - 500 internal_error: 想定外
+//   - 503 service_unavailable: usecase 未注入（main 側で wire していない場合）
+func (h *EditHandlers) AttachPrepareImages(w http.ResponseWriter, r *http.Request) {
+	commonHeaders(w)
+
+	if h.attachAvailableImages == nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, bodyServerError)
+		return
+	}
+
+	pid, ok := parsePhotobookID(r)
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+
+	var req attachPrepareImagesRequest
+	if err := decodeJSON(r, &req); err != nil {
+		// 型違い（"abc" 等）/ malformed JSON は decode 失敗で 400
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	// expected_version の入力 validation:
+	//   - omitted（field 不在）→ Go zero-value 0 として扱う（version 0 = 初回 attach の正常入力）
+	//   - 負数 → 不正入力で 400（version は 0 以上のみ）
+	//   - 0 以上 → usecase に渡し、photobook の実 version と比較（mismatch なら 409）
+	if req.ExpectedVersion < 0 {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+
+	out, err := h.attachAvailableImages.Execute(r.Context(), usecase.AttachAvailableImagesInput{
+		PhotobookID:     pid,
+		ExpectedVersion: req.ExpectedVersion,
+		Now:             time.Now(),
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, usecase.ErrEditPhotobookNotFound):
+			writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		case errors.Is(err, usecase.ErrEditNotAllowed),
+			errors.Is(err, photobookrdb.ErrOptimisticLockConflict),
+			errors.Is(err, photobookrdb.ErrNotDraft):
+			writeJSONStatus(w, http.StatusConflict, bodyConflict)
+		default:
+			writeJSONStatus(w, http.StatusInternalServerError, bodyServerError)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, attachPrepareImagesResponse{
+		AttachedCount: out.AttachedCount,
+		PageCount:     out.PageCount,
+		SkippedCount:  out.SkippedCount,
+	})
 }

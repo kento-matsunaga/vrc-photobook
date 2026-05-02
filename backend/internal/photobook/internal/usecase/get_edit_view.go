@@ -71,6 +71,19 @@ type EditPresignedURLView struct {
 	ExpiresAt time.Time
 }
 
+// EditImageView は photobook 内の 1 image の状態（attach 済か未配置かを問わない）。
+//
+// /prepare の reload 復元と進捗 UI で使う。authenticated API response 内部識別子としての
+// imageId は許容するが、UI / DOM / log / report への露出は禁止（plan v2 §4.5 / §6.5）。
+type EditImageView struct {
+	ImageID          string     // UUID 文字列（client 内部 reconcile / attach request 用）
+	Status           string     // "uploading" / "processing" / "available" / "failed"
+	SourceFormat     string     // "jpg" / "png" / "webp"
+	OriginalByteSize int64      // upload 直後の declared / verified bytes（0 = 不明）
+	FailureReason    *string    // failed 時のみ。敵対者対策で具体値、Frontend で user-friendly に再 mapping
+	CreatedAt        time.Time  // uploaded_at 相当
+}
+
 // EditViewSettings は編集画面で表示 / 編集する settings。
 type EditViewSettings struct {
 	Type         string
@@ -84,16 +97,20 @@ type EditViewSettings struct {
 
 // EditPhotobookView は編集画面用 view。
 type EditPhotobookView struct {
-	PhotobookID         string
-	Status              string // 常に draft（編集可能なのは draft のみ）
-	Version             int
-	Settings            EditViewSettings
-	CoverImageID        *string
-	Cover               *EditVariantSet // cover_image_id があり available なら variant URL
-	Pages               []EditPageView
-	ProcessingCount     int
-	FailedCount         int
-	DraftExpiresAt      *time.Time
+	PhotobookID     string
+	Status          string // 常に draft（編集可能なのは draft のみ）
+	Version         int
+	Settings        EditViewSettings
+	CoverImageID    *string
+	Cover           *EditVariantSet // cover_image_id があり available なら variant URL
+	Pages           []EditPageView
+	ProcessingCount int
+	FailedCount     int
+	// Images は photobook 内の全 active image を status 付きで返す（uploading / processing /
+	// available / failed）。attach 済か unplaced かを問わず列挙し、/prepare の reload 復元と
+	// progress UI 用 ground truth として使う（plan v2 §3.2 P0-b）。
+	Images         []EditImageView
+	DraftExpiresAt *time.Time
 }
 
 // EditVariantSet は display + thumbnail の URL set。
@@ -144,6 +161,7 @@ func (u *GetEditView) Execute(ctx context.Context, in GetEditViewInput) (GetEdit
 	}
 	processingCount := 0
 	failedCount := 0
+	editImages := make([]EditImageView, 0, len(allImages))
 	for _, img := range allImages {
 		switch {
 		case img.IsProcessing(), img.IsUploading():
@@ -151,6 +169,23 @@ func (u *GetEditView) Execute(ctx context.Context, in GetEditViewInput) (GetEdit
 		case img.IsFailed():
 			failedCount++
 		}
+		var byteSize int64
+		if bs := img.OriginalByteSize(); bs != nil {
+			byteSize = bs.Int64()
+		}
+		var reason *string
+		if r := img.FailureReason(); r != nil {
+			s := r.String()
+			reason = &s
+		}
+		editImages = append(editImages, EditImageView{
+			ImageID:          img.ID().String(),
+			Status:           img.Status().String(),
+			SourceFormat:     img.SourceFormat().String(),
+			OriginalByteSize: byteSize,
+			FailureReason:    reason,
+			CreatedAt:        img.UploadedAt(),
+		})
 	}
 
 	editPages := make([]EditPageView, 0, len(pages))
@@ -230,6 +265,7 @@ func (u *GetEditView) Execute(ctx context.Context, in GetEditViewInput) (GetEdit
 		Pages:           editPages,
 		ProcessingCount: processingCount,
 		FailedCount:     failedCount,
+		Images:          editImages,
 		DraftExpiresAt:  pb.DraftExpiresAt(),
 	}
 	return GetEditViewOutput{View: view}, nil

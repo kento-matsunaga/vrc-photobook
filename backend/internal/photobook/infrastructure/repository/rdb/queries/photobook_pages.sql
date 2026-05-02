@@ -153,3 +153,24 @@ WHERE id                = $1
   AND status            = 'available'
   AND deleted_at        IS NULL
 FOR UPDATE;
+
+-- name: ListAvailableUnattachedImageIDsByPhotobook :many
+-- /prepare/attach-images（plan v2 §3.4 / §5）で「photobook の available + 未 attach な
+-- image」を bulk 取得する。
+-- ・status='available' のみ（uploading / processing / failed / deleted / purged は対象外）
+-- ・既に photobook_photos に attach 済の image は NOT EXISTS で除外
+--   （photobook_photos には photobook_id 直接 column が無いため photobook_pages 経由で JOIN）
+-- ・並び順は uploaded_at ASC（attach 順序の決定論性を担保）
+SELECT i.id
+FROM images i
+WHERE i.owner_photobook_id = $1
+  AND i.status            = 'available'
+  AND i.deleted_at        IS NULL
+  AND NOT EXISTS (
+      SELECT 1
+      FROM photobook_photos pp
+      JOIN photobook_pages pg ON pp.page_id = pg.id
+      WHERE pg.photobook_id = $1
+        AND pp.image_id     = i.id
+  )
+ORDER BY i.uploaded_at ASC;
