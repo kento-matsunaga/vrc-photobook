@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>VRC PhotoBook — Wireframes</title>
+<link rel="stylesheet" href="wireframe-styles.css"/>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #F5F5F5; font-family: "Hiragino Sans","Noto Sans JP",-apple-system,system-ui,sans-serif; }
+  /* design canvas top-bar override — keep monochrome to match wireframes */
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Canvas + components -->
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="wf-shared.jsx"></script>
+<script type="text/babel" src="wf-screens-a.jsx"></script>
+<script type="text/babel" src="wf-screens-b.jsx"></script>
+<script type="text/babel" src="wf-screens-c.jsx"></script>
+<script type="text/babel" src="wf-flows.jsx"></script>
+
+<script type="text/babel">
+const M_W = 360, M_H = 740;
+const PC_W = 1280, PC_H = 820;
+const FLOW_W = 1240, FLOW_H = 1100;
+const ROUTE_W = 540, ROUTE_H = 360;
+
+function App() {
+  return (
+    <DesignCanvas
+      title="VRC PhotoBook — ワイヤーフレーム"
+      subtitle="13画面 + 共通ErrorState + 主要フロー / Mobile + PC"
+    >
+      <DCSection id="overview" title="OVERVIEW" subtitle="サービス全体のフロー">
+        <DCArtboard id="flow-primary" label="Sitemap & Primary Flows" width={FLOW_W} height={FLOW_H}>
+          <Flow_PrimaryFlow/>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="public" title="01 — PUBLIC" subtitle="ランディング / About / Help / Terms / Privacy">
+        <DCArtboard id="lp-pc" label="4.1 Landing — Web" width={PC_W} height={PC_H}><WFLanding_PC/></DCArtboard>
+        <DCArtboard id="lp-m" label="4.1 Landing — Mobile" width={M_W} height={M_H}><WFLanding_M/></DCArtboard>
+        <DCArtboard id="about-pc" label="4.11 About — Web" width={PC_W} height={PC_H}><WFAbout_PC/></DCArtboard>
+        <DCArtboard id="about-m" label="4.11 About — Mobile" width={M_W} height={M_H}><WFAbout_M/></DCArtboard>
+        <DCArtboard id="help-pc" label="4.12 Help · 管理URL — Web" width={PC_W} height={PC_H}><WFHelp_PC/></DCArtboard>
+        <DCArtboard id="help-m" label="4.12 Help · 管理URL — Mobile" width={M_W} height={M_H}><WFHelp_M/></DCArtboard>
+        <DCArtboard id="terms-pc" label="4.13 Terms — Web" width={PC_W} height={PC_H}><WFTerms_PC/></DCArtboard>
+        <DCArtboard id="terms-m" label="4.13 Terms — Mobile" width={M_W} height={M_H}><WFTerms_M/></DCArtboard>
+        <DCArtboard id="privacy-pc" label="4.14 Privacy — Web" width={PC_W} height={PC_H}><WFPrivacy_PC/></DCArtboard>
+        <DCArtboard id="privacy-m" label="4.14 Privacy — Mobile" width={M_W} height={M_H}><WFPrivacy_M/></DCArtboard>
+      </DCSection>
+
+      <DCSection id="create-prepare" title="02 — CREATE → PREPARE" subtitle="作成入口 → draft token交換 → 写真追加">
+        <DCArtboard id="create-pc" label="4.2 Create — Web" width={PC_W} height={PC_H}><WFCreate_PC/></DCArtboard>
+        <DCArtboard id="create-m" label="4.2 Create — Mobile" width={M_W} height={M_H}><WFCreate_M/></DCArtboard>
+        <DCArtboard id="draft-exch" label="4.3 /draft/{token} — Route Handler" width={ROUTE_W} height={ROUTE_H}><WFDraftExchange/></DCArtboard>
+        <DCArtboard id="prepare-pc" label="4.4 Prepare — Web" width={PC_W} height={PC_H}><WFPrepare_PC/></DCArtboard>
+        <DCArtboard id="prepare-m" label="4.4 Prepare — Mobile" width={M_W} height={M_H}><WFPrepare_M/></DCArtboard>
+      </DCSection>
+
+      <DCSection id="edit-publish" title="03 — EDIT → PUBLISH" subtitle="編集 / 公開設定 / 公開完了">
+        <DCArtboard id="edit-pc" label="4.5 Edit — Web" width={PC_W} height={PC_H}><WFEdit_PC/></DCArtboard>
+        <DCArtboard id="edit-m" label="4.5 Edit — Mobile" width={M_W} height={M_H}><WFEdit_M/></DCArtboard>
+        <DCArtboard id="complete-pc" label="4.6 公開完了 view — Web" width={PC_W} height={PC_H}><WFComplete_PC/></DCArtboard>
+        <DCArtboard id="complete-m" label="4.6 公開完了 view — Mobile" width={M_W} height={M_H}><WFComplete_M/></DCArtboard>
+      </DCSection>
+
+      <DCSection id="manage" title="04 — MANAGE" subtitle="manage token交換 → 管理ページ">
+        <DCArtboard id="manage-exch" label="4.7 /manage/token/{token} — Route Handler" width={ROUTE_W} height={ROUTE_H}><WFManageExchange/></DCArtboard>
+        <DCArtboard id="manage-pc" label="4.8 Manage — Web" width={PC_W} height={PC_H}><WFManage_PC/></DCArtboard>
+        <DCArtboard id="manage-m" label="4.8 Manage — Mobile" width={M_W} height={M_H}><WFManage_M/></DCArtboard>
+      </DCSection>
+
+      <DCSection id="viewer-report" title="05 — VIEWER & REPORT" subtitle="公開Viewer / 通報">
+        <DCArtboard id="viewer-pc" label="4.9 Public Viewer — Web" width={PC_W} height={PC_H}><WFViewer_PC/></DCArtboard>
+        <DCArtboard id="viewer-m" label="4.9 Public Viewer — Mobile" width={M_W} height={M_H}><WFViewer_M/></DCArtboard>
+        <DCArtboard id="report-pc" label="4.10 Report — Web" width={PC_W} height={PC_H}><WFReport_PC/></DCArtboard>
+        <DCArtboard id="report-m" label="4.10 Report — Mobile" width={M_W} height={M_H}><WFReport_M/></DCArtboard>
+      </DCSection>
+
+      <DCSection id="errors" title="06 — COMMON ERROR STATES" subtitle="unauthorized / not_found / gone / server_error">
+        <DCArtboard id="errors-all" label="共通 ErrorState (4種)" width={920} height={620}><WFErrorStates/></DCArtboard>
+      </DCSection>
+
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+</body>
+</html>

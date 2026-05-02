@@ -42,3 +42,10 @@ __pycache__/
 # 検証後削除する想定の場所。`backend/internal/photobook/wireup.CreateAndPublishForCLI`
 # を呼び出す temp main を置くときに使う。
 /backend/cmd/_test-publish-public/
+
+# m2-design-refresh: design/usephot/ は user 個人撮影の VRChat 実写 PNG（合計約 78 MB、
+# 9〜14 MB / 枚）。git 管理せず、後続 STOP で frontend/scripts/build-landing-images.sh
+# 経由で WebP/JPEG variant に圧縮 → frontend/public/img/landing/ のみ git 管理する方針
+# （docs/plan/m2-design-refresh-plan.md §3.4 / §9.3 / §3.5）。raw 個人写真を repo に
+# 入れない（branch / merge での扱い・bundle size・写真権利の観点）。
+design/usephot/
