@@ -29,6 +29,12 @@ backend/.env.local
 backend/.env.production
 backend/image-processor
 
+# ローカル検証用テスト画像（Cloud Build source tarball に混入させない）
+# 2026-05-02: STOP γ deploy で .gcloudignore 漏れにより GCS の Cloud Build
+# source bucket に 90MB のテスト画像が上がった事故の再発防止
+TESTImage/
+ChaeckImage/
+
 # IDE / OS
 .idea/
 .vscode/
