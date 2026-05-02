@@ -586,7 +586,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 | PR33c | **STOP δ**: Workers redeploy（R2 binding 追加、wrangler.jsonc 変更） | binding 追加 → 既存 frontend 動作確認 |
 | PR33c | **STOP ε**: Backend Cloud Build deploy（`/api/public/photobooks/<id>/ogp` endpoint 追加） | 同 |
 | PR33d | **STOP ζ**: Cloud Run Jobs 作成（outbox-worker）+ 過去 pending event の consume 戦略確定 | **副作用 handler の初回稼働、最重要 STOP** |
-| PR33d | **STOP η**: Cloud Scheduler 作成（5 分おき or 1 時間おき） | 自動定期実行、別 STOP |
+| PR33d | **STOP η**: Cloud Scheduler 作成（cadence は image-processor 1 min と整合させるか別 interval にするかは運用観測後判断） | 自動定期実行、別 STOP。outbox 用の Scheduler はまだ未作成（手動 Job execute 運用中、STOP α P0 v2 時点） |
 | PR33e | **STOP θ**: Reconcile cron（stale_ogp_enqueue） | 自動 reconciler |
 
 各 STOP はユーザー判断項目（§15）と組で承認する想定。

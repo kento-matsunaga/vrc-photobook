@@ -4,6 +4,12 @@
 > 状態: **STOP β（設計判断資料）** ユーザー承認済（option α 採用）。STOP γ（実 GCP リソース作成）承認待ちで停止
 > 起点: 2026-05-01 作成導線 PR（m2-create-entry）の STOP ε smoke 中に発覚した「画像アップロード後『処理中』が永遠に終わらない」P0 課題（→ STOP α 調査報告で根因特定）
 >
+> ⚠ **2026-05-03 更新**: 本書 §6.4 / §7 / §11.3 の「Scheduler 5 min 推奨」は
+> [`m2-prepare-resilience-and-throughput-plan.md`](./m2-prepare-resilience-and-throughput-plan.md) §2.5 / §3.5 で **1 min に supersede 済**。
+> 実 Scheduler `vrcpb-image-processor-tick` は 2026-05-02T13:19:59 UTC に
+> `*/5 * * * *` → `* * * * *` (1 min) に更新済。本書内の「5 min」記述は計画策定時の
+> 履歴情報として残すが、現在地は **1 min interval + max-images 10**。
+>
 > 関連 docs:
 > - [`docs/plan/m2-image-processor-plan.md`](./m2-image-processor-plan.md) — PR23 で image-processor 本体を実装した時の計画書（本書は **その実行基盤を後追いで自動化**する位置づけ）
 > - [`docs/plan/m2-image-upload-plan.md`](./m2-image-upload-plan.md)

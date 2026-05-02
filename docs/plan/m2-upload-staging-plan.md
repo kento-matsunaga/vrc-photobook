@@ -4,6 +4,13 @@
 > 状態: **STOP α（設計判断資料）** ユーザ承認待ち。STOP β 以降の実装は本書承認後に着手
 > 起点: m2-image-processor-job-automation 完了後の運用観測で、`/edit/<photobookId>` が「upload / processing 待ち / 編集」を 1 画面に同居させているため、image-processor の処理遅延（5 min Scheduler tick + Job 実行時間）がそのまま編集体験を壊す構造的問題が顕在化。複数画像の一括投入も `<input type="file">` 単枚のみで未対応
 >
+> ⚠ **2026-05-03 更新**: 本書内の「Scheduler 5 min」「最大 5 分ほどお待ちください」の前提は
+> [`m2-prepare-resilience-and-throughput-plan.md`](./m2-prepare-resilience-and-throughput-plan.md) §2.5 / §3.5 / §6 で **1 min interval + 通常 1〜2 分案内** に supersede 済。
+> 実 Scheduler `vrcpb-image-processor-tick` は 2026-05-02T13:19:59 UTC に
+> `*/5 * * * *` → `* * * * *` (1 min) に更新済、Frontend 側の「最大 5 分」表示も
+> β-3 (commit f455fe4) で「通常 1〜2 分ほどで完了します」+ 10 分超過遅延通知に更新済。
+> 本書内の「5 min」記述は計画策定時の履歴情報として残すが、現在地は §3.5 plan v2 の値。
+>
 > 関連 docs:
 > - [`docs/plan/m2-image-processor-job-automation-plan.md`](./m2-image-processor-job-automation-plan.md)（image-processor 自動化、Scheduler 5 min 設定）
 > - [`docs/plan/m2-frontend-upload-ui-plan.md`](./m2-frontend-upload-ui-plan.md)（PR22 で 1 枚ずつ upload を「MVP 範囲外」と先送りした記録）

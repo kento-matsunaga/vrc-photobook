@@ -181,6 +181,18 @@
 #### Frontend 改善（任意 / 後追い）
 - design system 整備（`design/design-system/` への token 抽出、`tailwind.config.ts` への反映）
 
+#### Edit UI / Publish flow 拡張（STOP α P0 hotfix の長期方針）
+- **B 案: `/edit` に creator_display_name 入力欄追加 + `UpdatePhotobookSettings` API 拡張**
+  - 背景: 2026-05-03 STOP α で `/create` が creator 空欄を許容する一方、`UpdatePhotobookSettings` SQL に creator 列が無く `PublishSettingsPanel` にも入力欄が無いため、空 creator photobook は creator を埋める導線が無い設計矛盾を発見
+  - 短期 hotfix（採用済、a8fe0db live）: `domain.CanPublish` から creator 空欄チェック削除 = 「creator 空でも publish 可」許容
+  - 長期方針: `/edit` の `PublishSettingsPanel` に creator 入力欄追加、`UpdatePhotobookSettings` API + SQL に creator_display_name 列追加、handler / lib / test も拡張
+  - 影響範囲（推定 8〜10 ファイル + test）: `domain` VO / `edit_extras.go` / `photobook.sql` / `sqlcgen` / `photobook_repository.go` / `edit_handler.go` / `editPhotobook.ts` / `PublishSettingsPanel.tsx` + 各 test
+  - 業務知識 v4 §3.1 の「作者名」必須性確認と併せて再開（必須化するなら B 案、任意維持なら hotfix で十分）
+  - `domain.ErrEmptyCreatorName` 定数 + `publish_handler` の `empty_creator` reason mapping は B 案で再活性化する想定で残置済（9c4fb7d）
+  - 関連 failure-log: `harness/failure-log/2026-05-03_create-publish-precondition-mismatch.md`
+- **`docs/spec/vrc_photobook_business_knowledge_v4.md` §3.1 への追記**: 「rights_agreed は publish 操作と同 TX で取得・保存する」ことを明文化（9c4fb7d で実装済、知識文書側を整合）→ B 案と同タイミングで実施
+- 実機 STOP ε Chrome / Edge smoke（rights agreement checkbox 動作 + reload 復元 + attach-images 経由 /edit 遷移）→ ユーザ実施 + Cloud Run / Workers logs 集約
+
 ---
 
 ## 2. 旧ロードマップとのズレ（archive）
