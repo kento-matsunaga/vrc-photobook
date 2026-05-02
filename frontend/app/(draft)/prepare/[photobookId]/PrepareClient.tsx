@@ -34,6 +34,10 @@ import {
 import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { fetchEditView, type EditView } from "@/lib/editPhotobook";
 import {
+  CompressionError,
+  compressImageForUpload,
+} from "@/lib/imageCompression";
+import {
   completeUpload,
   issueUploadIntent,
   issueUploadVerification,
@@ -130,22 +134,46 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
     setVerificationToken("");
   }, []);
 
-  // ファイル選択 → validate → queue に追加
+  // ファイル選択 → 軽量検証（HEIC など）→ クライアント圧縮（VRChat PNG 13-18MB を JPEG 化）
+  // → validateFile（10MB 以下 / 形式チェック）→ queue 追加
   const onFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const incoming = e.target.files ? Array.from(e.target.files) : [];
       e.target.value = ""; // 同じファイルを再度選択できるよう
       if (incoming.length === 0) return;
 
       const accepted: File[] = [];
-      let rejectedCount = 0;
+      let rejectedFormat = 0;
+      let rejectedTooHuge = 0;
+      let recompressed = 0;
       for (const f of incoming) {
-        const v = validateFile(f);
-        if (v) {
-          rejectedCount++;
+        // 形式チェック（HEIC / 非画像）は圧縮前に実施。type が未知の場合も拒否。
+        if (
+          f.type !== "image/jpeg" &&
+          f.type !== "image/png" &&
+          f.type !== "image/webp"
+        ) {
+          rejectedFormat++;
           continue;
         }
-        accepted.push(f);
+        try {
+          const result = await compressImageForUpload(f);
+          if (result.recompressed) recompressed++;
+          // 念のため最終 validate（target>=10MB を満たす想定）
+          const v = validateFile(result.file);
+          if (v) {
+            rejectedTooHuge++;
+            continue;
+          }
+          accepted.push(result.file);
+        } catch (err) {
+          if (err instanceof CompressionError) {
+            // input_too_large / still_too_large / decode_failed / encode_failed をひと括りに「過大」扱い
+            rejectedTooHuge++;
+          } else {
+            rejectedTooHuge++;
+          }
+        }
       }
 
       setQueue((q) => {
@@ -154,10 +182,17 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         return addFiles(q, taken, newTileId);
       });
 
-      if (rejectedCount > 0) {
-        setGlobalError(
-          `${rejectedCount} 枚は対応していない形式 / サイズのため取り込めませんでした（JPEG / PNG / WebP、10MB 以下）。`,
-        );
+      if (rejectedFormat > 0 || rejectedTooHuge > 0) {
+        const parts: string[] = [];
+        if (rejectedFormat > 0) {
+          parts.push(`${rejectedFormat} 枚は対応していない形式（JPEG / PNG / WebP のみ、HEIC / HEIF 未対応）`);
+        }
+        if (rejectedTooHuge > 0) {
+          parts.push(`${rejectedTooHuge} 枚はサイズ過大で取り込めませんでした（圧縮しても 10MB 以下に収まらず、または 50MB を超過）`);
+        }
+        setGlobalError(parts.join(" / "));
+      } else if (recompressed > 0) {
+        setGlobalError(""); // 再エンコードは正常動作のため error 表示しない（必要なら toast 化を P1 で）
       } else {
         setGlobalError("");
       }

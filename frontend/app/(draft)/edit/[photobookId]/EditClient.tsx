@@ -37,6 +37,7 @@ import {
   isPublishApiError,
   type PublishResult,
 } from "@/lib/publishPhotobook";
+import { compressImageForUpload } from "@/lib/imageCompression";
 import {
   completeUpload,
   issueUploadIntent,
@@ -285,23 +286,50 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   }, [view.photobookId, view.version, reload, handleApiError]);
 
   // === upload widget（既存 PR22 流用、ページに合わせた callback） ===
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // VRChat PNG（13-18MB）は client-side 圧縮を通して 10MB に収める。
+  // HEIC / 非画像は圧縮前に拒否。圧縮後の File に対して validateFile を保険として再実行。
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
+    e.target.value = "";
     if (!f) return;
-    const v = validateFile(f);
+    if (
+      f.type !== "image/jpeg" &&
+      f.type !== "image/png" &&
+      f.type !== "image/webp"
+    ) {
+      setUploadStatus({
+        kind: "error",
+        message:
+          f.type.startsWith("image/heic") || f.name.toLowerCase().match(/\.(heic|heif|hif)$/)
+            ? "HEIC / HEIF は現在未対応です。JPEG / PNG / WebP に変換してください。"
+            : "対応していないファイル形式です（JPEG / PNG / WebP のみ）。",
+      });
+      return;
+    }
+    let prepared: File;
+    try {
+      const result = await compressImageForUpload(f);
+      prepared = result.file;
+    } catch {
+      setUploadStatus({
+        kind: "error",
+        message: "サイズ過大で取り込めませんでした（圧縮しても 10MB に収まらず、または 50MB 超）。",
+      });
+      return;
+    }
+    const v = validateFile(prepared);
     if (v) {
       const map: Record<string, string> = {
-        too_large: "10MB 以下のファイルを選択してください。",
+        too_large: "サイズ過大で取り込めませんでした（圧縮しても 10MB 以下に収まりません）。",
         heic_unsupported: "HEIC / HEIF は現在未対応です。JPEG / PNG / WebP に変換してください。",
         invalid_type: "対応していないファイル形式です（JPEG / PNG / WebP のみ）。",
       };
       setUploadStatus({ kind: "error", message: map[v.kind] ?? "選択できないファイルです。" });
-      e.target.value = "";
       return;
     }
-    setPendingFile(f);
+    setPendingFile(prepared);
     setTurnstileToken(null);
-    setUploadStatus({ kind: "selected", file: f });
+    setUploadStatus({ kind: "selected", file: prepared });
   };
 
   // L1+L2: 多層防御 Turnstile ガード（`.agents/rules/turnstile-defensive-guard.md`）。
