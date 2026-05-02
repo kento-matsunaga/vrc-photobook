@@ -54,7 +54,7 @@ func TestCreateDraftPhotobook_Execute(t *testing.T) {
 		},
 		{
 			name:        "正常_空creator許容",
-			description: "Given: creator_display_name='' (任意項目), When: Execute, Then: 成功（domain validation を通過、CreateCalls=1。publish 時は CanPublish で別途 reject される）",
+			description: "Given: creator_display_name='' (任意項目), When: Execute, Then: 成功（domain validation を通過、CreateCalls=1。publish 時も空欄許容、2026-05-03 STOP α P0-γ-A hotfix）",
 			modify:      func(in *usecase.CreateDraftPhotobookInput) { in.CreatorDisplayName = "" },
 			wantStatus:  "draft",
 		},

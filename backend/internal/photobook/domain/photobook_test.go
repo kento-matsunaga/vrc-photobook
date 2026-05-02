@@ -84,7 +84,7 @@ func TestNewDraftPhotobook(t *testing.T) {
 		},
 		{
 			name:        "正常_空creator_name許容",
-			description: "Given: creator_display_name='' (任意項目), When: NewDraftPhotobook, Then: 成功（draft 作成時は空文字許容、publish 時は CanPublish で creatorDisplayName==\"\" を別途 reject）",
+			description: "Given: creator_display_name='' (任意項目), When: NewDraftPhotobook, Then: 成功（draft 作成時 / publish 時とも空文字許容、2026-05-03 STOP α P0-γ-A hotfix）",
 			modify:      func(p *domain.NewDraftPhotobookParams) { p.CreatorDisplayName = "" },
 		},
 		{
@@ -164,6 +164,13 @@ func TestPhotobook_CanPublish(t *testing.T) {
 				return domaintests.NewPhotobookBuilder().WithRightsAgreed(false).Build(t)
 			},
 			wantErr: domain.ErrRightsNotAgreed,
+		},
+		{
+			name:        "正常_creator空でもpublish可_hotfix",
+			description: "Given: draft + rights_agreed=true + creator_display_name=''（/create で空欄許容され、UpdatePhotobookSettings に creator 列も無い）, When: CanPublish, Then: nil（2026-05-03 STOP α P0-γ-A hotfix の lock-in）",
+			build: func(t *testing.T) domain.Photobook {
+				return domaintests.NewPhotobookBuilder().WithCreatorName("").Build(t)
+			},
 		},
 	}
 	for _, tt := range tests {

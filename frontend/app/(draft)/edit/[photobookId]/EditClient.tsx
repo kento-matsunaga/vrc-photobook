@@ -21,7 +21,7 @@ import {
   addPage,
   bulkReorderPhotos,
   clearCoverImage,
-  fetchEditView,
+  fetchEditViewClient,
   isEditApiError,
   removePhoto,
   setCoverImage,
@@ -103,9 +103,13 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   }, []);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ kind: "idle" });
 
+  // 2026-05-03 STOP α P0-β hotfix: reload は browser からの client polling 経路のため
+  // credentials:"include" が必要な fetchEditViewClient を使う。SSR 用の fetchEditView
+  // (Cookie ヘッダ手動転送) を browser から呼ぶと cross-origin で Cookie が送られず
+  // 401 になり、「最新を取得」「polling」が常に失敗していた。
   const reload = useCallback(async () => {
     try {
-      const next = await fetchEditView(view.photobookId, "");
+      const next = await fetchEditViewClient(view.photobookId);
       setView(next);
       setConflict("ok");
       setErrorMsg(null);

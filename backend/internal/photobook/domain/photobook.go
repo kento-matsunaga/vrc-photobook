@@ -268,16 +268,20 @@ func RestorePhotobook(p RestorePhotobookParams) (Photobook, error) {
 // 確認項目:
 //   - status=draft
 //   - rights_agreed=true
-//   - creator_display_name 非空（コンストラクタで保証されているはずだが二重チェック）
+//
+// 2026-05-03 STOP α P0-γ-A hotfix: creator_display_name 空欄を許容する。
+// /create で creator は任意、UpdatePhotobookSettings に creator 列が無く、
+// PublishSettingsPanel にも入力欄が無いため、空 creator で作成された photobook
+// が現状本番で公開不能（409）になっていた。短期 hotfix として publish 時の
+// 空欄拒否を外す。長期方針（B 案: /edit に creator 入力欄追加 + settings API
+// 拡張）は後続 PR で扱う。ErrEmptyCreatorName 定数は publish_handler の error
+// マッピング（情報漏洩抑止）が引き続き参照する可能性があるため定義は残す。
 func (p Photobook) CanPublish() error {
 	if !p.status.IsDraft() {
 		return ErrNotDraft
 	}
 	if !p.rightsAgreed {
 		return ErrRightsNotAgreed
-	}
-	if p.creatorDisplayName == "" {
-		return ErrEmptyCreatorName
 	}
 	return nil
 }
@@ -464,8 +468,9 @@ func validateTitle(s string) error {
 
 // validateCreatorName は draft 作成時の creator_display_name 検証（length-only）。
 //
-// creator_display_name は業務知識 v4 §3.1 で **任意**。draft 作成時に空文字を許容する。
-// publish 時の必須性は CanPublish (creatorDisplayName == "" を直接 check) で別途担保される。
+// creator_display_name は業務知識 v4 §3.1 で **任意**。draft 作成時 / publish 時とも
+// に空文字を許容する（2026-05-03 STOP α P0-γ-A hotfix）。長期的には /edit から
+// creator を更新可能にする方針（後続 PR）。
 func validateCreatorName(s string) error {
 	if len([]rune(s)) > maxCreatorNameLen {
 		return ErrCreatorNameTooLong
