@@ -7,6 +7,7 @@
 | パス | 目的 | 主な内容 |
 |------|------|---------|
 | `mockups/` | 画面モックアップ | PNG/JPG/PDF エクスポート、画面単位の完成イメージ |
+| `wireframes/` | ワイヤーフレーム設計入力 | 画面一覧、導線、状態、API 対応 |
 | `design-system/` | デザインシステム定義 | カラー・タイポ・余白・UIコンポーネント仕様（Markdown/JSON） |
 | `figma-exports/` | Figma原本エクスポート | `.fig` ファイル、Figma から書き出した SVG 等 |
 | `assets/` | デザイン素材 | ロゴ、アイコン、画像素材（原本） |
@@ -24,3 +25,8 @@
 2. 画面ごとのモックアップを `mockups/` に書き出し
 3. デザインシステムの変更は `design-system/` のドキュメントに反映
 4. フロント実装は `design-system/` を Single Source of Truth とする
+
+## ワイヤーフレーム作成
+
+- 画面一覧・導線・状態整理: [`wireframes/system-wireframe-brief.md`](./wireframes/system-wireframe-brief.md)
+- 探索モック: [`mockups/prototype/`](./mockups/prototype/)
