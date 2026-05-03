@@ -199,21 +199,58 @@ describe("PrivacyPage（/privacy）", () => {
 });
 
 describe("AboutPage（/about）", () => {
-  it("正常_位置づけ_できる6_できない4_ポリシー_trust_を含む", () => {
+  it("正常_PublicTopBar_位置づけ_できる6_できない4_3button_通報補足_trust_を含む", () => {
     const html = renderToStaticMarkup(<AboutPage />);
-    expect(html).toContain("VRC PhotoBook について");
+    // β-2b-2: PublicTopBar 統合
+    expect(html).toContain('data-testid="public-topbar"');
+    // h1 は Mobile で <br/> 改行するため substring で個別検証
+    expect(html).toContain("VRC PhotoBook");
+    expect(html).toContain("について");
     expect(html).toContain("サービスの位置づけ");
     expect(html).toContain("できること");
     expect(html).toContain("MVP ではできないこと");
     expect(html).toContain("ポリシーと窓口");
-    expect(html).toContain("非公式ファンメイド");
+    // dl meta (production truth) は維持
+    expect(html).toContain('data-testid="about-positioning-meta"');
+    expect(html).toContain("個人運営の非公式ファンメイド");
     expect(html).toContain("ERENOA");
     expect(html).toContain("@Noa_Fortevita");
+    // β-2b-2: 3 button block の data-testid と href
+    expect(html).toContain('data-testid="about-policy-list"');
+    expect(html).toContain('data-testid="about-policy-link-terms"');
+    expect(html).toContain('data-testid="about-policy-link-privacy"');
+    expect(html).toContain('data-testid="about-policy-link-help-manage-url"');
     expect(html).toContain('href="/terms"');
     expect(html).toContain('href="/privacy"');
     expect(html).toContain('href="/help/manage-url"');
+    // β-2b-2: 通報窓口補足は別段落
+    expect(html).toContain('data-testid="about-report-note"');
+    expect(html).toContain("このフォトブックを通報");
+    // footer + trust strip (LP / About のみ)
     expect(html).toContain('data-testid="public-page-footer"');
     expect(html).toContain('data-testid="trust-strip"');
     expectNoSecret(html);
+  });
+
+  it("正常_canDo_6件_cannotDo_4件_の数が固定されている", () => {
+    const html = renderToStaticMarkup(<AboutPage />);
+    const canMatches = html.match(/data-testid="about-can-item-/g) ?? [];
+    expect(canMatches.length).toBe(6);
+    const cantMatches = html.match(/data-testid="about-cannot-item-/g) ?? [];
+    expect(cantMatches.length).toBe(4);
+  });
+
+  it("正常_重要文言_個人運営_非公式_noindex_管理URL_通報_プライバシー_権利_Turnstile_IPハッシュ_が維持されている", () => {
+    const html = renderToStaticMarkup(<AboutPage />);
+    expect(html).toContain("個人運営");
+    expect(html).toContain("非公式");
+    expect(html).toContain("noindex");
+    expect(html).toContain("MVP");
+    expect(html).toContain("管理 URL");
+    expect(html).toContain("通報");
+    expect(html).toContain("プライバシー");
+    expect(html).toContain("権利");
+    expect(html).toContain("Turnstile");
+    expect(html).toContain("IP ハッシュ");
   });
 });

@@ -1,23 +1,47 @@
-// VRC PhotoBook について（About、design rebuild）。
+// VRC PhotoBook について（m2-design-refresh STOP β-2b-2）。
 //
-// 採用元:
-//   - LP の `feature-cell` パターン（ico + t + s）
-//   - design/mockups/prototype/screens-b.jsx Viewer "Memories card" の dashed border
-//     区切り（**1 箇所のみ**：サービスの位置づけ card 内のメタ）
-//   - design/design-system/(typography|colors|spacing|radius-shadow).md
+// 採用元 (design 正典):
+//   - design/source/project/wf-screens-c.jsx:179-227 `WFAbout_M`
+//   - design/source/project/wf-screens-c.jsx:228-273 `WFAbout_PC`
+//   - design/source/project/wf-shared.jsx:29-48 `WFBrowser` (PC header → PublicTopBar)
+//   - design/source/project/wireframe-styles.css:165-175 `.wf-box`
+//   - design/source/project/wireframe-styles.css:228-253 `.wf-btn` (policy buttons)
+//   - design/source/project/wireframe-styles.css:337-349 `.wf-section-title`
+//   - design/source/project/wireframe-styles.css:565-573 grid / row utilities
 //
-// 設計参照:
-//   - harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md §3.2 / §6
-//   - docs/spec/vrc_photobook_business_knowledge_v4.md §1 / §2.6 / §3
+// design 正典構造:
+//   1. PublicTopBar
+//   2. eyebrow + h1「VRC PhotoBook について」 (Mobile <br/> 改行)
+//   3. サービスの位置づけ wf-box (本文 + dl meta + MVP 注記)
+//   4. できること (6 件): ✓ 円 icon row × 6 (M 縦 / PC wf-grid-2 で並列)
+//   5. MVP ではできないこと (4 件): × 円 icon row × 4
+//   6. ポリシーと窓口 wf-box: 3 button block (M 縦 / PC wf-grid-3) + 通報窓口別段落
+//   7. PublicPageFooter showTrustStrip=true (LP / About のみ trust strip 表示)
+//
+// 「足りないものは足す」(plan §0.1):
+//   - design は placeholder line のみ。production truth (canDo 6 / cannotDo 4 本文) を維持
+//   - dl meta (運営 / 運営者表示名 ERENOA / @Noa_Fortevita) は production truth として残す
+//   - 通報窓口の説明 + 法的レビュー注記は別段落で補足 (削減なし)
+//   - canDo / cannotDo の旧 SVG iconPath は廃止し、design の ✓ / × 円 outline に統一
+//
+// 業務知識:
+//   - v4 §1 / §2.6 / §3 / §6 / §7.6
+//   - ADR-0002 (cmd/ops CLI 運用)
+//   - ADR-0006 (Email Provider 再選定中)
 //
 // 制約:
 //   - middleware で X-Robots-Tag: noindex, nofollow が付与される
-//   - 動的データ（token / Cookie / Secret / 任意 ID）は出さない（静的説明のみ）
+//   - 動的データ (token / Cookie / Secret / 任意 ID) は出さない
+//
+// 設計参照:
+//   - docs/plan/m2-design-refresh-stop-beta-2b-plan.md §2
+//   - docs/plan/m2-design-refresh-stop-beta-2-plan.md §2.3.1
 
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PublicPageFooter } from "@/components/Public/PublicPageFooter";
+import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
 
 export const metadata: Metadata = {
@@ -26,42 +50,30 @@ export const metadata: Metadata = {
     "VRC PhotoBook は VRChat 写真をログイン不要でフォトブックにまとめる非公式ファンメイドサービスです。MVP 段階のできること・できないことを記載しています。",
 };
 
-const canDo: ReadonlyArray<{ title: string; body: string; iconPath: string }> = [
+const canDo: ReadonlyArray<{ title: string; body: string }> = [
   {
     title: "ログイン不要での作成・公開",
     body: "アカウント登録なしで、スマホからフォトブックを作成・公開できます（業務知識 v4 §3.1 / §3.2）。",
-    iconPath:
-      "M17 20v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 0",
   },
   {
     title: "管理 URL での編集・削除",
     body: "公開直後に表示される管理用 URL を保存しておけば、いつでも編集・公開停止・削除ができます（v4 §3.4 / §3.5）。",
-    iconPath:
-      "M12 20h9 M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z",
   },
   {
     title: "公開範囲の選択",
     body: "公開（誰でも閲覧可）/ 限定公開（URL を知っている人のみ、MVP の既定）/ 非公開（管理 URL 保持者のみ）から選べます（v4 §2.6）。",
-    iconPath:
-      "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
   },
   {
     title: "X 共有用 OGP の自動生成",
     body: "公開時に OGP 画像を自動生成し、X タイムラインで見やすい形で共有できます（v4 §3.8）。",
-    iconPath:
-      "M3 4h18v16H3z M3 10h18 M9 4v16",
   },
   {
     title: "通報窓口",
     body: "公開フォトブックの閲覧画面から、権利侵害・センシティブ・未成年関連の懸念を通報できます。運営は通報を手動で確認・対応します（v4 §3.6）。",
-    iconPath:
-      "M2 12a10 10 0 1 0 20 0 10 10 0 0 0-20 0 M12 8v4 M12 16h.01",
   },
   {
     title: "荒らし抑止のレート制限",
     body: "通報・アップロード・公開操作には、IP ハッシュベースの利用制限を設けています。検証は Cloudflare Turnstile を併用します（v4 §3.7）。",
-    iconPath:
-      "M4 10h16v11H4z M8 10V7a4 4 0 0 1 8 0v3",
   },
 ];
 
@@ -84,161 +96,205 @@ const cannotDo: ReadonlyArray<{ title: string; body: string }> = [
   },
 ];
 
+const policyLinks: ReadonlyArray<{
+  href: string;
+  label: string;
+  testidSlug: string;
+}> = [
+  { href: "/terms", label: "利用規約", testidSlug: "terms" },
+  { href: "/privacy", label: "プライバシーポリシー", testidSlug: "privacy" },
+  { href: "/help/manage-url", label: "管理 URL について", testidSlug: "help-manage-url" },
+];
+
+// design `wireframe-styles.css:337-349` `.wf-section-title` (12px / font-bold / tracking-[0.04em] +
+// ::before 4×14 teal bar)
+function SectionTitle({ children, id }: { children: string; id?: string }) {
+  return (
+    <h2
+      id={id}
+      className="mb-3 flex items-center gap-2 text-xs font-bold tracking-[0.04em] text-ink-strong sm:mb-4"
+    >
+      <span aria-hidden="true" className="block h-3.5 w-1 rounded-sm bg-teal-500" />
+      {children}
+    </h2>
+  );
+}
+
+// design `wf-screens-c.jsx:196` ✓ icon (18×18 / border 1.5 ink / round / center / font-bold)
+// と `:207` × icon (font-size 11 with 同寸法) を統合した circular outline icon。
+function CircleIcon({ kind }: { kind: "check" | "cross" }) {
+  const sizeCls = kind === "check" ? "text-[10px]" : "text-[11px]";
+  return (
+    <span
+      aria-hidden="true"
+      className={`mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border-[1.5px] border-ink font-bold leading-none text-ink ${sizeCls}`}
+    >
+      {kind === "check" ? "✓" : "×"}
+    </span>
+  );
+}
+
 export default function AboutPage() {
   return (
-    <main className="mx-auto min-h-screen w-full max-w-screen-md bg-surface px-4 py-8 sm:px-6 sm:py-10">
-      <header className="space-y-2">
-        <SectionEyebrow>About</SectionEyebrow>
-        <h1 className="text-h1 text-ink">VRC PhotoBook について</h1>
-        <p className="text-sm text-ink-medium">
-          VRChat コミュニティ向け、ログイン不要で動くフォトブックサービスです。
-        </p>
-      </header>
+    <>
+      <PublicTopBar />
+      <main className="mx-auto min-h-screen w-full max-w-screen-md px-4 py-6 sm:px-9 sm:py-9">
+        <header className="space-y-2">
+          <SectionEyebrow>About</SectionEyebrow>
+          {/* design `wf-screens-c.jsx:184` Mobile h1 「VRC PhotoBook<br/>について」, PC は 1 行 */}
+          <h1 className="text-h1 tracking-tight text-ink sm:text-h1-lg">
+            VRC PhotoBook
+            <span className="hidden sm:inline"> </span>
+            <br className="sm:hidden" />
+            について
+          </h1>
+          <p className="text-sm text-ink-medium">
+            VRChat コミュニティ向け、ログイン不要で動くフォトブックサービスです。
+          </p>
+        </header>
 
-      {/* サービスの位置づけ（dashed メタ 1 箇所のみ） */}
-      <section
-        aria-labelledby="about-overview"
-        className="mt-6 rounded-lg border border-divider bg-surface p-5 shadow-sm sm:p-6"
-      >
-        <h2 id="about-overview" className="text-h2 text-ink">
-          サービスの位置づけ
-        </h2>
-        <p className="mt-3 text-sm text-ink-strong">
-          VRChat で撮影された写真を、ログイン不要・スマホファーストでフォトブックとしてまとめ、X で共有することを主目的としたサービスです。
-          管理用 URL 方式で、編集・公開停止・削除をログインなしで実現しています。
-        </p>
-        <dl className="mt-4 grid gap-3 border-t border-dashed border-divider pt-4 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-xs text-ink-medium">運営</dt>
-            <dd className="mt-1 font-bold text-ink">個人運営の非公式ファンメイド</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-medium">運営者表示名</dt>
-            <dd className="mt-1 font-bold text-ink">ERENOA</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-ink-medium">連絡用 X アカウント</dt>
-            <dd className="mt-1">
-              <a
-                href="https://x.com/Noa_Fortevita"
-                rel="noopener noreferrer"
-                className="font-num font-bold text-brand-teal underline hover:text-brand-teal-hover"
-              >
-                @Noa_Fortevita
-              </a>
-            </dd>
-          </div>
-        </dl>
-        <p className="mt-3 text-xs text-ink-soft">
-          MVP 段階のため、機能・仕様は順次追加・変更されます。
-        </p>
-      </section>
-
-      {/* できること */}
-      <section aria-labelledby="about-can" className="mt-10">
-        <h2 id="about-can" className="text-h2 text-ink">
-          できること
-        </h2>
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {canDo.map((c) => (
-            <li
-              key={c.title}
-              className="rounded-lg border border-divider bg-surface p-4 shadow-sm"
-            >
-              <span
-                aria-hidden="true"
-                className="grid h-9 w-9 place-items-center rounded-full bg-brand-teal-soft text-brand-teal"
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+        {/* サービスの位置づけ wf-box (`wf-screens-c.jsx:235-238`) */}
+        <section
+          data-testid="about-positioning"
+          aria-labelledby="about-positioning-heading"
+          className="mt-7 rounded-lg border border-divider-soft bg-surface p-5 shadow-sm sm:p-6"
+        >
+          <SectionTitle id="about-positioning-heading">サービスの位置づけ</SectionTitle>
+          <p className="text-sm leading-relaxed text-ink-strong">
+            VRChat で撮影された写真を、ログイン不要・スマホファーストでフォトブックとしてまとめ、X で共有することを主目的としたサービスです。
+            管理用 URL 方式で、編集・公開停止・削除をログインなしで実現しています。
+          </p>
+          {/* dl meta は production truth として維持 (運営 / 運営者表示名 / 連絡用 X) */}
+          <dl
+            data-testid="about-positioning-meta"
+            className="mt-4 grid gap-3 border-t border-dashed border-divider pt-4 text-sm sm:grid-cols-3"
+          >
+            <div>
+              <dt className="text-xs text-ink-medium">運営</dt>
+              <dd className="mt-1 font-bold text-ink">個人運営の非公式ファンメイド</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-medium">運営者表示名</dt>
+              <dd className="mt-1 font-bold text-ink">ERENOA</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-medium">連絡用 X アカウント</dt>
+              <dd className="mt-1">
+                <a
+                  href="https://x.com/Noa_Fortevita"
+                  rel="noopener noreferrer"
+                  className="font-num font-bold text-teal-600 underline hover:text-teal-700"
                 >
-                  <path d={c.iconPath} />
-                </svg>
-              </span>
-              <p className="mt-3 text-sm font-bold text-ink">{c.title}</p>
-              <p className="mt-1 text-sm text-ink-medium">{c.body}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
+                  @Noa_Fortevita
+                </a>
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs text-ink-soft">
+            MVP 段階のため、機能・仕様は順次追加・変更されます。
+          </p>
+        </section>
 
-      {/* MVP ではできないこと */}
-      <section aria-labelledby="about-cannot" className="mt-10">
-        <h2 id="about-cannot" className="text-h2 text-ink">
-          MVP ではできないこと
-        </h2>
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-          {cannotDo.map((c) => (
-            <li
-              key={c.title}
-              className="rounded-lg border border-divider bg-surface-soft p-4"
-            >
-              <span
-                aria-hidden="true"
-                className="grid h-8 w-8 place-items-center rounded-full bg-surface-raised text-ink-soft"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+        {/* canDo 6 / cannotDo 4 (`wf-screens-c.jsx:240-258` PC wf-grid-2 / Mobile 縦 stack) */}
+        <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <section
+            data-testid="about-can"
+            aria-labelledby="about-can-heading"
+            className="rounded-lg border border-divider-soft bg-surface p-5 shadow-sm sm:p-6"
+          >
+            <SectionTitle id="about-can-heading">できること (6 件)</SectionTitle>
+            <ul data-testid="about-can-list" className="divide-y divide-divider-soft">
+              {canDo.map((c, i) => (
+                <li
+                  key={c.title}
+                  data-testid={`about-can-item-${i + 1}`}
+                  className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
                 >
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M5 12h14" />
-                </svg>
-              </span>
-              <p className="mt-3 text-sm font-bold text-ink">{c.title}</p>
-              <p className="mt-1 text-sm text-ink-medium">{c.body}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
+                  <CircleIcon kind="check" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-ink">{c.title}</p>
+                    <p className="mt-1 text-xs leading-[1.6] text-ink-medium">
+                      {c.body}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section
+            data-testid="about-cannot"
+            aria-labelledby="about-cannot-heading"
+            className="rounded-lg border border-divider-soft bg-surface p-5 shadow-sm sm:p-6"
+          >
+            <SectionTitle id="about-cannot-heading">
+              MVP ではできないこと (4 件)
+            </SectionTitle>
+            <ul data-testid="about-cannot-list" className="divide-y divide-divider-soft">
+              {cannotDo.map((c, i) => (
+                <li
+                  key={c.title}
+                  data-testid={`about-cannot-item-${i + 1}`}
+                  className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <CircleIcon kind="cross" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-ink">{c.title}</p>
+                    <p className="mt-1 text-xs leading-[1.6] text-ink-medium">
+                      {c.body}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
 
-      {/* ポリシーと窓口 */}
-      <section aria-labelledby="about-policy" className="mt-10">
-        <h2 id="about-policy" className="text-h2 text-ink">
-          ポリシーと窓口
-        </h2>
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-strong">
-          <li>
-            <Link href="/terms" className="text-brand-teal underline hover:text-brand-teal-hover">
-              利用規約
-            </Link>
-            （投稿される画像の権利、運営による一時非表示・削除、免責など）
-          </li>
-          <li>
-            <Link href="/privacy" className="text-brand-teal underline hover:text-brand-teal-hover">
-              プライバシーポリシー
-            </Link>
-            （取得する情報、利用目的、保持期間、外部サービス利用、未成年保護）
-          </li>
-          <li>
-            <Link href="/help/manage-url" className="text-brand-teal underline hover:text-brand-teal-hover">
-              管理 URL について
-            </Link>
-            （管理用 URL の保存方法、紛失時の対応、メール送信機能の状況）
-          </li>
-          <li>
-            権利侵害・削除希望・不適切表現の報告は、対象フォトブックの「このフォトブックを通報」リンクから運営にお送りください。
-          </li>
-        </ul>
-        <p className="mt-3 text-xs text-ink-soft">
-          法的レビューはローンチ後に別途実施し、規約・ポリシーは順次改訂されます。
-        </p>
-      </section>
+        {/* ポリシーと窓口 wf-box + 3 button block (`wf-screens-c.jsx:261-268` PC wf-grid-3) */}
+        <section
+          data-testid="about-policy"
+          aria-labelledby="about-policy-heading"
+          className="mt-7 rounded-lg border border-divider-soft bg-surface p-5 shadow-sm sm:p-6"
+        >
+          <SectionTitle id="about-policy-heading">ポリシーと窓口</SectionTitle>
+          <div
+            data-testid="about-policy-list"
+            className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3"
+          >
+            {policyLinks.map((p) => (
+              <Link
+                key={p.href}
+                href={p.href}
+                data-testid={`about-policy-link-${p.testidSlug}`}
+                className="inline-flex h-12 w-full items-center justify-center rounded-md border border-divider bg-surface px-4 text-sm font-semibold text-ink-strong shadow-sm transition-colors hover:border-teal-300 hover:text-teal-700"
+              >
+                {p.label}
+              </Link>
+            ))}
+          </div>
+          {/* design 3 button block には説明が無いが、production truth として旧 policy bullet の
+              link 概要 (権利・一時非表示・削除・免責 / 取得情報・保持期間・外部サービス /
+              保存方法・紛失時) を 1 行 caption で保持 (削減なし) */}
+          <p
+            data-testid="about-policy-summary"
+            className="mt-3 text-xs leading-[1.6] text-ink-soft"
+          >
+            利用規約は投稿画像の権利・運営による一時非表示・削除・免責、プライバシーポリシーは取得情報・利用目的・保持期間・外部サービス利用、管理 URL についてには保存方法・紛失時の対応・メール送信機能の状況をそれぞれ記載しています。
+          </p>
+          {/* 通報窓口は別段落で補足 (design `wf-screens-c.jsx:219` `通報は Viewer から` の anno を
+              production 文言で具体化、削減なし) */}
+          <p
+            data-testid="about-report-note"
+            className="mt-3 text-xs leading-[1.6] text-ink-medium"
+          >
+            権利侵害・削除希望・不適切表現の報告は、対象フォトブックページの「このフォトブックを通報」リンクから運営にお送りください。運営は通報を正式な窓口として扱います。
+          </p>
+          <p className="mt-2 text-xs text-ink-soft">
+            法的レビューはローンチ後に別途実施し、規約・ポリシーは順次改訂されます。
+          </p>
+        </section>
 
-      <PublicPageFooter showTrustStrip />
-    </main>
+        <PublicPageFooter showTrustStrip />
+      </main>
+    </>
   );
 }
