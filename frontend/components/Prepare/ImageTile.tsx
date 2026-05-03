@@ -35,12 +35,15 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "失敗",
 };
 
+// m2-design-refresh STOP β-6 cleanup (F-03): β-2a 9 段 teal ramp (`tailwind.config.ts:31-41`)
+// に揃え、verifying / uploading / completing / processing 4 状態を bg-teal-50 + text-teal-700 に
+// 整合。旧 alias bg-brand-teal-soft / text-brand-teal は機能上は等価だが naming 一貫性のため置換。
 const STATUS_COLOR: Record<string, string> = {
   queued: "bg-surface-soft text-ink-medium",
-  verifying: "bg-brand-teal-soft text-brand-teal",
-  uploading: "bg-brand-teal-soft text-brand-teal",
-  completing: "bg-brand-teal-soft text-brand-teal",
-  processing: "bg-brand-teal-soft text-brand-teal",
+  verifying: "bg-teal-50 text-teal-700",
+  uploading: "bg-teal-50 text-teal-700",
+  completing: "bg-teal-50 text-teal-700",
+  processing: "bg-teal-50 text-teal-700",
   available: "bg-status-success-soft text-status-success",
   failed: "bg-status-error-soft text-status-error",
 };

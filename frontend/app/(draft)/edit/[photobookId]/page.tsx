@@ -2,10 +2,17 @@
 //
 // 設計参照:
 //   - docs/plan/m2-frontend-edit-ui-fullspec-plan.md §3 / §6
+//   - docs/plan/m2-design-refresh-plan.md §6 STOP β-4 / β-6 cleanup
 //
 // 役割:
 //   - Server Component で edit-view を fetch（draft Cookie を Backend に転送）
 //   - 401 / 404 / 409 → ErrorState、200 → EditClient
+//
+// m2-design-refresh STOP β-6 cleanup (F-06):
+//   - ErrorState 全 branch を PublicTopBar showPrimaryCta=false で wrap
+//   - 他 route (/manage / /prepare / /p/[slug] / /p/[slug]/report) と同 pattern
+//     (β-3 / β-4 / β-5 で順次対応、本 commit で edit を揃える)
+//   - draft session context のため primary CTA「無料で作る」は非表示
 //
 // セキュリティ:
 //   - Cookie 値 / raw token を画面に出さない
@@ -15,6 +22,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 
 import { ErrorState } from "@/components/ErrorState";
+import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import {
   fetchEditView,
   isEditApiError,
@@ -48,19 +56,44 @@ export default async function EditPage({ params }: { params: Params }) {
     if (isEditApiError(e)) {
       switch (e.kind) {
         case "unauthorized":
-          return <ErrorState variant="unauthorized" />;
+          return (
+            <>
+              <PublicTopBar showPrimaryCta={false} />
+              <ErrorState variant="unauthorized" />
+            </>
+          );
         case "not_found":
-          return <ErrorState variant="not_found" />;
+          return (
+            <>
+              <PublicTopBar showPrimaryCta={false} />
+              <ErrorState variant="not_found" />
+            </>
+          );
         case "version_conflict":
           // 編集系は published 等で 409 を返すため、ユーザー向けには「閲覧不可」の扱い
-          return <ErrorState variant="not_found" />;
+          return (
+            <>
+              <PublicTopBar showPrimaryCta={false} />
+              <ErrorState variant="not_found" />
+            </>
+          );
         case "bad_request":
         case "server_error":
         case "network":
-          return <ErrorState variant="server_error" />;
+          return (
+            <>
+              <PublicTopBar showPrimaryCta={false} />
+              <ErrorState variant="server_error" />
+            </>
+          );
       }
     }
-    return <ErrorState variant="server_error" />;
+    return (
+      <>
+        <PublicTopBar showPrimaryCta={false} />
+        <ErrorState variant="server_error" />
+      </>
+    );
   }
 
   return <EditClient initial={view} turnstileSiteKey={turnstileSiteKey} />;

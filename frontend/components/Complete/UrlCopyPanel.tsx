@@ -31,8 +31,10 @@ export function UrlCopyPanel({ label, url, kind, helper, testId }: Props) {
     kind === "public"
       ? "border border-teal-100 bg-teal-50"
       : "border-2 border-dashed border-divider bg-surface";
-  const labelCls =
-    kind === "public" ? "text-teal-700" : "text-brand-violet";
+  // m2-design-refresh STOP β-6 cleanup (F-01): manage kind label を violet 旧 palette から
+  // ink-strong に揃える。design refresh 後の manage URL 識別は dashed border (container 側) で
+  // 担保、color 区別は不要。
+  const labelCls = kind === "public" ? "text-teal-700" : "text-ink-strong";
 
   const handleCopy = async () => {
     try {

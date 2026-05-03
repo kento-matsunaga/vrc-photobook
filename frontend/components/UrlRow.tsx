@@ -1,10 +1,11 @@
 // UrlRow: 公開 URL / 管理 URL を表示する 1 行コンポーネント。
 //
-// design 参照: design/mockups/prototype/shared.jsx の UrlRow（teal / violet 切替）
+// design 参照: `design/source/project/wf-shared.jsx` の URL row pattern (β-1 design archive 正典移行後)
 //
 // セキュリティ:
 //   - URL 値そのものはコンソール / 画面上のテキスト表示のみ。logging しない
-//   - manage URL は teal でなく violet を識別色として使う
+//   - manage URL は識別色 violet を使う (現状 ManagePanel から kind="public" のみ呼出、manage path は
+//     dead code 扱い、F-02/F-04 FOLLOW-UP で整理予定)
 
 import type { ReactNode } from "react";
 
