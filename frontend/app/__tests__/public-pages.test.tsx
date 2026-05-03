@@ -12,6 +12,7 @@ import HomePage from "@/app/page";
 import TermsPage from "@/app/(public)/terms/page";
 import PrivacyPage from "@/app/(public)/privacy/page";
 import AboutPage from "@/app/(public)/about/page";
+import HelpManageUrlPage from "@/app/(public)/help/manage-url/page";
 
 const FORBIDDEN_PATTERNS = [
   /\bSecret\s*[:=]\s*[A-Za-z0-9_+/=-]{12,}/i,
@@ -252,5 +253,50 @@ describe("AboutPage（/about）", () => {
     expect(html).toContain("権利");
     expect(html).toContain("Turnstile");
     expect(html).toContain("IP ハッシュ");
+  });
+});
+
+describe("HelpManageUrlPage（/help/manage-url）", () => {
+  it("正常_PublicTopBar_h1_Q1〜Q6_id_data-testid_を含む", () => {
+    const html = renderToStaticMarkup(<HelpManageUrlPage />);
+    // β-2b-3: PublicTopBar 統合
+    expect(html).toContain('data-testid="public-topbar"');
+    // β-2b-3: h1 design 正典「管理 URL の使い方」 (Mobile <br/> 改行 → substring で検証)
+    expect(html).toContain("管理 URL の");
+    expect(html).toContain("使い方");
+    // Q1〜Q6 の id + data-testid (将来 TOC 追加用 anchor)
+    for (let i = 1; i <= 6; i++) {
+      expect(html).toContain(`id="help-q${i}"`);
+      expect(html).toContain(`data-testid="help-q${i}"`);
+    }
+    // Q プレフィックス
+    expect(html).toContain("Q1.");
+    expect(html).toContain("Q6.");
+    // footer は維持、trust-strip は出さない (showTrustStrip=false / 既定)
+    expect(html).toContain('data-testid="public-page-footer"');
+    expect(html).not.toContain('data-testid="trust-strip"');
+    // β-2b-3: TOC は出さない (Q-2b3-3 確定)
+    expect(html).not.toContain('data-testid="policy-toc"');
+    expectNoSecret(html);
+  });
+
+  it("正常_Q数は6件で固定_data-testid_help-q_カウント", () => {
+    const html = renderToStaticMarkup(<HelpManageUrlPage />);
+    const matches = html.match(/data-testid="help-q\d+"/g) ?? [];
+    expect(matches.length).toBe(6);
+  });
+
+  it("正常_重要文言_管理URL_紛失_再表示_メール送信_再選定_編集_削除_公開停止_共有_提供していません_が維持されている", () => {
+    const html = renderToStaticMarkup(<HelpManageUrlPage />);
+    expect(html).toContain("管理用 URL");
+    expect(html).toContain("紛失");
+    expect(html).toContain("再表示");
+    expect(html).toContain("メール送信");
+    expect(html).toContain("再選定");
+    expect(html).toContain("編集");
+    expect(html).toContain("削除");
+    expect(html).toContain("公開停止");
+    expect(html).toContain("共有");
+    expect(html).toContain("提供していません");
   });
 });
