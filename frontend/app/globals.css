@@ -1,3 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 2026-05-03 m2-design-refresh STOP β-1: design 正典の base layer を反映。
+   正典: design/source/project/wireframe-styles.css:53-67 (.wf-root, .wf-root *) +
+   :54 font-family + :58-66 scrollbar.
+   class 名は不変、body の base bg/text/font だけ design に揃える。 */
+@layer base {
+  body {
+    @apply bg-surface-soft text-ink antialiased;
+    font-family: theme("fontFamily.sans");
+  }
+}

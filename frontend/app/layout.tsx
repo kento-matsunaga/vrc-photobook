@@ -26,9 +26,14 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // 2026-05-03 m2-design-refresh STOP β-1: design 正典に揃える。
+  // - bg-surface-soft (#F6F9FA): design --bg (`design/source/project/wireframe-styles.css:26`)
+  // - text-ink (#0F2A2E): design --ink (`wireframe-styles.css:18`)
+  // - font-sans: Hiragino Sans / Noto Sans JP (`wireframe-styles.css:54`)
+  // 既存 bg-white / text-gray-900 から design token に swap (class 名で参照、値は新 token)。
   return (
     <html lang="ja">
-      <body className="min-h-screen bg-white text-gray-900 antialiased">
+      <body className="min-h-screen bg-surface-soft font-sans text-ink antialiased">
         {children}
       </body>
     </html>
