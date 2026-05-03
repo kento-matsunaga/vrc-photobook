@@ -301,4 +301,82 @@ describe("PrepareClient 初期描画", () => {
     expect(html).toContain('data-testid="prepare-normal-notice"');
     expect(html).not.toContain('data-testid="prepare-slow-notice"');
   });
+
+  it("正常_β-3_eyebrow_Step2_3_と_PC_wf-grid-2-1_layout_class_を持つ", () => {
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={emptyView("pb-test-redacted")}
+      />,
+    );
+    // β-3: design eyebrow「Step 2 / 3」(`wf-screens-a.jsx:338` / `:394`)
+    expect(html).toContain("Step 2 / 3");
+    // β-3: PC は wf-grid-2-1 (2fr 1fr) layout (`wireframe-styles.css:568`)
+    expect(html).toContain("sm:grid-cols-[2fr_1fr]");
+  });
+
+  it("正常_β-3_dashed_picker_と_Mobile_bottom_sticky_CTA_wrapper_を持つ", () => {
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={emptyView("pb-test-redacted")}
+      />,
+    );
+    // β-3: dashed picker (`wireframe-styles.css:165-175` `.wf-box.dashed` 風)
+    expect(html).toContain("border-dashed");
+    // β-3: Mobile bottom sticky CTA (`wireframe-styles.css:513-520` `.wf-m-stick-cta`)
+    expect(html).toMatch(
+      /class="[^"]*fixed[^"]*inset-x-0[^"]*bottom-0[^"]*sm:hidden[^"]*"/,
+    );
+  });
+
+  it("正常_β-3_prepare-proceed_button_は_PC_と_Mobile_に_2_箇所描画される", () => {
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={emptyView("pb-test-redacted")}
+      />,
+    );
+    // β-3: PC sidebar + Mobile sticky の 2 箇所に同 data-testid で render
+    const matches = html.match(/<button[^>]*data-testid="prepare-proceed"/g) ?? [];
+    expect(matches.length).toBe(2);
+    // 両 button が同じ disabled state (queue 空 → 共に disabled)
+    const buttons = html.match(/<button[^>]*data-testid="prepare-proceed"[^>]*>/g) ?? [];
+    expect(buttons.length).toBe(2);
+    for (const btn of buttons) {
+      expect(btn).toMatch(/disabled=""/);
+    }
+  });
+
+  it("正常_β-3_raw_imageId_storage_key_upload_url_は_DOM_に出ない", () => {
+    const view: EditView = {
+      ...emptyView("pb-test-redacted"),
+      processingCount: 1,
+      images: [
+        {
+          imageId: "img-secret-leak-test-zzz9999",
+          status: "processing",
+          sourceFormat: "jpeg",
+          originalByteSize: 1_000_000,
+          createdAt: "2026-05-02T00:00:00Z",
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={view}
+      />,
+    );
+    // raw imageId は UI / data-testid / aria-label / title に絶対に出ない
+    expect(html).not.toContain("img-secret-leak-test-zzz9999");
+    // storage_key / upload_url 等の生 token 系名前も出ない (本 SSR では不在を確認)
+    expect(html).not.toMatch(/storage_key=/i);
+    expect(html).not.toMatch(/upload_url=/i);
+    expect(html).not.toMatch(/verification_token=/i);
+  });
 });

@@ -3,12 +3,27 @@
 // 設計参照:
 //   - docs/plan/m2-upload-staging-plan.md §6
 //   - plan v2 m2-prepare-resilience-and-throughput §3.4（β-3 Frontend）
+//   - docs/plan/m2-design-refresh-stop-beta-3-plan.md §2 (visual restyle)
 //
 // 役割:
 //   - 複数画像の一括選択 + concurrency=2 並列 upload + tile 状態管理
 //   - 5 sec polling + exponential backoff + max 10 min duration + Page Visibility API
 //   - SSR initialView.images からの reload 復元 + polling 中の server merge
 //   - 「編集へ進む」押下時に attach-images bulk API → /edit/<id> 遷移
+//
+// m2-design-refresh STOP β-3 (本 commit、visual のみ):
+//   - eyebrow「Step 2 / 3」+ h1「写真をまとめて追加」
+//   - PC layout: wf-grid-2-1 相当 (2fr 1fr) — left=picker+tiles / right=summary+CTA+note
+//   - Mobile layout: 縦 stack + bottom sticky CTA (`.wf-m-stick-cta` 風)
+//   - dashed picker (`.wf-box.dashed` 風) — file-input は label 内に sr-only で隠し、視覚は dashed border
+//   - 進捗 wf-box (rounded-lg + section-title teal bar + n/m + 内訳)
+//   - slow-notice を `.wf-note.warn` 風 (border-l status-warn + bg status-warn-soft + ! icon)
+//   - 既存 data-testid (prepare-page / prepare-picker / prepare-summary / prepare-progress /
+//     prepare-tiles / prepare-proceed / prepare-error / prepare-proceed-error /
+//     prepare-normal-notice / prepare-slow-notice / prepare-file-input) **すべて維持**
+//   - business logic / Turnstile L0-L4 / upload concurrency=2 / polling / reload restore /
+//     credentials:include は触らない (`.agents/rules/turnstile-defensive-guard.md` /
+//     `.agents/rules/state-restore-on-reload.md` / `.agents/rules/client-vs-ssr-fetch.md`)
 //
 // セキュリティ:
 //   - raw imageId / storage_key / upload URL を console / DOM / data-testid / aria-label に出さない
@@ -37,6 +52,7 @@ import {
   type ServerImageForMerge,
   type TileFailureReason,
 } from "@/components/Prepare/UploadQueue";
+import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
 import { TurnstileWidget } from "@/components/TurnstileWidget";
 import {
   fetchEditViewClient,
@@ -130,6 +146,17 @@ function mapUploadErrorToReason(kind: string): TileFailureReason {
     default:
       return "unknown";
   }
+}
+
+// design `wireframe-styles.css:337-349` `.wf-section-title` (12px / font-bold / tracking-[0.04em] +
+// 4×14 teal bar)。β-2a / β-2b で複数 page に同種があるが、共通化は β-6 で再評価
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <h2 className="mb-3 flex items-center gap-2 text-xs font-bold tracking-[0.04em] text-ink-strong">
+      <span aria-hidden="true" className="block h-3.5 w-1 rounded-sm bg-teal-500" />
+      {children}
+    </h2>
+  );
 }
 
 export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Props) {
@@ -453,14 +480,26 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
   const totalKnown = sum.total + view.placedPhotoCount;
   const completedKnown = sum.available + view.placedPhotoCount;
 
+  const proceedLabel = proceeding
+    ? "準備中…"
+    : proceed
+      ? "編集へ進む"
+      : isAllSettled(queue) && view.processingCount === 0
+        ? "対象の画像がありません"
+        : "全ての画像処理が終わるまでお待ちください";
+
   return (
     <main
       data-testid="prepare-page"
-      className="mx-auto min-h-screen w-full max-w-screen-md space-y-6 px-4 py-6 sm:px-6"
+      className="mx-auto min-h-screen w-full max-w-screen-md px-4 py-6 pb-28 sm:max-w-[1120px] sm:px-9 sm:py-9 sm:pb-9"
     >
-      <header className="space-y-2 border-b border-divider pb-4">
-        <h1 className="text-h1 text-ink">写真をまとめて追加</h1>
-        <p className="text-sm text-ink-medium">
+      <header className="space-y-2">
+        {/* design `wf-screens-a.jsx:338` / `:394` eyebrow「Step 2 / 3」 */}
+        <SectionEyebrow>Step 2 / 3</SectionEyebrow>
+        <h1 className="text-h1 tracking-tight text-ink sm:text-h1-lg">
+          写真をまとめて追加
+        </h1>
+        <p className="text-sm leading-[1.7] text-ink-medium">
           フォトブックに使う写真をまとめて選んでください。すべての写真が「完了」になったら、
           「編集へ進む」で編集画面に移動できます。
         </p>
@@ -469,125 +508,194 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
         </p>
       </header>
 
-      <section
-        data-testid="prepare-picker"
-        className="space-y-3 rounded-lg border border-divider bg-surface p-4 shadow-sm"
-      >
-        <h2 className="text-h2 text-ink">画像を選ぶ</h2>
-        <div className="rounded-md border border-divider bg-surface-soft p-3">
-          <p className="mb-2 text-xs text-ink-medium">送信前の Bot 検証が必要です</p>
-          <TurnstileWidget
-            sitekey={turnstileSiteKey}
-            action="upload"
-            onVerify={handleTurnstileVerify}
-            onError={handleTurnstileError}
-            onExpired={handleTurnstileExpired}
-            onTimeout={handleTurnstileTimeout}
-          />
+      {/* design `wf-screens-a.jsx:398` PC `.wf-grid-2-1` (2fr 1fr)、Mobile は単 col */}
+      <div className="mt-7 grid grid-cols-1 gap-5 sm:grid-cols-[2fr_1fr] sm:items-start sm:gap-6">
+        {/* Left col: picker (Turnstile + dashed) + tiles */}
+        <div className="space-y-5">
+          <section data-testid="prepare-picker" className="space-y-3">
+            <div className="rounded-md border border-divider bg-surface-soft p-3">
+              <p className="mb-2 text-xs text-ink-medium">
+                送信前の Bot 検証が必要です
+              </p>
+              <TurnstileWidget
+                sitekey={turnstileSiteKey}
+                action="upload"
+                onVerify={handleTurnstileVerify}
+                onError={handleTurnstileError}
+                onExpired={handleTurnstileExpired}
+                onTimeout={handleTurnstileTimeout}
+              />
+            </div>
+
+            {/* dashed picker (`wireframe-styles.css:165-175` `.wf-box.dashed` 風) */}
+            <label
+              className={`relative block cursor-pointer rounded-lg border-2 border-dashed bg-surface p-6 text-center transition-colors sm:p-9 ${
+                !turnstileReady || tilesAtCap
+                  ? "cursor-not-allowed border-divider-soft opacity-60"
+                  : "border-divider hover:border-teal-300"
+              }`}
+            >
+              <input
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                onChange={onFileSelect}
+                disabled={!turnstileReady || tilesAtCap}
+                data-testid="prepare-file-input"
+                className="sr-only"
+              />
+              <span className="inline-flex h-12 items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover">
+                📎 写真を選択（multiple）
+              </span>
+              <p className="mt-2 text-[11px] text-ink-soft">
+                {!turnstileReady
+                  ? "Bot 検証完了後に有効化"
+                  : tilesAtCap
+                    ? "上限到達"
+                    : "またはここをタップ"}
+              </p>
+            </label>
+
+            {!turnstileReady && (
+              <p className="text-xs text-ink-medium">
+                まず Bot 検証を完了してください（写真選択は検証後に有効になります）。
+              </p>
+            )}
+            {tilesAtCap && (
+              <p className="text-xs text-status-error">
+                最大 {MAX_TILES} 枚まで追加できます。これ以上は分けて投稿してください。
+              </p>
+            )}
+            {globalError !== "" && (
+              <p
+                role="alert"
+                data-testid="prepare-error"
+                className="text-xs text-status-error"
+              >
+                {globalError}
+              </p>
+            )}
+          </section>
+
+          {queue.tiles.length > 0 && (
+            <section
+              data-testid="prepare-tiles"
+              aria-label="選択された画像"
+              className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+            >
+              {queue.tiles.map((tile) => (
+                <ImageTile key={tile.id} tile={tile} />
+              ))}
+            </section>
+          )}
         </div>
-        <input
-          type="file"
-          multiple
-          accept="image/jpeg,image/png,image/webp"
-          onChange={onFileSelect}
-          disabled={!turnstileReady || tilesAtCap}
-          data-testid="prepare-file-input"
-          className="block w-full text-sm"
-        />
-        {!turnstileReady && (
-          <p className="text-xs text-ink-medium">
-            まず Bot 検証を完了してください（写真選択は検証後に有効になります）。
-          </p>
-        )}
-        {tilesAtCap && (
-          <p className="text-xs text-status-error">
-            最大 {MAX_TILES} 枚まで追加できます。これ以上は分けて投稿してください。
-          </p>
-        )}
-        {globalError !== "" && (
-          <p
-            role="alert"
-            data-testid="prepare-error"
-            className="text-xs text-status-error"
+
+        {/* Right col (PC sidebar 1fr / Mobile では下に縦 stack)
+             - 進捗 wf-box / PC sidebar 上端
+             - PC のみ「編集へ進む」button (Mobile は bottom sticky で別途)
+             - PC のみ補足 note */}
+        <aside className="space-y-3">
+          <section
+            data-testid="prepare-summary"
+            className="rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:p-5"
           >
-            {globalError}
-          </p>
-        )}
-      </section>
+            <SectionTitle>進捗</SectionTitle>
+            <p
+              data-testid="prepare-progress"
+              className="flex items-baseline justify-between text-sm text-ink-medium"
+            >
+              <span>進捗</span>
+              <span>
+                <strong className="text-ink-strong font-num">
+                  {completedKnown}
+                </strong>
+                {" / "}
+                <strong className="text-ink-strong font-num">{totalKnown}</strong>
+              </span>
+            </p>
+            <p className="mt-2 text-xs text-ink-soft">
+              合計 <span className="font-num">{sum.total}</span> 枚 / 完了{" "}
+              <span className="text-status-success font-num">
+                {sum.available}
+              </span>{" "}
+              / 処理中{" "}
+              <span className="text-brand-teal font-num">
+                {sum.processing + sum.active}
+              </span>{" "}
+              / 失敗{" "}
+              <span className="text-status-error font-num">{sum.failed}</span>
+            </p>
+            {(view.processingCount > 0 ||
+              sum.processing > 0 ||
+              sum.active > 0) &&
+              !slowNotice && (
+                <p
+                  className="mt-2 text-xs text-ink-soft"
+                  data-testid="prepare-normal-notice"
+                >
+                  画像の処理は通常 1〜2 分ほどで完了します。画面を開いたままお待ちください。
+                </p>
+              )}
+            {slowNotice && (
+              <div
+                role="status"
+                data-testid="prepare-slow-notice"
+                className="mt-2 flex items-start gap-2.5 rounded-lg border-l-[3px] border-status-warn bg-status-warn-soft p-3"
+              >
+                <span
+                  aria-hidden="true"
+                  className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-status-warn font-serif text-xs font-bold italic leading-none text-white"
+                >
+                  !
+                </span>
+                <p className="text-xs leading-[1.6] text-ink-strong">
+                  画像の処理に時間がかかっています（10 分以上）。混み合っている可能性があります。
+                  一度ブラウザを再読み込みしてもこれまでの進捗は保持されます。
+                </p>
+              </div>
+            )}
+          </section>
 
-      <section
-        data-testid="prepare-summary"
-        className="rounded-lg border border-divider bg-surface p-4 text-sm text-ink-medium"
-      >
-        <p data-testid="prepare-progress">
-          進捗 <strong className="text-ink-strong font-num">{completedKnown}</strong>
-          {" / "}
-          <strong className="text-ink-strong font-num">{totalKnown}</strong>
-        </p>
-        <p className="mt-1 text-xs text-ink-soft">
-          合計 <span className="font-num">{sum.total}</span> 枚 / 完了{" "}
-          <span className="text-status-success font-num">{sum.available}</span> / 処理中{" "}
-          <span className="text-brand-teal font-num">{sum.processing + sum.active}</span> / 失敗{" "}
-          <span className="text-status-error font-num">{sum.failed}</span>
-        </p>
-        {(view.processingCount > 0 || sum.processing > 0 || sum.active > 0) && !slowNotice && (
-          <p className="mt-1 text-xs text-ink-soft" data-testid="prepare-normal-notice">
-            画像の処理は通常 1〜2 分ほどで完了します。画面を開いたままお待ちください。
-          </p>
-        )}
-        {slowNotice && (
-          <p
-            className="mt-1 text-xs text-status-warning"
-            data-testid="prepare-slow-notice"
-            role="status"
+          {/* PC sidebar CTA (Mobile では bottom sticky 側で出すため hidden) */}
+          <button
+            type="button"
+            onClick={onProceed}
+            disabled={!proceed}
+            data-testid="prepare-proceed"
+            className="hidden h-12 w-full items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-45 sm:inline-flex"
           >
-            画像の処理に時間がかかっています（10 分以上）。混み合っている可能性があります。
-            一度ブラウザを再読み込みしてもこれまでの進捗は保持されます。
+            {proceedLabel}
+          </button>
+
+          {proceedError !== "" && (
+            <p
+              role="alert"
+              data-testid="prepare-proceed-error"
+              className="text-xs text-status-error"
+            >
+              {proceedError}
+            </p>
+          )}
+
+          <p className="hidden text-[11px] leading-[1.6] text-ink-soft sm:block">
+            画像の配置・キャプション・公開設定は次の編集画面で行います。
           </p>
-        )}
-      </section>
+        </aside>
+      </div>
 
-      {queue.tiles.length > 0 && (
-        <section
-          data-testid="prepare-tiles"
-          aria-label="選択された画像"
-          className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
-        >
-          {queue.tiles.map((tile) => (
-            <ImageTile key={tile.id} tile={tile} />
-          ))}
-        </section>
-      )}
-
-      <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-ink-soft">
-          画像の配置・キャプション・公開設定は次の編集画面で行います。
-        </p>
+      {/* Mobile bottom sticky CTA (`wireframe-styles.css:513-520` `.wf-m-stick-cta` 風)。
+          PC では sm:hidden、Mobile では fixed bottom + border-top + shadow */}
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-divider-soft bg-surface px-4 py-3 shadow-[0_-4px_16px_rgba(15,42,46,0.05)] sm:hidden">
         <button
           type="button"
           onClick={onProceed}
           disabled={!proceed}
           data-testid="prepare-proceed"
-          className="inline-flex h-12 items-center justify-center rounded bg-brand-teal px-6 text-sm font-bold text-white hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-12 w-full items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-45"
         >
-          {proceeding
-            ? "準備中…"
-            : proceed
-              ? "編集へ進む"
-              : isAllSettled(queue) && view.processingCount === 0
-                ? "対象の画像がありません"
-                : "全ての画像処理が終わるまでお待ちください"}
+          {proceedLabel}
         </button>
-      </section>
-      {proceedError !== "" && (
-        <p
-          role="alert"
-          data-testid="prepare-proceed-error"
-          className="text-xs text-status-error"
-        >
-          {proceedError}
-        </p>
-      )}
+      </div>
     </main>
   );
 }

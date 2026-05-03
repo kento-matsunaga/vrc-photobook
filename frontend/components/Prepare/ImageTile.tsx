@@ -1,7 +1,18 @@
 // Upload Staging 画面の image tile（presentational）。
 //
-// 設計参照: docs/plan/m2-upload-staging-plan.md §6.5
+// 設計参照:
+//   - docs/plan/m2-upload-staging-plan.md §6.5
+//   - docs/plan/m2-design-refresh-stop-beta-3-plan.md §2 (β-3 visual restyle)
 // β-3: server 復元 tile（origin="server"）にも対応
+//
+// m2-design-refresh STOP β-3 (本 commit、visual のみ):
+//   - design `wireframe-styles.css:442-464` `.wf-upload-tile` 視覚に整合
+//     (rounded-[10px] / border / bg-surface / p-2 / flex-col gap-1.5 / shadow-sm)
+//   - bar: h-1 / rounded-sm / bg-divider-soft + inner h-full bg-brand-teal w-1/2 animate-pulse
+//     (uploading 時のみ表示、Q-3-6 確定: 既存 animate-pulse 維持)
+//   - failed: border-status-error + bg-status-error-soft (`wireframe-styles.css:462`)
+//   - 既存 data-testid `prepare-tile-{id}` / data-status / displayLabel / status badge は維持
+//   - business logic / failure reason mapping / status state は触らない
 //
 // 役割:
 //   - 1 image の status badge / displayLabel / progress を表示
@@ -66,12 +77,12 @@ export function ImageTile({ tile }: Props) {
     <div
       data-testid={`prepare-tile-${tile.id}`}
       data-status={tile.status.kind}
-      className={`flex flex-col gap-2 rounded-md border p-3 ${
+      className={`flex flex-col gap-1.5 rounded-[10px] border bg-surface p-2 shadow-sm ${
         isFailed
           ? "border-status-error bg-status-error-soft"
           : isAvailable
-            ? "border-status-success bg-surface"
-            : "border-divider bg-surface"
+            ? "border-status-success"
+            : "border-divider-soft"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -86,7 +97,7 @@ export function ImageTile({ tile }: Props) {
       </div>
 
       {isUploading && (
-        <div className="h-1 w-full overflow-hidden rounded bg-surface-soft">
+        <div className="h-1 w-full overflow-hidden rounded-sm bg-divider-soft">
           <div className="h-full w-1/2 animate-pulse bg-brand-teal" />
         </div>
       )}
@@ -102,7 +113,7 @@ export function ImageTile({ tile }: Props) {
       )}
 
       {tile.byteSize > 0 && (
-        <p className="text-[10px] text-ink-medium">
+        <p className="text-[10px] text-ink-soft">
           {Math.round(tile.byteSize / 1024).toLocaleString()} KB
         </p>
       )}

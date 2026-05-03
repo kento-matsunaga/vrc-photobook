@@ -3,11 +3,12 @@
 // 観点:
 //   - 7 種の type 選択肢が表示される
 //   - 既定 type は memory
-//   - title / creator_display_name 入力欄
-//   - 公開範囲は限定公開既定の説明
+//   - title / creator_display_name 入力欄 + 文字数 counter
+//   - 公開範囲は限定公開既定の説明 (wf-note 視覚)
 //   - Turnstile widget placeholder
 //   - submit ボタンは Turnstile 未通過で disabled
 //   - Cookie / token / Secret が画面に出ない
+//   - β-3: design 視覚 (wf-radio active class / wf-counter / wf-input focus / wf-note teal)
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -64,5 +65,35 @@ describe("CreateClient 初期描画", () => {
     expect(html).not.toMatch(/manage_url_token=/i);
     expect(html).not.toMatch(/session_token=/i);
     expect(html).not.toMatch(/Set-Cookie/i);
+  });
+
+  it("正常_β-3_design_wf-radio_active_状態_と_wf-input_focus_と_wf-note_視覚_を持つ", () => {
+    const html = renderToStaticMarkup(
+      <CreateClient turnstileSiteKey="dummy-site-key" />,
+    );
+    // memory active radio: 開きタグ全体を抽出して active-only class を assert
+    // (React は class / data-testid の attribute 順を保証しないため、
+    // ラベルタグ全体を string match してから個別 contain を確認)
+    const memoryLabel = html.match(
+      /<label[^>]*data-testid="create-type-memory"[^>]*>/,
+    );
+    expect(memoryLabel).not.toBeNull();
+    expect(memoryLabel?.[0] ?? "").toContain("border-teal-500");
+    expect(memoryLabel?.[0] ?? "").toContain("bg-teal-50");
+    // 他 type は active class を持たない (例: event)
+    const eventLabel = html.match(
+      /<label[^>]*data-testid="create-type-event"[^>]*>/,
+    );
+    expect(eventLabel).not.toBeNull();
+    expect(eventLabel?.[0] ?? "").not.toContain("border-teal-500");
+    // wf-input style の class が出る
+    expect(html).toContain("focus:border-teal-400");
+    expect(html).toContain("outline-teal-200");
+    // wf-note 視覚: border-l teal-300 + bg teal-50 + i icon teal-500
+    expect(html).toContain("border-teal-300");
+    expect(html).toContain("bg-teal-500");
+    // wf-counter (font-num + text-[10.5px])
+    expect(html).toContain("0 / 100");
+    expect(html).toContain("0 / 50");
   });
 });
