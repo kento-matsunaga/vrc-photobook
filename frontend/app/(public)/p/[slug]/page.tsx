@@ -13,6 +13,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { ErrorState } from "@/components/ErrorState";
+import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import { ViewerLayout } from "@/components/Viewer/ViewerLayout";
 import {
   fetchPublicPhotobook,
@@ -83,13 +84,28 @@ export default async function PublicViewerPage({
         case "not_found":
           notFound();
         case "gone":
-          return <ErrorState variant="gone" />;
+          return (
+            <>
+              <PublicTopBar />
+              <ErrorState variant="gone" />
+            </>
+          );
         case "server_error":
         case "network":
-          return <ErrorState variant="server_error" />;
+          return (
+            <>
+              <PublicTopBar />
+              <ErrorState variant="server_error" />
+            </>
+          );
       }
     }
-    return <ErrorState variant="server_error" />;
+    return (
+      <>
+        <PublicTopBar />
+        <ErrorState variant="server_error" />
+      </>
+    );
   }
 
   return <ViewerLayout photobook={photobook} />;

@@ -58,4 +58,21 @@ describe("ReportForm 初期描画", () => {
     );
     expect(html).toContain('aria-label="Turnstile widget"');
   });
+
+  it("正常_β-5_design_wf-radio_active_state_と_wf-counter_を持つ", () => {
+    const html = renderToStaticMarkup(
+      <ReportForm slug="uqfwfti7glarva5saj" turnstileSiteKey="dummy-site-key" />,
+    );
+    // β-5: select → wf-radio (radio button + sr-only input)
+    // 初期 active reason は REPORT_REASONS[0] (= harassment_or_doxxing)、border-teal-500 + bg-teal-50
+    expect(html).toMatch(/<input[^>]*type="radio"[^>]*name="reason"/);
+    expect(html).toContain("border-teal-500");
+    expect(html).toContain("bg-teal-50");
+    // β-5: wf-counter 文字数表示 (font-num + text-[10.5px])
+    expect(html).toContain(`0 / 2000`);
+    expect(html).toContain(`0 / 200`);
+    // wf-input / wf-textarea focus visual
+    expect(html).toContain("focus:border-teal-400");
+    expect(html).toContain("outline-teal-200");
+  });
 });
