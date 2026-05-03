@@ -66,6 +66,7 @@ describe("MockThumb", () => {
     for (const v of variants) {
       const html = renderToStaticMarkup(<MockThumb variant={v} />);
       expect(html).toContain(`data-testid="mock-thumb-${v}"`);
+      // image 未指定時は装飾 (aria-hidden)
       expect(html).toContain('aria-hidden="true"');
     }
   });
@@ -76,5 +77,76 @@ describe("MockThumb", () => {
     expect(html).toContain("aspect-square");
     expect(html).toContain("sm:aspect-[4/3]");
     expect(html).toContain("rounded-sm");
+  });
+
+  it("正常_image指定時は_picture_webp_jpg_alt_を出し_aria-hiddenを付けない", () => {
+    const html = renderToStaticMarkup(
+      <MockThumb
+        variant="a"
+        image={{
+          slug: "sample-01",
+          alt: "テスト alt",
+          width: 640,
+          height: 1138,
+        }}
+      />,
+    );
+    // β-2c: image 指定時は <picture> + WebP source + JPEG fallback img
+    expect(html).toContain("<picture>");
+    expect(html).toContain('srcSet="/img/landing/sample-01.webp"');
+    expect(html).toContain('src="/img/landing/sample-01.jpg"');
+    expect(html).toContain('alt="テスト alt"');
+    expect(html).toContain('width="640"');
+    expect(html).toContain('height="1138"');
+    expect(html).toContain('data-testid="mock-thumb-a"');
+    // image 指定時は wrapper span に aria-hidden を付けない (写真は意味あり)
+    expect(html).not.toMatch(/data-testid="mock-thumb-a"[^>]*aria-hidden/);
+  });
+});
+
+describe("MockBook image props (β-2c)", () => {
+  it("正常_cover指定時_背景picture_と_dark_overlay_と_white_text_が出る", () => {
+    const html = renderToStaticMarkup(
+      <MockBook
+        title="タイトル"
+        cover={{ slug: "mock-cover", alt: "cover alt", width: 720, height: 1280 }}
+      />,
+    );
+    expect(html).toContain('srcSet="/img/landing/mock-cover.webp"');
+    expect(html).toContain('src="/img/landing/mock-cover.jpg"');
+    expect(html).toContain('alt="cover alt"');
+    // dark gradient overlay (title 可読性)
+    expect(html).toContain("from-black/70");
+    // title が white text に切替
+    expect(html).toContain("text-white");
+  });
+
+  it("正常_spreadTop_spreadBottomLeft_spreadBottomRight_3画像が出る", () => {
+    const html = renderToStaticMarkup(
+      <MockBook
+        title="t"
+        spreadTop={{ slug: "hero", alt: "hero alt", width: 1600, height: 900 }}
+        spreadBottomLeft={{ slug: "sample-04", alt: "", width: 640, height: 1138 }}
+        spreadBottomRight={{ slug: "sample-01", alt: "", width: 640, height: 1138 }}
+      />,
+    );
+    expect(html).toContain('srcSet="/img/landing/hero.webp"');
+    expect(html).toContain('src="/img/landing/hero.jpg"');
+    expect(html).toContain('alt="hero alt"');
+    expect(html).toContain('srcSet="/img/landing/sample-04.webp"');
+    expect(html).toContain('srcSet="/img/landing/sample-01.webp"');
+    // top span 2 cell
+    expect(html).toContain("col-span-2");
+  });
+
+  it("正常_image_未指定時は_β-2a_と同等の_gradient_placeholder_に_fallback", () => {
+    const html = renderToStaticMarkup(<MockBook title="t" />);
+    // 写真 picture が出ない
+    expect(html).not.toContain("<picture>");
+    expect(html).not.toContain("/img/landing/");
+    // 既存 placeholder gradient が維持される
+    expect(html).toContain("from-teal-50");
+    // 装飾 aria-hidden cell が右 page にある
+    expect(html.match(/aria-hidden="true"/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 });

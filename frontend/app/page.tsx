@@ -40,6 +40,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import type { LandingImage } from "@/components/Public/LandingPicture";
 import { MockBook, MockThumb } from "@/components/Public/MockBook";
 import { PublicPageFooter } from "@/components/Public/PublicPageFooter";
 import { PublicTopBar } from "@/components/Public/PublicTopBar";
@@ -118,6 +119,55 @@ const thumbVariants: ReadonlyArray<"a" | "c" | "b" | "d" | "e"> = [
   "d",
   "e",
 ];
+
+// β-2c: design placeholder を `frontend/scripts/build-landing-images.sh` 生成の実画像に差し替える。
+// alt 文言は user prompt 確定:
+//   - hero: VRChat の写真をフォトブックにまとめたイメージ
+//   - mock-cover / sample: VRChat フォトブックの作例写真
+// raw filename は build script 内の MAPPING に閉じ込め、ここでは stable name (slug) のみ参照。
+const SAMPLE_ALT = "VRChat フォトブックの作例写真";
+const HERO_ALT = "VRChat の写真をフォトブックにまとめたイメージ";
+
+// LP MockBook 内 spread 配置 (β-2c Q-2c-1 確定):
+//   - 左 cover         : mock-cover (縦長 9:16)
+//   - 右 page top span : hero       (横長 16:9 → 2-cell span にフィット)
+//   - 右 page bottom L : sample-04  (装飾、alt="" は sample strip と重複表示のため)
+//   - 右 page bottom R : sample-01  (装飾、同上)
+const heroBookCover: LandingImage = {
+  slug: "mock-cover",
+  alt: SAMPLE_ALT,
+  width: 720,
+  height: 1280,
+};
+const heroBookSpreadTop: LandingImage = {
+  slug: "hero",
+  alt: HERO_ALT,
+  width: 1600,
+  height: 900,
+};
+const heroBookSpreadBottomLeft: LandingImage = {
+  slug: "sample-04",
+  alt: "",
+  width: 640,
+  height: 1138,
+};
+const heroBookSpreadBottomRight: LandingImage = {
+  slug: "sample-01",
+  alt: "",
+  width: 640,
+  height: 1138,
+};
+
+// LP sample strip (5 thumb) variant → sample slug マッピング。
+// design Mobile pos 0..3 (a/c/b/d) + PC pos 4 (e、Mobile では sm:hidden で非表示)。
+// sample-02 のみ landscape 16:9、他は portrait 9:16 (CSS aspect で表示比固定 + object-cover)。
+const SAMPLE_BY_VARIANT: Record<"a" | "b" | "c" | "d" | "e", LandingImage> = {
+  a: { slug: "sample-01", alt: SAMPLE_ALT, width: 640, height: 1138 },
+  b: { slug: "sample-03", alt: SAMPLE_ALT, width: 640, height: 1138 },
+  c: { slug: "sample-02", alt: SAMPLE_ALT, width: 640, height: 360 },
+  d: { slug: "sample-04", alt: SAMPLE_ALT, width: 640, height: 1138 },
+  e: { slug: "sample-05", alt: SAMPLE_ALT, width: 640, height: 1138 },
+};
 
 // design `wireframe-styles.css:337-349` `.wf-section-title` (12px/700/0.04em + ::before teal bar)
 function SectionTitle({ children, id }: { children: string; id?: string }) {
@@ -200,7 +250,15 @@ export default function HomePage() {
           </div>
 
           <div className="sm:pl-2">
-            <MockBook title={heroTitle} date={heroDate} worldLabel={heroWorld} />
+            <MockBook
+              title={heroTitle}
+              date={heroDate}
+              worldLabel={heroWorld}
+              cover={heroBookCover}
+              spreadTop={heroBookSpreadTop}
+              spreadBottomLeft={heroBookSpreadBottomLeft}
+              spreadBottomRight={heroBookSpreadBottomRight}
+            />
           </div>
         </section>
 
@@ -213,10 +271,10 @@ export default function HomePage() {
         >
           {thumbVariants.map((v, i) =>
             i < 4 ? (
-              <MockThumb key={v} variant={v} />
+              <MockThumb key={v} variant={v} image={SAMPLE_BY_VARIANT[v]} />
             ) : (
               <span key={v} className="hidden sm:block">
-                <MockThumb variant={v} />
+                <MockThumb variant={v} image={SAMPLE_BY_VARIANT[v]} />
               </span>
             ),
           )}

@@ -86,6 +86,32 @@ describe("HomePage（LP, /）", () => {
     // 旧版の lp-policy section は design に存在しないため削除済み
     expect(html).not.toContain('data-testid="lp-policy"');
   });
+
+  it("正常_β-2c_実画像_hero_mock-cover_sample-01..05_の_webp_jpg_参照が出る", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    // hero (MockBook spread top span)
+    expect(html).toContain('srcSet="/img/landing/hero.webp"');
+    expect(html).toContain('src="/img/landing/hero.jpg"');
+    // mock-cover (MockBook 左 cover)
+    expect(html).toContain('srcSet="/img/landing/mock-cover.webp"');
+    expect(html).toContain('src="/img/landing/mock-cover.jpg"');
+    // sample-01..05 (sample strip + MockBook spread bottom 再利用)
+    for (let i = 1; i <= 5; i++) {
+      const slug = `sample-0${i}`;
+      expect(html).toContain(`srcSet="/img/landing/${slug}.webp"`);
+      expect(html).toContain(`src="/img/landing/${slug}.jpg"`);
+    }
+  });
+
+  it("正常_raw_PNG_design_usephot_が_LP_HTML_に出ない", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    // β-2c: raw PNG / raw filename / design/usephot path が SSR HTML に漏れない
+    expect(html).not.toContain(".png");
+    expect(html).not.toContain("design/usephot");
+    expect(html).not.toContain("usephot");
+    expect(html).not.toMatch(/VRChat_\d{4}-\d{2}-\d{2}/);
+    expect(html).not.toContain("82E37915");
+  });
 });
 
 describe("TermsPage（/terms）", () => {
