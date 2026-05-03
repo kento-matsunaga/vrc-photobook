@@ -88,8 +88,12 @@ describe("HomePage（LP, /）", () => {
 });
 
 describe("TermsPage（/terms）", () => {
-  it("正常_TOC_第1条〜第9条_PolicyArticle_を含む", () => {
+  it("正常_TOC_第1条〜第9条_PolicyArticle_PublicTopBar_を含む", () => {
     const html = renderToStaticMarkup(<TermsPage />);
+    // β-2b-1: PublicTopBar 統合 (`design/source/project/wf-shared.jsx:29-48` 相当)
+    expect(html).toContain('data-testid="public-topbar"');
+    // β-2b-1: eyebrow inline 「Terms · 最終更新 2026-05-01」(date は eyebrow に統合、ハイフン形式)
+    expect(html).toContain("Terms · 最終更新 2026-05-01");
     expect(html).toContain("利用規約");
     expect(html).toContain('data-testid="policy-toc"');
     expect(html).toContain('data-testid="policy-notice"');
@@ -105,15 +109,34 @@ describe("TermsPage（/terms）", () => {
     expect(html).toContain('href="#terms-1"');
     expect(html).toContain('href="#terms-9"');
     expect(html).toContain('data-testid="public-page-footer"');
-    // Terms には trust-strip 不要
+    // Terms には trust-strip 不要 (showTrustStrip=false / 既定)
     expect(html).not.toContain('data-testid="trust-strip"');
     expectNoSecret(html);
+  });
+
+  it("正常_重要法務文言_権利_免責_準拠法_未成年_通報_管轄_改訂_誹謗中傷_管理URL_が維持されている", () => {
+    const html = renderToStaticMarkup(<TermsPage />);
+    // 既存 9 article から法務文言が消えていないことを SSR HTML で確認
+    expect(html).toContain("権利");
+    expect(html).toContain("免責");
+    expect(html).toContain("準拠法");
+    expect(html).toContain("未成年");
+    expect(html).toContain("通報");
+    expect(html).toContain("管轄");
+    expect(html).toContain("改訂");
+    expect(html).toContain("誹謗中傷");
+    expect(html).toContain("管理 URL");
+    expect(html).toContain("一時非表示");
   });
 });
 
 describe("PrivacyPage（/privacy）", () => {
-  it("正常_TOC_第1条〜第10条_外部サービスchip_を含む", () => {
+  it("正常_TOC_第1条〜第10条_外部サービスchip5件_PublicTopBar_を含む", () => {
     const html = renderToStaticMarkup(<PrivacyPage />);
+    // β-2b-1: PublicTopBar 統合
+    expect(html).toContain('data-testid="public-topbar"');
+    // β-2b-1: eyebrow inline 「Privacy · 最終更新 2026-05-01」
+    expect(html).toContain("Privacy · 最終更新 2026-05-01");
     expect(html).toContain("プライバシーポリシー");
     expect(html).toContain('data-testid="policy-toc"');
     expect(html).toContain('data-testid="policy-notice"');
@@ -123,17 +146,55 @@ describe("PrivacyPage（/privacy）", () => {
     }
     expect(html).toContain("第 1 条");
     expect(html).toContain("第 10 条");
+    // β-2b-1: chip 5 件確定 (Cloudflare Workers / Turnstile / R2 / Cloud Run / Cloud SQL)
     expect(html).toContain("Cloudflare Workers");
-    expect(html).toContain("Google Cloud Run");
+    expect(html).toContain("Cloud Run");
+    expect(html).toContain("Cloud SQL");
+    expect(html).toContain('data-testid="privacy-chip-cloudflare-workers"');
+    expect(html).toContain('data-testid="privacy-chip-turnstile"');
+    expect(html).toContain('data-testid="privacy-chip-r2"');
+    expect(html).toContain('data-testid="privacy-chip-cloud-run"');
+    expect(html).toContain('data-testid="privacy-chip-cloud-sql"');
     expect(html).toContain("noindex, nofollow");
     expect(html).toContain('data-testid="public-page-footer"');
     expect(html).not.toContain('data-testid="trust-strip"');
     expectNoSecret(html);
   });
 
+  it("正常_chip数は5件で固定_data-testid_privacy-chip_カウント", () => {
+    const html = renderToStaticMarkup(<PrivacyPage />);
+    const chipMatches = html.match(/data-testid="privacy-chip-/g) ?? [];
+    expect(chipMatches.length).toBe(5);
+  });
+
+  it("正常_未採用service_PostHog_Sentry_SecretManager_は不存在", () => {
+    const html = renderToStaticMarkup(<PrivacyPage />);
+    // β-2b-1: design 正典の chip ('Cloudflare','Turnstile','R2','Sentry','PostHog') のうち
+    // production 未採用の Sentry / PostHog は本文・chip いずれにも出さない。
+    // Google Secret Manager は infra-only のため privacy chip から削除 (Q-2b1-1 確定)。
+    // 本文に補足文も追加しない (Q-2b1-6 確定: 誤読リスク回避)。
+    expect(html).not.toContain("PostHog");
+    expect(html).not.toContain("Sentry");
+    expect(html).not.toContain("Google Secret Manager");
+    expect(html).not.toContain("Secret Manager");
+  });
+
   it("正常_メール機能は現在提供していない_と明記", () => {
     const html = renderToStaticMarkup(<PrivacyPage />);
     expect(html).toContain("現在この機能は提供していません");
+  });
+
+  it("正常_重要法務文言_個人情報_第三者提供_削除請求_保持期間_ハッシュ_ソルト_EXIF_位置情報_未成年_が維持されている", () => {
+    const html = renderToStaticMarkup(<PrivacyPage />);
+    expect(html).toContain("第三者");
+    expect(html).toContain("削除");
+    expect(html).toContain("保持");
+    expect(html).toContain("ハッシュ");
+    expect(html).toContain("ソルト");
+    expect(html).toContain("EXIF");
+    expect(html).toContain("位置情報");
+    expect(html).toContain("未成年");
+    expect(html).toContain("HttpOnly Cookie");
   });
 });
 
