@@ -1,6 +1,11 @@
 // CaptionEditor: blur 保存 + 保存ステータス。
 //
 // 設計: PR26 計画書 §8（blur 保存採用）
+//
+// m2-design-refresh STOP β-4 (本 commit、visual のみ):
+//   - design `wireframe-styles.css:267-278` `.wf-textarea` 視覚整合
+//     (rounded-md + border-divider + focus outline-teal-200 + border-teal-400)
+//   - blur 保存 logic / runeCount / SaveStatus は **触らない**
 "use client";
 
 import { useState } from "react";
@@ -50,13 +55,13 @@ export function CaptionEditor({ initialValue, disabled, onSave }: Props) {
         onBlur={handleBlur}
         rows={2}
         placeholder="キャプション（任意、最大 200 文字）"
-        className="block w-full rounded-md border border-divider bg-surface px-3 py-2 text-sm text-ink-strong placeholder:text-ink-soft focus:border-brand-teal focus:outline-none disabled:bg-surface-soft"
+        className="block w-full resize-none rounded-md border border-divider bg-surface px-3 py-2 text-[13px] text-ink-strong placeholder:text-ink-soft focus:border-teal-400 focus:outline focus:outline-2 focus:outline-teal-200 disabled:bg-surface-soft"
         aria-label="photo caption"
         data-testid="caption-editor"
       />
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex items-center justify-between text-[10.5px]">
         <span
-          className={`text-ink-soft ${overLimit ? "text-status-error" : ""}`}
+          className={`font-num text-ink-soft ${overLimit ? "text-status-error" : ""}`}
           aria-live="polite"
         >
           {runeCount(value)} / {MAX_RUNES}

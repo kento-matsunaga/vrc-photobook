@@ -17,6 +17,8 @@ import { CompleteView } from "@/components/Complete/CompleteView";
 import { CoverPanel } from "@/components/Edit/CoverPanel";
 import { PhotoGrid } from "@/components/Edit/PhotoGrid";
 import { PublishSettingsPanel } from "@/components/Edit/PublishSettingsPanel";
+import { PublicTopBar } from "@/components/Public/PublicTopBar";
+import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
 import {
   addPage,
   bulkReorderPhotos,
@@ -444,157 +446,221 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   }
 
   return (
-    <main className="mx-auto max-w-screen-md space-y-6 p-4 sm:p-6">
-      <header className="flex items-center justify-between border-b border-divider pb-3">
-        <h1 className="text-h1 text-ink">編集ページ</h1>
-        <span className="text-xs text-ink-medium font-num">v{view.version}</span>
-      </header>
-
-      {conflict === "conflict" && (
-        <div
-          className="flex items-center justify-between rounded-md border border-status-error bg-status-error-soft px-4 py-3 text-sm text-status-error"
-          data-testid="conflict-banner"
-        >
-          <span>{errorMsg ?? "他の編集が反映されました。"}</span>
-          <button
-            type="button"
-            onClick={() => void reload()}
-            className="rounded-sm border border-status-error px-3 py-1 text-xs text-status-error hover:bg-status-error-soft"
-          >
-            最新を取得
-          </button>
-        </div>
-      )}
-      {conflict === "ok" && errorMsg && (
-        <div className="rounded-md border border-divider bg-surface-soft px-4 py-3 text-sm text-ink-medium">
-          {errorMsg}
-        </div>
-      )}
-
-      {(view.processingCount > 0 || view.failedCount > 0) && (
-        <div className="rounded-md border border-divider bg-surface-soft px-4 py-3 text-sm text-ink-medium">
-          {view.processingCount > 0 && (
-            <span>処理中: {view.processingCount} 枚</span>
-          )}
-          {view.processingCount > 0 && view.failedCount > 0 && <span> / </span>}
-          {view.failedCount > 0 && (
-            <span className="text-status-error">失敗: {view.failedCount} 枚</span>
-          )}
-        </div>
-      )}
-
-      {view.pages.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-divider bg-surface-soft p-6 text-center text-sm text-ink-medium">
-          まだページがありません。下のボタンからページを追加してください。
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => void onAddPage()}
-              disabled={isBusy}
-              className="rounded-md bg-brand-teal px-4 py-2 text-sm font-medium text-white hover:bg-brand-teal-hover disabled:opacity-50"
-            >
-              最初のページを追加
-            </button>
+    <>
+      {/* m2-design-refresh STOP β-4: PublicTopBar 統合 (`design/source/project/wf-shared.jsx:29-48`)。
+          draft session 経路だが LP 戻り nav は妥当、primary CTA は draft 中の文脈で違和感のため非表示 */}
+      <PublicTopBar showPrimaryCta={false} />
+      <main className="mx-auto min-h-screen w-full max-w-screen-md px-4 py-6 sm:px-9 sm:py-9 lg:max-w-[1280px]">
+        <header className="space-y-2 border-b border-divider-soft pb-4">
+          {/* design `wf-screens-b.jsx:99` PC eyebrow「Step 3 / 3」 */}
+          <SectionEyebrow>Step 3 / 3</SectionEyebrow>
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h1 className="text-h1 tracking-tight text-ink sm:text-h1-lg">編集ページ</h1>
+            <span className="font-num text-xs text-ink-medium">version {view.version}</span>
           </div>
-        </div>
-      ) : (
-        view.pages.map((page) => (
-          <section key={page.pageId} className="space-y-3">
-            <h2 className="text-h2 text-ink">ページ {page.displayOrder + 1}</h2>
-            <PhotoGrid
-              page={page}
-              expectedVersion={view.version}
-              isCover={(imageId) => view.coverImageId === imageId}
-              isBusy={isBusy}
-              onCaptionSave={onCaptionSave}
-              onMoveUp={onMoveUp(page)}
-              onMoveDown={onMoveDown(page)}
-              onMoveTop={onMoveTop(page)}
-              onMoveBottom={onMoveBottom(page)}
-              onSetCover={onSetCover}
-              onClearCover={onClearCover}
-              onRemovePhoto={(photoId) => onRemovePhoto(page, photoId)}
-            />
-          </section>
-        ))
-      )}
+        </header>
 
-      {/* /prepare で複数画像を一括投入する導線が主。/edit ではフォールバックとして 1 枚ずつ
-          追加できる導線を残す（docs/plan/m2-upload-staging-plan.md §7.1）。 */}
-      <section
-        data-testid="edit-upload-fallback"
-        className="space-y-2 rounded-md border border-divider bg-surface-soft p-3 text-sm"
-      >
-        <h3 className="text-sm font-bold text-ink">写真を 1 枚ずつ追加</h3>
-        <p className="text-xs text-ink-medium">
-          まとめて投稿したい場合は新しい photobook 作成時の「写真を追加」画面をご利用ください。
-          ここからは 1 枚ずつ追加できます（JPEG / PNG / WebP、最大 10MB、HEIC / HEIF 未対応）。
-        </p>
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={handleFileSelect}
-          disabled={isBusy || uploadStatus.kind === "verifying" || uploadStatus.kind === "uploading" || uploadStatus.kind === "completing"}
-          className="block w-full text-xs"
-        />
-        {pendingFile && (
-          <div className="space-y-3">
-            <p className="text-sm text-ink-medium">
-              選択中: {pendingFile.size.toLocaleString()} byte
-            </p>
-            <TurnstileWidget
-              sitekey={turnstileSiteKey}
-              action="upload"
-              onVerify={handleTurnstileVerify}
-              onError={handleTurnstileError}
-              onExpired={handleTurnstileExpired}
-              onTimeout={handleTurnstileTimeout}
-            />
+        {conflict === "conflict" && (
+          <div
+            className="mt-5 flex items-start gap-2.5 rounded-lg border-l-[3px] border-status-error bg-status-error-soft p-3.5"
+            data-testid="conflict-banner"
+          >
+            <span
+              aria-hidden="true"
+              className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-status-error font-serif text-xs font-bold italic leading-none text-white"
+            >
+              !
+            </span>
+            <div className="flex-1 text-xs leading-[1.6] text-status-error">
+              {errorMsg ?? "他の編集が反映されました。"}
+            </div>
             <button
               type="button"
-              disabled={!isTurnstileReady || isBusy}
-              onClick={() => void startUpload()}
-              className="rounded-md bg-brand-teal px-4 py-2 text-sm font-medium text-white hover:bg-brand-teal-hover disabled:opacity-50"
-              data-testid="upload-start"
+              onClick={() => void reload()}
+              className="inline-flex h-8 shrink-0 items-center rounded-md border border-status-error bg-surface px-2.5 text-[11px] font-semibold text-status-error transition-colors hover:bg-status-error-soft"
             >
-              アップロード開始
+              最新を取得
             </button>
           </div>
         )}
-        {uploadStatus.kind === "verifying" && <p className="text-sm">サーバ側で Bot 検証中…</p>}
-        {uploadStatus.kind === "uploading" && <p className="text-sm">アップロード中…</p>}
-        {uploadStatus.kind === "completing" && <p className="text-sm">完了処理中…</p>}
-        {uploadStatus.kind === "processing" && <p className="text-sm text-brand-teal">処理中（しばらく後に表示されます）</p>}
-        {uploadStatus.kind === "error" && <p className="text-sm text-status-error">{uploadStatus.message}</p>}
-      </section>
+        {conflict === "ok" && errorMsg && (
+          <div className="mt-5 rounded-md border border-divider bg-surface-soft px-4 py-3 text-xs text-ink-medium">
+            {errorMsg}
+          </div>
+        )}
 
-      <CoverPanel
-        cover={view.cover}
-        coverTitle={view.settings.coverTitle}
-        disabled={isBusy}
-        onClear={onClearCover}
-      />
+        {(view.processingCount > 0 || view.failedCount > 0) && (
+          <div className="mt-5 flex items-start gap-2.5 rounded-lg border-l-[3px] border-teal-300 bg-teal-50 p-3.5">
+            <span
+              aria-hidden="true"
+              className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-teal-500 font-serif text-xs font-bold italic leading-none text-white"
+            >
+              i
+            </span>
+            <div className="flex-1 text-xs leading-[1.6] text-ink-strong">
+              {view.processingCount > 0 && (
+                <span>処理中: {view.processingCount} 枚</span>
+              )}
+              {view.processingCount > 0 && view.failedCount > 0 && <span> / </span>}
+              {view.failedCount > 0 && (
+                <span className="text-status-error">失敗: {view.failedCount} 枚</span>
+              )}
+            </div>
+          </div>
+        )}
 
-      <PublishSettingsPanel
-        initial={view.settings}
-        disabled={isBusy}
-        publishDisabledReason={publishDisabledReason}
-        onSave={onSaveSettings}
-        onPublish={onPublish}
-      />
+        {/* design `wf-screens-b.jsx:112` PC `wf-grid-1-2-1` (`wireframe-styles.css:569`)。
+            Mobile / md は単 col に reset、lg+ で 3 col (左 cover / 中 photo / 右 publish) */}
+        <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[260px_1fr_320px] lg:items-start lg:gap-5">
+          {/* Left col: CoverPanel (design は ページ一覧 + CoverPanel だが、production は
+              page 別 active 状態を持たないため CoverPanel のみ。ページ一覧は中央 col に section 化) */}
+          <div className="space-y-4">
+            <CoverPanel
+              cover={view.cover}
+              coverTitle={view.settings.coverTitle}
+              disabled={isBusy}
+              onClear={onClearCover}
+            />
+          </div>
 
-      <div className="flex justify-end pt-2">
-        <button
-          type="button"
-          onClick={() => void onAddPage()}
-          disabled={isBusy}
-          className="rounded-md border border-divider px-4 py-2 text-sm text-ink-medium hover:bg-surface-soft disabled:opacity-50"
-          data-testid="add-page"
-        >
-          ページを追加
-        </button>
-      </div>
-    </main>
+          {/* Center col: pages + photo grids + edit-upload-fallback + add-page */}
+          <div className="space-y-5">
+            {view.pages.length === 0 ? (
+              <div className="rounded-lg border-2 border-dashed border-divider-soft bg-surface-soft p-6 text-center text-sm text-ink-medium">
+                まだページがありません。下のボタンからページを追加してください。
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => void onAddPage()}
+                    disabled={isBusy}
+                    className="inline-flex h-12 items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    最初のページを追加
+                  </button>
+                </div>
+              </div>
+            ) : (
+              view.pages.map((page) => (
+                <section
+                  key={page.pageId}
+                  className="space-y-3 rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:p-5"
+                >
+                  <h2 className="flex items-center gap-2 text-xs font-bold tracking-[0.04em] text-ink-strong">
+                    <span aria-hidden="true" className="block h-3.5 w-1 rounded-sm bg-teal-500" />
+                    ページ {page.displayOrder + 1}
+                  </h2>
+                  <PhotoGrid
+                    page={page}
+                    expectedVersion={view.version}
+                    isCover={(imageId) => view.coverImageId === imageId}
+                    isBusy={isBusy}
+                    onCaptionSave={onCaptionSave}
+                    onMoveUp={onMoveUp(page)}
+                    onMoveDown={onMoveDown(page)}
+                    onMoveTop={onMoveTop(page)}
+                    onMoveBottom={onMoveBottom(page)}
+                    onSetCover={onSetCover}
+                    onClearCover={onClearCover}
+                    onRemovePhoto={(photoId) => onRemovePhoto(page, photoId)}
+                  />
+                </section>
+              ))
+            )}
+
+            {/* /prepare で複数画像を一括投入する導線が主。/edit ではフォールバックとして 1 枚ずつ
+                追加できる導線を残す（docs/plan/m2-upload-staging-plan.md §7.1）。
+                design `wf-screens-b.jsx:41-47` (M) / `:156-163` (PC) の `wf-box.dashed` 視覚 */}
+            <section
+              data-testid="edit-upload-fallback"
+              className="space-y-3 rounded-lg border-2 border-dashed border-divider-soft bg-surface-soft p-4 sm:p-5"
+            >
+              <h3 className="flex items-center gap-2 text-xs font-bold tracking-[0.04em] text-ink-strong">
+                <span aria-hidden="true" className="block h-3.5 w-1 rounded-sm bg-teal-500" />
+                写真を 1 枚ずつ追加
+              </h3>
+              <p className="text-xs leading-[1.6] text-ink-medium">
+                まとめて投稿したい場合は新しい photobook 作成時の「写真を追加」画面をご利用ください。
+                ここからは 1 枚ずつ追加できます（JPEG / PNG / WebP、最大 10MB、HEIC / HEIF 未対応）。
+              </p>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileSelect}
+                disabled={
+                  isBusy ||
+                  uploadStatus.kind === "verifying" ||
+                  uploadStatus.kind === "uploading" ||
+                  uploadStatus.kind === "completing"
+                }
+                className="block w-full text-xs"
+              />
+              {pendingFile && (
+                <div className="space-y-3">
+                  <p className="font-num text-xs text-ink-medium">
+                    選択中: {pendingFile.size.toLocaleString()} byte
+                  </p>
+                  <TurnstileWidget
+                    sitekey={turnstileSiteKey}
+                    action="upload"
+                    onVerify={handleTurnstileVerify}
+                    onError={handleTurnstileError}
+                    onExpired={handleTurnstileExpired}
+                    onTimeout={handleTurnstileTimeout}
+                  />
+                  <button
+                    type="button"
+                    disabled={!isTurnstileReady || isBusy}
+                    onClick={() => void startUpload()}
+                    className="inline-flex h-10 items-center justify-center rounded-[10px] bg-brand-teal px-5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover disabled:cursor-not-allowed disabled:opacity-45"
+                    data-testid="upload-start"
+                  >
+                    アップロード開始
+                  </button>
+                </div>
+              )}
+              {uploadStatus.kind === "verifying" && (
+                <p className="text-xs text-ink-medium">サーバ側で Bot 検証中…</p>
+              )}
+              {uploadStatus.kind === "uploading" && (
+                <p className="text-xs text-ink-medium">アップロード中…</p>
+              )}
+              {uploadStatus.kind === "completing" && (
+                <p className="text-xs text-ink-medium">完了処理中…</p>
+              )}
+              {uploadStatus.kind === "processing" && (
+                <p className="text-xs text-brand-teal">処理中（しばらく後に表示されます）</p>
+              )}
+              {uploadStatus.kind === "error" && (
+                <p className="text-xs text-status-error">{uploadStatus.message}</p>
+              )}
+            </section>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => void onAddPage()}
+                disabled={isBusy}
+                className="inline-flex h-10 items-center rounded-md border border-divider bg-surface px-4 text-xs font-semibold text-ink-strong transition-colors hover:border-teal-300 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-45"
+                data-testid="add-page"
+              >
+                + ページを追加
+              </button>
+            </div>
+          </div>
+
+          {/* Right col: PublishSettingsPanel (PC sidebar / Mobile では下 stack) */}
+          <div className="space-y-4">
+            <PublishSettingsPanel
+              initial={view.settings}
+              disabled={isBusy}
+              publishDisabledReason={publishDisabledReason}
+              onSave={onSaveSettings}
+              onPublish={onPublish}
+            />
+          </div>
+        </div>
+      </main>
+    </>
   );
 }
 

@@ -1,6 +1,11 @@
 // ReorderControls: 上下ボタン式 reorder（PR26 §7 案 C 採用）。
 //
 // drag & drop は PR41+ で評価。MVP は a11y / Safari で安定する上下ボタン。
+//
+// m2-design-refresh STOP β-4 (本 commit、visual のみ):
+//   - design `wf-screens-b.jsx:32` 「↑ ↓ ⇈ ⇊」ボタン視覚整合 (compact wf-btn 風)
+//   - reorder logic (onMoveUp/Down/Top/Bottom) / disabled 条件 / data-testid (reorder-{top,up,down,bottom})
+//     は **触らない**
 "use client";
 
 type Props = {
@@ -23,7 +28,7 @@ export function ReorderControls({
   onMoveBottom,
 }: Props) {
   const cls =
-    "rounded-sm border border-divider px-2 py-1 text-xs text-ink-medium hover:bg-surface-soft disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex h-8 w-8 items-center justify-center rounded-md border border-divider bg-surface text-sm text-ink-medium transition-colors hover:border-teal-300 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-45";
   return (
     <div className="flex items-center gap-1" role="group" aria-label="並び替え">
       <button

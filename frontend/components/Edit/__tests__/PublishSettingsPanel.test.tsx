@@ -76,4 +76,47 @@ describe("PublishSettingsPanel 同意 checkbox (P0 v2)", () => {
     expect(html).not.toContain('data-testid="publish-button"');
     expect(html).not.toContain('data-testid="publish-rights-agreed"');
   });
+
+  it("正常_β-4_Q-A_rights_main_label_と_helper_text_両方表示", () => {
+    const html = renderToStaticMarkup(
+      <PublishSettingsPanel
+        initial={baseSettings}
+        onSave={noopSave}
+        onPublish={async () => undefined}
+      />,
+    );
+    // main label (design 短文)
+    expect(html).toContain("権利・配慮について確認しました");
+    // helper text (production 長文、既存既存維持)
+    expect(html).toContain("投稿する画像について必要な権利・許可を確認");
+    expect(html).toContain("写っている人やアバター、");
+    expect(html).toContain("配慮した内容であることを確認しました");
+  });
+
+  it("正常_β-4_Q-B_settings-save_label_は_下書き保存", () => {
+    const html = renderToStaticMarkup(
+      <PublishSettingsPanel
+        initial={baseSettings}
+        onSave={noopSave}
+        onPublish={async () => undefined}
+      />,
+    );
+    const saveBtn = html.match(/<button[^>]*data-testid="settings-save"[^>]*>([^<]+)</);
+    expect(saveBtn).not.toBeNull();
+    // dirty=false 初期は「下書き保存」、saving 中は「保存中…」
+    expect(saveBtn?.[1] ?? "").toBe("下書き保存");
+  });
+
+  it("正常_β-4_publish_button_label_は_公開へ進む_を維持", () => {
+    const html = renderToStaticMarkup(
+      <PublishSettingsPanel
+        initial={baseSettings}
+        onSave={noopSave}
+        onPublish={async () => undefined}
+      />,
+    );
+    const publishBtn = html.match(/<button[^>]*data-testid="publish-button"[^>]*>([^<]+)</);
+    expect(publishBtn).not.toBeNull();
+    expect(publishBtn?.[1] ?? "").toBe("公開へ進む");
+  });
 });
