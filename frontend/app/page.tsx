@@ -1,251 +1,311 @@
-// VRC PhotoBook ランディングページ（design rebuild）。
+// VRC PhotoBook ランディングページ (m2-design-refresh STOP β-2a)。
 //
-// 採用元:
-//   - design/mockups/prototype/screens-a.jsx LP 関数（mobile）
-//   - design/mockups/prototype/pc-screens-a.jsx PCLP 関数（PC）
-//   - design/mockups/prototype/styles.css の `.hero-title` / `.mock-book` / `.feature-cell` /
-//     `.cta-block` / `.trust-strip` / `.photo.v-*`
-//   - design/mockups/prototype/pc-styles.css の `.pc-hero` / `.pc-features-grid` / `.pc-cta`
+// 採用元 (design 正典):
+//   - design/source/project/wf-screens-a.jsx:45-118 `WFLanding_M` (mobile)
+//   - design/source/project/wf-screens-a.jsx:119-203 `WFLanding_PC` (PC)
+//   - design/source/project/wf-shared.jsx:29-48 `WFBrowser` の header (PC)
+//     → production では PublicTopBar に置換 (`frontend/components/Public/PublicTopBar.tsx`)
+//   - design/source/project/wireframe-styles.css:351-369 `.wf-h1` / `.wf-eyebrow` / `.wf-sub`
+//   - design/source/project/wireframe-styles.css:228-253 `.wf-btn` (primary lg / lg)
+//   - design/source/project/wireframe-styles.css:337-349 `.wf-section-title`
+//   - design/source/project/wireframe-styles.css:611-618 `.wf-cta-band`
+//   - design/source/project/wireframe-styles.css:565-567 `.wf-grid-2` / `.wf-grid-4` / `.wf-grid-3`
 //
-// 設計参照:
-//   - harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md §3.1 / §6（plan メモが正典）
-//   - docs/spec/vrc_photobook_business_knowledge_v4.md §3.9 ランディング機能
-//   - failure-log: harness/failure-log/2026-05-01_pr37-public-pages-design-mismatch.md
+// design 正典構造:
+//   1. PublicTopBar (showPrimaryCta=true)
+//   2. Hero: eyebrow + h1 + sub + 2 CTA + MockBook (Mobile=stack / PC=wf-grid-2)
+//   3. Sample strip: 4 thumb (Mobile aspect-1/1) / 5 thumb (PC aspect-4/3) → id="examples"
+//   4. Feature 4 (ログイン不要 / URLで共有 / 管理URLで編集 / イベント・おはツイ・作品集)
+//   5. Use-case 3 (イベント / おはツイ / 作品集) + 右端 image placeholder
+//   6. CTA band (✦ さあ、あなたの思い出をカタチにしよう ✦ / ✦ 無料でフォトブックを作る)
+//   7. PublicPageFooter showTrustStrip
+//
+// 「design はそのまま、足りないものは足す」(plan §0.1):
+//   - design 文言・配色・寸法は崩さない
+//   - production 補助として data-testid / aria-label / SVG icon を追加
+//   - h1 改行は design `<br/>` 通り
+//   - 旧版で出していた `lp-policy` block は design に存在しないため削除
+//     (利用規約 / プライバシーは PublicPageFooter の About / Terms / Privacy リンクで案内)
 //
 // 制約:
 //   - middleware で X-Robots-Tag: noindex, nofollow / Referrer-Policy が付与される
-//   - 作成導線（draft 新規作成）は MVP 範囲外のため CTA は /about + /help/manage-url
-//   - mobile h1 26px / PC h1 40px（plan メモ §5 で承認、prototype forward port）
-//   - gradient placeholder は MockBook / MockThumb 内の局所用途のみ
+//   - 実画像は使わず gradient placeholder のみ (β-2c で landing image 差し替え予定)
+//   - 作成導線「今すぐ作る」/「無料でフォトブックを作る」は /create に直結
+//
+// 設計参照:
+//   - docs/plan/m2-design-refresh-stop-beta-2-plan.md §STOP β-2a
+//   - docs/plan/m2-design-refresh-plan.md §0.1 / §6 STOP β-2
+//   - docs/spec/vrc_photobook_business_knowledge_v4.md §3.9 ランディング機能
 
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import { MockBook, MockThumb } from "@/components/Public/MockBook";
 import { PublicPageFooter } from "@/components/Public/PublicPageFooter";
+import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
 
 export const metadata: Metadata = {
-  title: "VRC PhotoBook｜VRChat 写真をログイン不要で 1 冊に",
+  title: "VRC PhotoBook｜VRC写真を、Webフォトブックに。",
   description:
     "VRChat で撮った写真を、ログイン不要・スマホで 1 冊のフォトブックにまとめて X で共有できるサービスです（非公式ファンメイド）。",
 };
 
+// design `wf-screens-a.jsx:67-82` (M) / `:154-165` (PC) を統合した 4 feature。
+// PC は body が長め (`:155-158`)。production は PC 文言を採用 (情報量優先)。
 const features: ReadonlyArray<{ title: string; body: string; iconPath: string }> = [
   {
     title: "ログイン不要",
-    body: "アカウント登録なしで作成・公開・編集まで完結。共有 PC でも安心して使える設計です。",
+    body: "アカウント登録なしですぐフォトブックを作成できます。",
+    // 「user」 (`wf-shared.jsx:103` 👤): 単体 person silhouette
     iconPath:
-      "M17 20v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 0", // Users
+      "M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
   },
   {
-    title: "管理 URL で編集",
-    body: "公開直後に表示される管理用 URL を保存しておけば、いつでも編集・公開停止・削除ができます。",
+    title: "URLで共有",
+    body: "生成されたURLを共有するだけで、みんなが写真を楽しめます。",
+    // 「link」 (`wf-shared.jsx:104` 🔗): chain link
     iconPath:
-      "M12 20h9 M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z", // Pencil
+      "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 1 0-7-7l-1 1 M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1",
   },
   {
-    title: "公開・限定公開・非公開",
-    body: "目的に応じて公開範囲を選べます。MVP の既定は限定公開（URL を知っている人のみ）です。",
+    title: "管理URLで編集",
+    body: "管理用URLがあればいつでも編集・追加・並べ替えが可能です。",
+    // 「edit」 (`wf-shared.jsx:105` ✎): pencil
     iconPath:
-      "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6", // Eye
+      "M12 20h9 M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z",
   },
   {
-    title: "通報窓口を用意",
-    body: "公開フォトブックには通報リンクがあり、権利侵害・センシティブ・未成年関連の懸念を運営に届けられます。",
+    title: "イベント・おはツイ・作品集",
+    body: "イベントの記録やおはツイ・作品集など様々な用途に活用できます。",
+    // 「calendar」 (`wf-shared.jsx:106` 📅): calendar
     iconPath:
-      "M2 12a10 10 0 1 0 20 0 10 10 0 0 0-20 0 M12 8v4 M12 16h.01", // Info
+      "M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18 M8 2v4 M16 2v4",
   },
 ];
 
-const ctaLinks: ReadonlyArray<{ href: string; label: string; description: string }> = [
+// design `wf-screens-a.jsx:86-101` (M) / `:173-186` (PC) の 3 use case。
+const useCases: ReadonlyArray<{ title: string; body: string; iconPath: string }> = [
   {
-    href: "/about",
-    label: "VRC PhotoBook について",
-    description: "サービスの背景・できること・できないこと。",
+    title: "イベント",
+    body: "イベントの記録や、思い出のシーンをまとめます。",
+    iconPath:
+      "M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 10h18 M8 2v4 M16 2v4",
   },
   {
-    href: "/help/manage-url",
-    label: "管理 URL の使い方",
-    description: "管理用 URL の保存方法と紛失時の取り扱い。",
+    title: "おはツイ",
+    body: "おはツイの記録や、日々の交流をまとめます。",
+    // 「chat」 (`wf-shared.jsx:107` 💬): speech bubble
+    iconPath:
+      "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+  },
+  {
+    title: "作品集",
+    body: "ワールドや写真作品を、美しくまとめます。",
+    // 「book」 (`wf-shared.jsx:108` 📖): open book
+    iconPath:
+      "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z",
   },
 ];
 
 const heroDate = "2026.04.24";
 const heroWorld = "Midnight Social Club";
 const heroTitle = "ミッドナイト\nソーシャルクラブ";
-const thumbVariants: ReadonlyArray<"a" | "c" | "b" | "d" | "e"> = ["a", "c", "b", "d", "e"];
+const thumbVariants: ReadonlyArray<"a" | "c" | "b" | "d" | "e"> = [
+  "a",
+  "c",
+  "b",
+  "d",
+  "e",
+];
+
+// design `wireframe-styles.css:337-349` `.wf-section-title` (12px/700/0.04em + ::before teal bar)
+function SectionTitle({ children, id }: { children: string; id?: string }) {
+  return (
+    <h2
+      id={id}
+      className="mb-3 flex items-center gap-2 text-xs font-bold tracking-[0.04em] text-ink-strong sm:mb-4"
+    >
+      <span aria-hidden="true" className="block h-3.5 w-1 rounded-sm bg-teal-500" />
+      {children}
+    </h2>
+  );
+}
+
+// design `wf-shared.jsx:101-121` `WFIcon` (emoji-based 飾り) を SVG 化。design の
+// 寸法 `wireframe-styles.css:584-594` `.wf-feat-icon` (44 round, teal-50 bg, teal-100 border, teal-600 ink)。
+function FeatIcon({ d }: { d: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-teal-100 bg-teal-50 text-teal-600"
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d={d} />
+      </svg>
+    </span>
+  );
+}
 
 export default function HomePage() {
   return (
-    <main className="mx-auto min-h-screen w-full max-w-screen-md bg-surface px-4 py-8 sm:px-6 sm:py-10">
-      {/* HERO */}
-      <section data-testid="lp-hero" className="grid gap-6 sm:grid-cols-[1.05fr_1fr] sm:items-center sm:gap-10">
-        <div className="space-y-3">
-          <SectionEyebrow>VRC PhotoBook</SectionEyebrow>
-          <h1 className="text-[26px] font-extrabold leading-tight tracking-tight text-ink sm:text-[40px] sm:leading-[1.15]">
-            VRChat 写真を、
-            <br className="sm:hidden" />
-            ログイン不要で
-            <br className="hidden sm:block" />1 冊に。
-          </h1>
-          <p className="text-body text-ink-strong">
-            スマホで撮った VRChat の思い出をフォトブックにまとめて、X で共有できるサービスです。
-            アカウント登録は要りません。管理用 URL で、いつでも編集・公開停止ができます。
+    <>
+      <PublicTopBar />
+      <main className="mx-auto w-full max-w-screen-md px-4 py-6 sm:max-w-[1120px] sm:px-9 sm:py-9">
+        {/* HERO */}
+        <section
+          data-testid="lp-hero"
+          className="grid gap-5 sm:grid-cols-[1.05fr_1fr] sm:items-center sm:gap-12"
+        >
+          <div className="space-y-3 sm:space-y-4">
+            <SectionEyebrow>VRC PhotoBook</SectionEyebrow>
+            {/* design `wf-screens-a.jsx:50` (M) / `:126` (PC) — h1 30/42 */}
+            <h1 className="text-h1 tracking-tight text-ink sm:text-h1-lg">
+              VRC写真を、
+              <br />
+              Webフォトブックに。
+            </h1>
+            {/* design `wf-screens-a.jsx:51` (M) / `:127-130` (PC) */}
+            <p className="text-body leading-[1.7] text-ink-strong sm:text-[15px]">
+              ログイン不要で、だれでもかんたんに。
+              <br />
+              思い出をきれいにまとめて、すぐにシェア。
+            </p>
+            {/* hero CTA: design `wf-screens-a.jsx:53-56` (M stack) / `:131-134` (PC row) */}
+            <div className="flex flex-col gap-2.5 pt-1 sm:flex-row sm:gap-3 sm:pt-3">
+              <Link
+                href="/create"
+                data-testid="lp-hero-cta-create"
+                className="inline-flex h-12 w-full items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover sm:w-auto sm:min-w-[180px]"
+              >
+                ✦ 今すぐ作る
+              </Link>
+              <Link
+                href="#examples"
+                data-testid="lp-hero-cta-examples"
+                className="inline-flex h-12 w-full items-center justify-center rounded-[10px] border border-divider bg-surface px-6 text-sm font-bold text-ink-strong transition-colors hover:border-teal-300 hover:text-teal-700 sm:w-auto sm:min-w-[180px]"
+              >
+                🖼 作例を見る
+              </Link>
+            </div>
+          </div>
+
+          <div className="sm:pl-2">
+            <MockBook title={heroTitle} date={heroDate} worldLabel={heroWorld} />
+          </div>
+        </section>
+
+        {/* SAMPLE STRIP (`wf-screens-a.jsx:62-64` M / `:141-143` PC) — id="examples" anchor */}
+        <section
+          id="examples"
+          data-testid="lp-thumbs"
+          aria-label="サンプルイメージ"
+          className="mt-5 grid grid-cols-4 gap-1.5 sm:mt-9 sm:grid-cols-5 sm:gap-3"
+        >
+          {thumbVariants.map((v, i) =>
+            i < 4 ? (
+              <MockThumb key={v} variant={v} />
+            ) : (
+              <span key={v} className="hidden sm:block">
+                <MockThumb variant={v} />
+              </span>
+            ),
+          )}
+        </section>
+
+        {/* FEATURES (`wf-screens-a.jsx:66-83` M wf-m-card stack / `:146-167` PC wf-box.lg + grid-4) */}
+        <section
+          data-testid="lp-features"
+          aria-labelledby="lp-features-heading"
+          className="mt-9 sm:mt-11 sm:rounded-lg sm:border sm:border-divider-soft sm:bg-surface sm:p-7 sm:shadow-sm"
+        >
+          <SectionTitle id="lp-features-heading">VRC PhotoBookの特徴</SectionTitle>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-4 sm:gap-4">
+            {features.map((f) => (
+              <li
+                key={f.title}
+                className="rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:rounded-md sm:border-divider-soft sm:bg-surface-soft sm:p-[18px] sm:shadow-none"
+              >
+                <div className="flex items-start gap-3 sm:block">
+                  <span className="sm:mb-2.5 sm:inline-flex">
+                    <FeatIcon d={f.iconPath} />
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-[13px] font-bold leading-tight text-ink sm:text-[13.5px]">
+                      {f.title}
+                    </p>
+                    <p className="mt-1.5 text-xs leading-[1.6] text-ink-medium">
+                      {f.body}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* USE CASES (`wf-screens-a.jsx:85-102` M wf-m-card / `:170-188` PC wf-box.lg + grid-3) */}
+        <section
+          data-testid="lp-use-cases"
+          aria-labelledby="lp-use-cases-heading"
+          className="mt-7 sm:mt-5 sm:rounded-lg sm:border sm:border-divider-soft sm:bg-surface sm:p-7 sm:shadow-sm"
+        >
+          <SectionTitle id="lp-use-cases-heading">こんなシーンで活用できます</SectionTitle>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            {useCases.map((u) => (
+              <li
+                key={u.title}
+                className="flex items-center gap-3 rounded-lg border border-divider-soft bg-surface p-3.5 shadow-sm sm:rounded-md sm:border-divider-soft sm:bg-surface-soft sm:p-[14px] sm:shadow-none"
+              >
+                <FeatIcon d={u.iconPath} />
+                <div className="flex-1">
+                  <p className="text-[13px] font-bold leading-tight text-ink">{u.title}</p>
+                  <p className="mt-1 text-[11px] leading-[1.5] text-ink-medium sm:text-xs">
+                    {u.body}
+                  </p>
+                </div>
+                <span
+                  aria-hidden="true"
+                  className="block h-12 w-16 shrink-0 rounded-md border border-dashed border-divider-soft bg-gradient-to-br from-teal-50 to-surface-soft sm:h-[60px] sm:w-[90px] sm:rounded-lg"
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {/* CTA BAND (`wf-screens-a.jsx:104-108` M / `:191-197` PC) */}
+        <section
+          data-testid="lp-cta-block"
+          className="mt-9 rounded-lg border border-teal-100 bg-teal-50 px-5 py-6 text-center sm:mt-11 sm:px-7 sm:py-8"
+        >
+          <p className="text-sm font-bold text-ink sm:text-base">
+            <span className="hidden sm:inline">✦ </span>
+            さあ、あなたの思い出をカタチにしよう
+            <span className="hidden sm:inline"> ✦</span>
           </p>
-          <p className="text-xs text-ink-soft">
-            個人運営の非公式ファンメイドサービス。VRChat 公式とは関係ありません。
-          </p>
-          <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:flex-wrap">
-            {/* Primary CTA: 作成導線（作成導線追加 PR で /create に直結） */}
+          <div className="mt-3 sm:mt-4">
             <Link
               href="/create"
-              data-testid="lp-hero-cta-create"
-              className="inline-flex h-12 items-center justify-center rounded bg-brand-teal px-5 text-sm font-bold text-white hover:bg-brand-teal-hover"
+              data-testid="lp-cta-block-create"
+              className="inline-flex h-12 w-full items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover sm:w-auto sm:min-w-[300px] sm:px-8"
             >
-              今すぐ作る
+              ✦ 無料でフォトブックを作る
             </Link>
-            {/* Secondary CTAs: サービス説明 / 管理 URL ヘルプ */}
-            {ctaLinks.map((c) => (
-              <Link
-                key={c.href}
-                href={c.href}
-                data-testid={`lp-hero-cta${c.href.replace(/\//g, "-")}`}
-                className="inline-flex h-12 items-center justify-center rounded border border-brand-teal bg-brand-teal-soft px-5 text-sm font-bold text-brand-teal hover:bg-surface-soft"
-              >
-                {c.label}
-              </Link>
-            ))}
           </div>
-        </div>
+          <p className="mt-2 text-xs text-ink-medium">ログイン不要・完全無料</p>
+        </section>
 
-        <div className="sm:pl-2">
-          <MockBook title={heroTitle} date={heroDate} worldLabel={heroWorld} />
-          <p className="mt-4 flex items-center justify-center gap-2 text-center text-xs text-brand-teal sm:hidden">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2l1.8 5.4L19 9.2l-5.2 1.8L12 16l-1.8-5L5 9.2l5.2-1.8z" />
-            </svg>
-            美しいレイアウトで、思い出を残そう
-          </p>
-        </div>
-      </section>
-
-      {/* THUMB STRIP */}
-      <section
-        data-testid="lp-thumbs"
-        aria-label="サンプルイメージ"
-        className="mt-6 grid grid-cols-4 gap-2 sm:mt-8 sm:grid-cols-5 sm:gap-3"
-      >
-        {thumbVariants.map((v, i) =>
-          // mobile は最初の 4 つ、PC は 5 つすべて
-          i < 4 ? (
-            <MockThumb key={v} variant={v} />
-          ) : (
-            <span key={v} className="hidden sm:block">
-              <MockThumb variant={v} />
-            </span>
-          ),
-        )}
-      </section>
-
-      {/* FEATURES */}
-      <section
-        data-testid="lp-features"
-        aria-labelledby="lp-features-heading"
-        className="mt-10 rounded-lg border border-divider bg-surface p-5 shadow-sm sm:p-6"
-      >
-        <h2 id="lp-features-heading" className="text-h2 text-ink">
-          VRC PhotoBook の特徴
-        </h2>
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {features.map((f) => (
-            <li
-              key={f.title}
-              className="rounded border border-divider bg-surface p-4"
-            >
-              <span
-                aria-hidden="true"
-                className="grid h-9 w-9 place-items-center rounded-full bg-brand-teal-soft text-brand-teal"
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d={f.iconPath} />
-                </svg>
-              </span>
-              <p className="mt-3 text-sm font-bold text-ink">{f.title}</p>
-              <p className="mt-1 text-sm text-ink-medium">{f.body}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* POLICY */}
-      <section
-        data-testid="lp-policy"
-        aria-labelledby="lp-policy-heading"
-        className="mt-10"
-      >
-        <h2 id="lp-policy-heading" className="text-h2 text-ink">
-          ポリシーと窓口
-        </h2>
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-strong">
-          <li>
-            <Link href="/terms" className="text-brand-teal underline hover:text-brand-teal-hover">
-              利用規約
-            </Link>
-            （投稿される画像の権利、運営による一時非表示・削除、免責など）
-          </li>
-          <li>
-            <Link href="/privacy" className="text-brand-teal underline hover:text-brand-teal-hover">
-              プライバシーポリシー
-            </Link>
-            （取得する情報、利用目的、保持期間、外部サービス利用）
-          </li>
-          <li>
-            権利侵害・削除希望・不適切表現の報告は、対象フォトブックの「このフォトブックを通報」から運営にお送りください。
-          </li>
-        </ul>
-        <p className="mt-3 text-xs text-ink-soft">
-          MVP 段階のため、ページの内容や仕様は予告なく変更されることがあります。
-        </p>
-      </section>
-
-      {/* CTA BLOCK */}
-      <section
-        data-testid="lp-cta-block"
-        className="mt-10 rounded-lg border border-brand-teal bg-brand-teal-soft p-5 text-center sm:p-6"
-      >
-        <p className="flex items-center justify-center gap-3 text-xs font-medium text-ink-strong before:h-px before:w-4 before:bg-ink-soft after:h-px after:w-4 after:bg-ink-soft">
-          さあ、思い出をフォトブックにまとめよう
-        </p>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-center">
-          <Link
-            href="/create"
-            data-testid="lp-cta-block-create"
-            className="inline-flex h-12 items-center justify-center rounded bg-brand-teal px-6 text-sm font-bold text-white hover:bg-brand-teal-hover"
-          >
-            今すぐ作る
-          </Link>
-          <Link
-            href="/about"
-            data-testid="lp-cta-block-about"
-            className="inline-flex h-12 items-center justify-center rounded border border-brand-teal bg-surface px-6 text-sm font-bold text-brand-teal hover:bg-surface-soft"
-          >
-            VRC PhotoBook について
-          </Link>
-        </div>
-        <p className="mt-3 text-xs text-ink-medium">ログイン不要・スマホで完結</p>
-      </section>
-
-      <PublicPageFooter showTrustStrip />
-    </main>
+        <PublicPageFooter showTrustStrip />
+      </main>
+    </>
   );
 }

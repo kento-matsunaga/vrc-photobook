@@ -1,38 +1,30 @@
-// LP / About の closing element として使う 4 cell horizontal trust strip。
+// LP / About の closing element として使う 4 chip horizontal trust strip。
 //
-// 採用元: design/mockups/prototype/screens-a.jsx の `.trust-strip`（mobile）
-//          design/mockups/prototype/pc-screens-a.jsx の `<PCTrust/>`（PC）
+// 採用元 (m2-design-refresh STOP β-2a):
+//   - design/source/project/wf-shared.jsx:67-73 `WFFooter` の trust block
+//   - design/source/project/wireframe-styles.css:596-608 `.wf-trust`（chip 並び + ::before "✓"）
 //
-// design-system:
-//   - 4 セル grid（狭幅では 2 列に折り返し可、wrap 許容）
-//   - cell: ico (text-brand-teal) + label (text-xs ink-medium)
+// design 正典の 4 chip (`wf-shared.jsx:69-72`):
+//   - 完全無料 / スマホで完成 / 安全・安心 / VRCユーザー向け
+//   - 旧 chip「スマホで完結」「ログイン不要」「VRC ユーザー向け」(space あり) を design 正典に置換
+//
+// 全 chip 共通で teal-500 の checkmark prefix を持つ (`wireframe-styles.css:604-608`)。
+// 旧版で chip 別に Camera / Lock / Sparkle SVG を使っていたのを廃し、design に揃える。
+//
+// design 制約:
+//   - 4 cell grid（狭幅では 2 列に折り返し可、wrap 許容）
+//   - cell: ✓ checkmark (teal-500) + label (text-xs ink-medium)
 //   - 区切りは border-divider-soft top
 //
-// 設計参照: harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md §3.1 / §6
+// 設計参照:
+//   - docs/plan/m2-design-refresh-stop-beta-2-plan.md §STOP β-2a Q-2a-3
+//   - docs/plan/m2-design-refresh-plan.md §6 STOP β-2
 
-type Item = { label: string; iconPath: string };
-
-// SVG path は design/mockups/prototype/shared.jsx Icon の最小ベクトル（stroke-current で teal）
-const items: ReadonlyArray<Item> = [
-  {
-    label: "完全無料",
-    iconPath: "M5 12l4.5 4.5L19 7", // Check
-  },
-  {
-    label: "スマホで完結",
-    iconPath:
-      "M4 8a2 2 0 0 1 2-2h2l1.5-2h5L16 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z", // Camera
-  },
-  {
-    label: "ログイン不要",
-    iconPath:
-      "M4 10h16v11H4zM8 10V7a4 4 0 0 1 8 0v3", // Lock
-  },
-  {
-    label: "VRC ユーザー向け",
-    iconPath:
-      "M12 2l1.8 5.4L19 9.2l-5.2 1.8L12 16l-1.8-5L5 9.2l5.2-1.8z", // Sparkle (filled)
-  },
+const items: ReadonlyArray<string> = [
+  "完全無料",
+  "スマホで完成",
+  "安全・安心",
+  "VRCユーザー向け",
 ];
 
 export function TrustStrip() {
@@ -41,26 +33,15 @@ export function TrustStrip() {
       data-testid="trust-strip"
       className="mt-8 grid grid-cols-2 gap-3 border-t border-divider-soft pt-4 sm:grid-cols-4"
     >
-      {items.map((item) => (
+      {items.map((label) => (
         <div
-          key={item.label}
-          className="flex flex-col items-center gap-1 text-center"
+          key={label}
+          className="flex items-center justify-center gap-1.5 text-center"
         >
-          <span aria-hidden="true" className="text-brand-teal">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d={item.iconPath} />
-            </svg>
+          <span aria-hidden="true" className="font-bold text-teal-500">
+            ✓
           </span>
-          <span className="text-xs font-medium text-ink-medium">{item.label}</span>
+          <span className="text-xs font-medium text-ink-medium">{label}</span>
         </div>
       ))}
     </div>

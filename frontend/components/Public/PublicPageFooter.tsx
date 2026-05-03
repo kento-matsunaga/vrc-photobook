@@ -1,20 +1,19 @@
 // 公開ページ共通の footer。
 //
-// 用途: LP / Terms / Privacy / About / 既存 Help / Viewer の脚部に置く
-// リンク群と「非公式ファンメイドサービス」表記を一元化する。
+// 採用元 (m2-design-refresh STOP β-2a):
+//   - design/source/project/wf-shared.jsx:64-84 `WFFooter`（trust + links 構造）
+//   - design/source/project/wireframe-styles.css:493-501 `.wf-footer`（border-top / spacing）
 //
-// design 制約:
-//   - design-system（colors / typography / spacing）に揃え、
-//     border-divider-soft + text-ink-soft で目立ちすぎない区切りにする
-//   - 装飾を持たず、リンクは下線のみ（フッタとして機能優先）
-//   - LP / About では showTrustStrip で 4 cell trust strip を closing element として出す
+// design 正典の links (`wf-shared.jsx:78`): 「About / Help / Terms / Privacy」 4 link.
+// 旧「トップ」link は β-2a で削除（PublicTopBar の logo が `/` 遷移を担うため重複）。
+//
+// 用途: LP / Terms / Privacy / About / Help / Viewer の脚部に置くリンク群と
+// 「非公式ファンメイド」表記を一元化する。
 //
 // 参照:
-//   - design/design-system/colors.md（divider-soft / ink-soft）
-//   - design/design-system/typography.md（text-xs / text-sm）
-//   - design/mockups/prototype/screens-a.jsx の `.trust-strip` / pc-shared.jsx PCTrust
 //   - 業務知識 v4 §3.6（通報窓口は対象フォトブックの通報リンク）
-//   - harness/work-logs/2026-05-01_pr37-design-rebuild-plan.md §3.5 / §8
+//   - docs/plan/m2-design-refresh-stop-beta-2-plan.md §STOP β-2a Q-2a-4
+//   - docs/plan/m2-design-refresh-plan.md §6 STOP β-2
 
 import type { ReactNode } from "react";
 import Link from "next/link";
@@ -22,7 +21,7 @@ import Link from "next/link";
 import { TrustStrip } from "./TrustStrip";
 
 type PublicPageFooterProps = {
-  /** 含めるリンク。省略時は標準セット（top / about / terms / privacy / help）を出す。 */
+  /** 含めるリンク。省略時は design 正典セット（About / Help / Terms / Privacy）を出す。 */
   links?: ReadonlyArray<{ href: string; label: string }>;
   /** true なら footer 上部に TrustStrip を出す。LP / About のみ true。 */
   showTrustStrip?: boolean;
@@ -30,12 +29,12 @@ type PublicPageFooterProps = {
   extraSlot?: ReactNode;
 };
 
+// design 正典 (`wf-shared.jsx:78`) の順序を維持: About / Help / Terms / Privacy
 const defaultLinks: ReadonlyArray<{ href: string; label: string }> = [
-  { href: "/", label: "トップ" },
-  { href: "/about", label: "VRC PhotoBook について" },
-  { href: "/terms", label: "利用規約" },
-  { href: "/privacy", label: "プライバシーポリシー" },
-  { href: "/help/manage-url", label: "管理 URL について" },
+  { href: "/about", label: "About" },
+  { href: "/help/manage-url", label: "Help" },
+  { href: "/terms", label: "Terms" },
+  { href: "/privacy", label: "Privacy" },
 ];
 
 export function PublicPageFooter({

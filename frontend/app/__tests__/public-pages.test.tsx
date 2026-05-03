@@ -32,12 +32,16 @@ function expectNoSecret(html: string) {
 }
 
 describe("HomePage（LP, /）", () => {
-  it("正常_主要セクション_hero_thumbs_features_policy_cta_block_を含む", () => {
+  it("正常_design正典_主要セクション_hero_thumbs_features_use_cases_cta_block_footer_を含む", () => {
     const html = renderToStaticMarkup(<HomePage />);
+    // β-2a: PublicTopBar を実利用開始 (`design/source/project/wf-shared.jsx:29-48` 相当)
+    expect(html).toContain('data-testid="public-topbar"');
+    expect(html).toContain('data-testid="public-topbar-cta"');
+    // design 正典のセクション (`wf-screens-a.jsx:45-203`)
     expect(html).toContain('data-testid="lp-hero"');
     expect(html).toContain('data-testid="lp-thumbs"');
     expect(html).toContain('data-testid="lp-features"');
-    expect(html).toContain('data-testid="lp-policy"');
+    expect(html).toContain('data-testid="lp-use-cases"');
     expect(html).toContain('data-testid="lp-cta-block"');
     expect(html).toContain('data-testid="public-page-footer"');
     expect(html).toContain('data-testid="trust-strip"');
@@ -48,22 +52,38 @@ describe("HomePage（LP, /）", () => {
     expect(html).toContain('data-testid="mock-thumb-c"');
     expect(html).toContain('data-testid="mock-thumb-d"');
     expect(html).toContain('data-testid="mock-thumb-e"');
-    // 主要文言
-    expect(html).toContain("VRChat 写真を、");
+    // 主要文言 (design 正典: `wf-screens-a.jsx:50` h1 / `:51` sub / features `:67-82`)
+    expect(html).toContain("VRC写真を、");
+    expect(html).toContain("Webフォトブックに。");
     expect(html).toContain("ログイン不要");
-    expect(html).toContain("管理 URL");
+    expect(html).toContain("管理URLで編集");
     expect(html).toContain("非公式ファンメイド");
-    // Primary CTA は /create（作成導線追加 PR）
+    expect(html).toContain("さあ、あなたの思い出をカタチにしよう");
+    // Primary CTA は /create
     expect(html).toContain('data-testid="lp-hero-cta-create"');
     expect(html).toContain('href="/create"');
     expect(html).toContain('data-testid="lp-cta-block-create"');
-    // Secondary CTA リンク先（about / help/manage-url）
+    // Secondary CTA: 作例 (LP 内 anchor) → #examples / 他 link は PublicTopBar 経由
+    expect(html).toContain('data-testid="lp-hero-cta-examples"');
+    expect(html).toContain('href="#examples"');
     expect(html).toContain('href="/about"');
     expect(html).toContain('href="/help/manage-url"');
-    // policy リンク
+    // policy リンク (PublicPageFooter)
     expect(html).toContain('href="/terms"');
     expect(html).toContain('href="/privacy"');
     expectNoSecret(html);
+  });
+
+  it("正常_id_examples_anchor_が_lp-thumbs_に紐付く", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    // 「作例を見る」CTA → #examples → サンプル strip の id にスクロール
+    expect(html).toMatch(/id="examples"[^>]*data-testid="lp-thumbs"/);
+  });
+
+  it("正常_design正典外の_lp-policy_block_は出ない", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    // 旧版の lp-policy section は design に存在しないため削除済み
+    expect(html).not.toContain('data-testid="lp-policy"');
   });
 });
 
