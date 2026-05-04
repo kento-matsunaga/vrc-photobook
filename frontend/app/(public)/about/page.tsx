@@ -16,7 +16,9 @@
 //   4. できること (6 件): ✓ 円 icon row × 6 (M 縦 / PC wf-grid-2 で並列)
 //   5. MVP ではできないこと (4 件): × 円 icon row × 4
 //   6. ポリシーと窓口 wf-box: 3 button block (M 縦 / PC wf-grid-3) + 通報窓口別段落
-//   7. PublicPageFooter showTrustStrip=true (LP / About のみ trust strip 表示)
+//   7. PublicPageFooter (ε-fix: trust strip は非表示。LP / About いずれも実機 smoke で
+//      「LP / About では情報過多」というフィードバックがあったため非表示化。
+//      TrustStrip コンポーネント自体は単体テストのため残す)
 //
 // 「足りないものは足す」(plan §0.1):
 //   - design は placeholder line のみ。production truth (canDo 6 / cannotDo 4 本文) を維持
@@ -293,7 +295,7 @@ export default function AboutPage() {
           </p>
         </section>
 
-        <PublicPageFooter showTrustStrip />
+        <PublicPageFooter />
       </main>
     </>
   );

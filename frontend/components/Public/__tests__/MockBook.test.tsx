@@ -149,4 +149,76 @@ describe("MockBook image props (β-2c)", () => {
     // 装飾 aria-hidden cell が右 page にある
     expect(html.match(/aria-hidden="true"/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
+
+  it("正常_ε-fix_LandingImage_の_objectPosition_が_img_style_に反映される", () => {
+    const html = renderToStaticMarkup(
+      <MockBook
+        title="t"
+        cover={{
+          slug: "mock-cover",
+          alt: "cover alt",
+          width: 720,
+          height: 1280,
+          objectPosition: "center 30%",
+        }}
+        spreadTop={{
+          slug: "hero",
+          alt: "hero alt",
+          width: 1600,
+          height: 900,
+          objectPosition: "center 40%",
+        }}
+        spreadBottomLeft={{
+          slug: "sample-04",
+          alt: "",
+          width: 640,
+          height: 1138,
+          objectPosition: "center 32%",
+        }}
+        spreadBottomRight={{
+          slug: "sample-01",
+          alt: "",
+          width: 640,
+          height: 1138,
+        }}
+      />,
+    );
+    // cover / spreadTop / spreadBottomLeft の各 image に object-position style が反映
+    expect(html).toMatch(/object-position\s*:\s*center\s+30%/);
+    expect(html).toMatch(/object-position\s*:\s*center\s+40%/);
+    expect(html).toMatch(/object-position\s*:\s*center\s+32%/);
+  });
+});
+
+describe("MockThumb image props (ε-fix)", () => {
+  it("正常_objectPosition_が_img_style_に反映される", () => {
+    const html = renderToStaticMarkup(
+      <MockThumb
+        variant="a"
+        image={{
+          slug: "sample-01",
+          alt: "alt",
+          width: 640,
+          height: 1138,
+          objectPosition: "center 28%",
+        }}
+      />,
+    );
+    expect(html).toMatch(/object-position\s*:\s*center\s+28%/);
+  });
+
+  it("正常_objectPosition_未指定時は_object-position_style_を出さない", () => {
+    const html = renderToStaticMarkup(
+      <MockThumb
+        variant="a"
+        image={{
+          slug: "sample-01",
+          alt: "alt",
+          width: 640,
+          height: 1138,
+        }}
+      />,
+    );
+    expect(html).not.toMatch(/object-position\s*:/);
+  });
 });

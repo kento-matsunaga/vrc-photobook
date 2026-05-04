@@ -504,7 +504,8 @@ export function PrepareClient({ photobookId, turnstileSiteKey, initialView }: Pr
           「編集へ進む」で編集画面に移動できます。
         </p>
         <p className="text-xs text-ink-soft">
-          JPEG / PNG / WebP、最大 10MB / 1 枚、最大 {MAX_TILES} 枚まで（HEIC / HEIF 未対応）
+          JPEG / PNG / WebP、最大 {MAX_TILES} 枚まで（HEIC / HEIF 未対応）。
+          大きい画像は送信前に自動圧縮されます。
         </p>
       </header>
 

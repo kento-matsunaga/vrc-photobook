@@ -54,6 +54,22 @@ describe("PrepareClient 初期描画", () => {
     expect(html).toContain("送信前の Bot 検証が必要です");
   });
 
+  it("正常_ε-fix_アップロード説明文_自動圧縮を案内し_旧10MB1枚表記は出ない", () => {
+    const html = renderToStaticMarkup(
+      <PrepareClient
+        photobookId="pb-test-redacted"
+        turnstileSiteKey="dummy-site-key"
+        initialView={emptyView("pb-test-redacted")}
+      />,
+    );
+    // 新文言: 「最大 20 枚まで（HEIC / HEIF 未対応）。大きい画像は送信前に自動圧縮されます。」
+    expect(html).toContain("最大 20 枚まで");
+    expect(html).toContain("HEIC / HEIF 未対応");
+    expect(html).toContain("大きい画像は送信前に自動圧縮されます");
+    // 旧文言 「最大 10MB / 1 枚」は出ない（自動圧縮で per-file MB 上限の文言は廃止）
+    expect(html).not.toContain("最大 10MB / 1 枚");
+  });
+
   it("正常_file input が multiple 属性を持つ", () => {
     const html = renderToStaticMarkup(
       <PrepareClient

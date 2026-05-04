@@ -66,13 +66,14 @@ export function MockBook({
       <div className="absolute left-0 top-0 flex h-full w-[58%] flex-col justify-end overflow-hidden rounded-l-[4px] rounded-r-[14px] border border-divider bg-gradient-to-br from-teal-50 to-surface p-4 shadow-lg sm:p-5">
         {hasCover && cover ? (
           <>
-            {/* 背景写真 (object-cover で枠を埋める) */}
+            {/* 背景写真 (object-cover で枠を埋める / object-position は image 単位で調整、ε-fix) */}
             <span aria-hidden="true" className="absolute inset-0">
               <LandingPicture
                 slug={cover.slug}
                 alt={cover.alt}
                 width={cover.width}
                 height={cover.height}
+                objectPosition={cover.objectPosition}
                 className="h-full w-full object-cover"
                 eager
               />
@@ -143,6 +144,7 @@ function SpreadCell({
           alt={image.alt}
           width={image.width}
           height={image.height}
+          objectPosition={image.objectPosition}
           className="h-full w-full object-cover"
           eager={eager}
         />
@@ -192,6 +194,7 @@ export function MockThumb({ variant, image }: ThumbProps) {
           alt={image.alt}
           width={image.width}
           height={image.height}
+          objectPosition={image.objectPosition}
           className="h-full w-full object-cover"
         />
       </span>

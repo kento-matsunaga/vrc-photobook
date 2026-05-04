@@ -5,6 +5,11 @@
 //     `frontend/public/img/landing/{slug}.webp|.jpg` を参照
 //   - design は raw photo placeholder のみ提示。実画像差し替えは β-2c で本コンポを通じて行う
 //
+// ε-fix (本 commit、visual のみ):
+//   - LandingImage 型に objectPosition?: string を追加
+//   - 顔・主役位置が中央以外にある画像で `object-cover` 中央クロップが切れる問題を回避
+//   - img style に `objectPosition` を渡す。className 側の `object-cover` と組合せで使う想定
+//
 // 制約:
 //   - layout shift 回避のため width / height を intrinsic 値で必ず指定する
 //   - eager=true は LP hero など above-the-fold の画像のみ。それ以外は lazy 既定
@@ -22,6 +27,12 @@ export type LandingImage = {
   width: number;
   /** 表示用 intrinsic height (px) — CLS 回避 */
   height: number;
+  /**
+   * `object-position` 値 (例: "center 30%")。className 側で `object-cover` を指定したときの
+   * クロップ中心を制御する。未指定時は CSS 既定 (center center) で表示。顔が上寄り / 下寄り
+   * の写真で中央クロップが切れるときに利用。
+   */
+  objectPosition?: string;
 };
 
 type Props = LandingImage & {
@@ -37,6 +48,7 @@ export function LandingPicture({
   height,
   className,
   eager = false,
+  objectPosition,
 }: Props) {
   return (
     <picture>
@@ -49,6 +61,7 @@ export function LandingPicture({
         className={className}
         loading={eager ? "eager" : "lazy"}
         decoding="async"
+        style={objectPosition ? { objectPosition } : undefined}
       />
     </picture>
   );

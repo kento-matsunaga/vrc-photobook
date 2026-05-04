@@ -45,7 +45,8 @@ describe("HomePage（LP, /）", () => {
     expect(html).toContain('data-testid="lp-use-cases"');
     expect(html).toContain('data-testid="lp-cta-block"');
     expect(html).toContain('data-testid="public-page-footer"');
-    expect(html).toContain('data-testid="trust-strip"');
+    // ε-fix: TrustStrip は LP では非表示（実機 smoke で「LP の集中導線を弱める」フィードバック）
+    expect(html).not.toContain('data-testid="trust-strip"');
     expect(html).toContain('data-testid="mock-book"');
     // 5 thumbnails ある（最後の 1 つは sm:block で hidden）
     expect(html).toContain('data-testid="mock-thumb-a"');
@@ -79,6 +80,29 @@ describe("HomePage（LP, /）", () => {
     const html = renderToStaticMarkup(<HomePage />);
     // 「作例を見る」CTA → #examples → サンプル strip の id にスクロール
     expect(html).toMatch(/id="examples"[^>]*data-testid="lp-thumbs"/);
+  });
+
+  it("正常_ε-fix_モック表紙文言_おはツイまとめ_を含み_旧文言_は出ない", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    // ε-fix: 旧 hero title「ミッドナイト ソーシャルクラブ」/ heroWorld「Midnight Social Club」を撤去
+    expect(html).toContain("おはツイ");
+    expect(html).toContain("まとめ！");
+    expect(html).not.toContain("ミッドナイト");
+    expect(html).not.toContain("ソーシャルクラブ");
+    expect(html).not.toContain("Midnight Social Club");
+  });
+
+  it("正常_ε-fix_CTA_band_文言_ログイン不要で作成できます_に更新_旧_完全無料_は出ない", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    expect(html).toContain("ログイン不要で作成できます");
+    expect(html).not.toContain("ログイン不要・完全無料");
+  });
+
+  it("正常_ε-fix_LP_image_に_object-position_が付与される", () => {
+    const html = renderToStaticMarkup(<HomePage />);
+    // 縦長は "center 30%" / "center 32%" を持ち、object-cover の中央クロップを補正
+    expect(html).toMatch(/object-position\s*:\s*center\s+30%/);
+    expect(html).toMatch(/object-position\s*:\s*center\s+32%/);
   });
 
   it("正常_design正典外の_lp-policy_block_は出ない", () => {
@@ -253,9 +277,9 @@ describe("AboutPage（/about）", () => {
     // β-2b-2: 通報窓口補足は別段落
     expect(html).toContain('data-testid="about-report-note"');
     expect(html).toContain("このフォトブックを通報");
-    // footer + trust strip (LP / About のみ)
+    // footer は維持。ε-fix: trust strip は About でも非表示
     expect(html).toContain('data-testid="public-page-footer"');
-    expect(html).toContain('data-testid="trust-strip"');
+    expect(html).not.toContain('data-testid="trust-strip"');
     expectNoSecret(html);
   });
 

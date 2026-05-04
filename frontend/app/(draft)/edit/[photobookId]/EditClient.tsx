@@ -580,7 +580,8 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
               </h3>
               <p className="text-xs leading-[1.6] text-ink-medium">
                 まとめて投稿したい場合は新しい photobook 作成時の「写真を追加」画面をご利用ください。
-                ここからは 1 枚ずつ追加できます（JPEG / PNG / WebP、最大 10MB、HEIC / HEIF 未対応）。
+                ここからは 1 枚ずつ追加できます（JPEG / PNG / WebP、HEIC / HEIF 未対応）。
+                大きい画像は送信前に自動圧縮されます。
               </p>
               <input
                 type="file"
