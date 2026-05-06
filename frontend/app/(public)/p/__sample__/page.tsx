@@ -1,0 +1,35 @@
+// /p/__sample__ — Dev 専用の Viewer プレビュールート (page_meta あり)。
+//
+// 目的:
+//   - Backend が page_meta を返す前でも、人間が実機 / dev で「フォトブックっぽさ」
+//     を確認できるようにする (要件 B)
+//   - 表紙パターン A グラデーション + magazine layout + cover_first variant + 5 page
+//
+// 動作:
+//   - process.env.NODE_ENV === "production" の時は notFound() で 404
+//   - dev / test 環境では sampleSunsetMemories() を ViewerLayout に流し込む
+//
+// セキュリティ:
+//   - production bundle にも本ファイルは含まれるが、production ガードで route 自体が 404
+//   - fixture data は dummy URL のみ (presigned / Secret 含まず)
+
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+
+import { ViewerLayout } from "@/components/Viewer/ViewerLayout";
+import { sampleSunsetMemories } from "@/lib/__fixtures__/publicPhotobookSample";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Sample | VRC PhotoBook",
+  robots: { index: false, follow: false },
+};
+
+export default function SampleViewerPage() {
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
+  const photobook = sampleSunsetMemories();
+  return <ViewerLayout photobook={photobook} />;
+}
