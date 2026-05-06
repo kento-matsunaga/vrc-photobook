@@ -678,3 +678,183 @@ func (r *PhotobookRepository) UpdateSettings(
 	}
 	return nil
 }
+
+// ============================================================================
+// STOP P-1: page split / merge / move primitives (m2-edit Phase A)
+// ----------------------------------------------------------------------------
+// 計画: docs/plan/m2-edit-page-split-and-preview-plan.md §2.4 / §11
+// 方針: 薄い primitive。draft check / version+1 / 30 page 上限 / reason mapping は
+//       UseCase 層 (STOP P-2) で扱う。本層は SQL 単発 + 必要最低限の ownership 検証のみ。
+//       既存 BulkReorderPhotosOnPage / UpdatePhotoCaption が内部で bumpVersion を
+//       呼ぶのと違い、本 group は **bumpVersion を呼ばない** (UseCase が 1 TX 内で
+//       一度だけ呼ぶ)。
+// ============================================================================
+
+// UpdatePageCaption は page の caption を更新する (薄い primitive、bumpVersion なし)。
+//
+// caption が nil なら NULL を保存する。
+// WHERE 句で photobook_id 所属を SQL レベルで検証 → 別 photobook の page は更新されない。
+// 0 行 UPDATE は ErrPageNotFound。
+//
+// UseCase 責務:
+//   - bumpVersion (OCC + draft check)
+//   - caption length validation (domain.NewCaption に委譲)
+//   - photobook_id と pageID の整合
+func (r *PhotobookRepository) UpdatePageCaption(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+	pageID page_id.PageID,
+	c *caption.Caption,
+	now time.Time,
+) error {
+	rows, err := r.q.UpdatePhotobookPageCaption(ctx, sqlcgen.UpdatePhotobookPageCaptionParams{
+		ID:          pgtype.UUID{Bytes: pageID.UUID(), Valid: true},
+		Caption:     captionPtr(c),
+		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
+		PhotobookID: pgtype.UUID{Bytes: photobookID.UUID(), Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrPageNotFound
+	}
+	return nil
+}
+
+// BulkOffsetPagesInPhotobook は photobook 内全 page の display_order を +1000 する
+// (page reorder / split / merge の escape primitive、bumpVersion なし)。
+//
+// UNIQUE (photobook_id, display_order) との衝突を一時回避するため、UseCase は同 TX 内で
+// 各 page を新しい display_order に書き戻す (UpdatePhotobookPageOrder を順次呼ぶ)。
+//
+// 1 page も無い photobook での呼出は no-op (rows=0、エラーにしない)。
+func (r *PhotobookRepository) BulkOffsetPagesInPhotobook(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+	now time.Time,
+) error {
+	_, err := r.q.BulkOffsetPagesInPhotobook(ctx, sqlcgen.BulkOffsetPagesInPhotobookParams{
+		PhotobookID: pgtype.UUID{Bytes: photobookID.UUID(), Valid: true},
+		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
+	})
+	return err
+}
+
+// UpdatePhotoPageAndOrder は photo を別 page (or 同 page) の指定 display_order に移動する
+// (薄い primitive、bumpVersion なし)。
+//
+// ownership 検証 (photo + target page が photobookID 配下か) を Repository 内で実施する。
+// SQL UPDATE 自体は単純な WHERE id=$1 のため、UseCase 側で escape (BulkOffsetPhotoOrders
+// OnPage) を行ってから本 method を呼ぶこと (target page で UNIQUE 衝突しない位置を空ける)。
+//
+// 失敗パターン:
+//   - photo_id 不存在 → ErrPhotoNotFound
+//   - photo の現 page が photobookID 配下でない → ErrPhotoNotFound (ownership は外に出さない)
+//   - target_page_id 不存在 / photobookID 配下でない → ErrPageNotFound
+//   - SQL UPDATE で UNIQUE 衝突 → 23505 (pg error をそのまま伝播、UseCase で escape を
+//     入れていないと発生する programmer error)
+func (r *PhotobookRepository) UpdatePhotoPageAndOrder(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+	photoID photo_id.PhotoID,
+	targetPageID page_id.PageID,
+	newOrder display_order.DisplayOrder,
+) error {
+	// 1. photo の現状取得 + 所属 photobook 検証
+	photoRow, err := r.q.FindPhotobookPhotoWithPhotobookID(ctx,
+		pgtype.UUID{Bytes: photoID.UUID(), Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPhotoNotFound
+		}
+		return err
+	}
+	if photoRow.PhotobookID.Bytes != photobookID.UUID() {
+		return ErrPhotoNotFound
+	}
+
+	// 2. target page の所属 photobook 検証
+	pageRow, err := r.q.FindPhotobookPageByID(ctx,
+		pgtype.UUID{Bytes: targetPageID.UUID(), Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPageNotFound
+		}
+		return err
+	}
+	if pageRow.PhotobookID.Bytes != photobookID.UUID() {
+		return ErrPageNotFound
+	}
+
+	// 3. UPDATE (SQL は単純な WHERE id=$1、UNIQUE 衝突は UseCase の escape 責務)
+	rows, err := r.q.UpdatePhotobookPhotoPageAndOrder(ctx, sqlcgen.UpdatePhotobookPhotoPageAndOrderParams{
+		ID:           pgtype.UUID{Bytes: photoID.UUID(), Valid: true},
+		PageID:       pgtype.UUID{Bytes: targetPageID.UUID(), Valid: true},
+		DisplayOrder: int32(newOrder.Int()),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// 1. の検証通過後に photo が消えた race。defensive。
+		return ErrPhotoNotFound
+	}
+	return nil
+}
+
+// FindPhotoWithPhotobookID は photo を photo_id で取得し、所属 photobook_id とともに返す。
+//
+// move ロジック / split ロジックで「ある photo がどの page に属しているか + その page が
+// どの photobook に属しているか」を 1 query で確認するために使う。
+// row 不在は ErrPhotoNotFound。
+func (r *PhotobookRepository) FindPhotoWithPhotobookID(
+	ctx context.Context,
+	photoID photo_id.PhotoID,
+) (domain.Photo, photobook_id.PhotobookID, error) {
+	row, err := r.q.FindPhotobookPhotoWithPhotobookID(ctx,
+		pgtype.UUID{Bytes: photoID.UUID(), Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Photo{}, photobook_id.PhotobookID{}, ErrPhotoNotFound
+		}
+		return domain.Photo{}, photobook_id.PhotobookID{}, err
+	}
+	pid, err := photo_id.FromUUID(row.ID.Bytes)
+	if err != nil {
+		return domain.Photo{}, photobook_id.PhotobookID{}, err
+	}
+	pageID, err := page_id.FromUUID(row.PageID.Bytes)
+	if err != nil {
+		return domain.Photo{}, photobook_id.PhotobookID{}, err
+	}
+	imgID, err := image_id.FromUUID(row.ImageID.Bytes)
+	if err != nil {
+		return domain.Photo{}, photobook_id.PhotobookID{}, err
+	}
+	order, err := display_order.New(int(row.DisplayOrder))
+	if err != nil {
+		return domain.Photo{}, photobook_id.PhotobookID{}, err
+	}
+	var capPtr *caption.Caption
+	if row.Caption != nil {
+		c, err := caption.New(*row.Caption)
+		if err != nil {
+			return domain.Photo{}, photobook_id.PhotobookID{}, err
+		}
+		capPtr = &c
+	}
+	pbid, err := photobook_id.FromUUID(row.PhotobookID.Bytes)
+	if err != nil {
+		return domain.Photo{}, photobook_id.PhotobookID{}, err
+	}
+	photo := domain.RestorePhoto(domain.RestorePhotoParams{
+		ID:           pid,
+		PageID:       pageID,
+		ImageID:      imgID,
+		DisplayOrder: order,
+		Caption:      capPtr,
+		CreatedAt:    row.CreatedAt.Time,
+	})
+	return photo, pbid, nil
+}

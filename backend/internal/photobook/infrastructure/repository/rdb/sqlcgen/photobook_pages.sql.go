@@ -11,6 +11,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bulkOffsetPagesInPhotobook = `-- name: BulkOffsetPagesInPhotobook :execrows
+UPDATE photobook_pages
+   SET display_order = display_order + 1000,
+       updated_at    = $2
+ WHERE photobook_id = $1
+`
+
+type BulkOffsetPagesInPhotobookParams struct {
+	PhotobookID pgtype.UUID
+	UpdatedAt   pgtype.Timestamptz
+}
+
+// BulkOffsetPagesInPhotobook: page reorder / split / merge の +1000 escape primitive (P-1)。
+// photo 版 BulkOffsetPhotoOrdersOnPage と同じ思想で、UNIQUE (photobook_id, display_order)
+// との衝突を一時的に回避するため、対象 photobook の **全 page** の display_order を +1000
+// する。呼び出し側 (UseCase) は同 TX 内で各 page を新しい display_order に書き戻す。
+// updated_at は呼び出し側で渡す ($now)。
+func (q *Queries) BulkOffsetPagesInPhotobook(ctx context.Context, arg BulkOffsetPagesInPhotobookParams) (int64, error) {
+	result, err := q.db.Exec(ctx, bulkOffsetPagesInPhotobook, arg.PhotobookID, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const bulkOffsetPhotoOrdersOnPage = `-- name: BulkOffsetPhotoOrdersOnPage :execrows
 UPDATE photobook_photos
    SET display_order = display_order + 1000
@@ -293,6 +318,49 @@ func (q *Queries) FindPhotobookPhotoByID(ctx context.Context, id pgtype.UUID) (P
 	return i, err
 }
 
+const findPhotobookPhotoWithPhotobookID = `-- name: FindPhotobookPhotoWithPhotobookID :one
+SELECT pp.id            AS id,
+       pp.page_id       AS page_id,
+       pp.image_id      AS image_id,
+       pp.display_order AS display_order,
+       pp.caption       AS caption,
+       pp.created_at    AS created_at,
+       pg.photobook_id  AS photobook_id
+FROM photobook_photos pp
+JOIN photobook_pages  pg ON pg.id = pp.page_id
+WHERE pp.id = $1
+`
+
+type FindPhotobookPhotoWithPhotobookIDRow struct {
+	ID           pgtype.UUID
+	PageID       pgtype.UUID
+	ImageID      pgtype.UUID
+	DisplayOrder int32
+	Caption      *string
+	CreatedAt    pgtype.Timestamptz
+	PhotobookID  pgtype.UUID
+}
+
+// FindPhotobookPhotoWithPhotobookID: photo + 所属 photobook_id を JOIN で同時取得 (P-1)。
+// ownership 検証用。row 不在は呼び出し側で ErrPhotoNotFound に変換。
+// (caption / image_id / display_order も合わせて返すため、FindPhotobookPhotoByID の
+//
+//	上位互換として move ロジックで利用しやすい)
+func (q *Queries) FindPhotobookPhotoWithPhotobookID(ctx context.Context, id pgtype.UUID) (FindPhotobookPhotoWithPhotobookIDRow, error) {
+	row := q.db.QueryRow(ctx, findPhotobookPhotoWithPhotobookID, id)
+	var i FindPhotobookPhotoWithPhotobookIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.PageID,
+		&i.ImageID,
+		&i.DisplayOrder,
+		&i.Caption,
+		&i.CreatedAt,
+		&i.PhotobookID,
+	)
+	return i, err
+}
+
 const listAvailableUnattachedImageIDsByPhotobook = `-- name: ListAvailableUnattachedImageIDsByPhotobook :many
 SELECT i.id
 FROM images i
@@ -435,6 +503,49 @@ func (q *Queries) SetPhotobookCoverImage(ctx context.Context, arg SetPhotobookCo
 	return result.RowsAffected(), nil
 }
 
+const updatePhotobookPageCaption = `-- name: UpdatePhotobookPageCaption :execrows
+
+UPDATE photobook_pages
+   SET caption    = $2,
+       updated_at = $3
+ WHERE id           = $1
+   AND photobook_id = $4
+`
+
+type UpdatePhotobookPageCaptionParams struct {
+	ID          pgtype.UUID
+	Caption     *string
+	UpdatedAt   pgtype.Timestamptz
+	PhotobookID pgtype.UUID
+}
+
+// ============================================================================
+// STOP P-1: page split / merge / move primitives (m2-edit Phase A)
+// ----------------------------------------------------------------------------
+// 計画: docs/plan/m2-edit-page-split-and-preview-plan.md §2.3 / §2.4
+// 方針: 薄い primitive に保つ。draft check / version+1 / 30 page 上限 / reason mapping
+//
+//	はすべて UseCase 層 (STOP P-2) で扱う。本 query は SQL レベルの ownership 検証
+//	(page は photobook_id 直 column、photo は photobook_pages 経由 JOIN) のみ行う。
+//
+// ============================================================================
+// UpdatePhotobookPageCaption: page caption の単独編集 (P-1)。
+// caption は VARCHAR/TEXT で NULL 許容。len validation は domain.NewCaption に委譲。
+// WHERE 句で photobook_id 所属を検証 → 別 photobook の page を誤更新しない。
+// 0 行 → ErrPageNotFound (Repository 層で変換)。
+func (q *Queries) UpdatePhotobookPageCaption(ctx context.Context, arg UpdatePhotobookPageCaptionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePhotobookPageCaption,
+		arg.ID,
+		arg.Caption,
+		arg.UpdatedAt,
+		arg.PhotobookID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updatePhotobookPageOrder = `-- name: UpdatePhotobookPageOrder :execrows
 UPDATE photobook_pages
    SET display_order = $2,
@@ -498,6 +609,34 @@ type UpdatePhotobookPhotoOrderParams struct {
 // のパターンを実装する。DEFERRABLE UNIQUE は MVP では採用しない（PR19 計画 / Audit）。
 func (q *Queries) UpdatePhotobookPhotoOrder(ctx context.Context, arg UpdatePhotobookPhotoOrderParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updatePhotobookPhotoOrder, arg.ID, arg.DisplayOrder)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePhotobookPhotoPageAndOrder = `-- name: UpdatePhotobookPhotoPageAndOrder :execrows
+UPDATE photobook_photos
+   SET page_id       = $2,
+       display_order = $3
+ WHERE id = $1
+`
+
+type UpdatePhotobookPhotoPageAndOrderParams struct {
+	ID           pgtype.UUID
+	PageID       pgtype.UUID
+	DisplayOrder int32
+}
+
+// UpdatePhotobookPhotoPageAndOrder: photo の page_id + display_order を同時更新 (P-1)。
+// 単純な単一行 UPDATE。UNIQUE (page_id, display_order) と衝突する new_order が target_page
+// に既に取られていれば 23505 を返すため、呼び出し側 (UseCase) は事前に
+// BulkOffsetPhotoOrdersOnPage(target_page) で escape してから呼ぶ。
+// ownership (photo / target page が同 photobook 配下か) は Repository 層で
+// FindPhotobookPhotoWithPhotobookID + FindPhotobookPageByID により検証する。
+// 0 行 → ErrPhotoNotFound (Repository 層で変換)。
+func (q *Queries) UpdatePhotobookPhotoPageAndOrder(ctx context.Context, arg UpdatePhotobookPhotoPageAndOrderParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePhotobookPhotoPageAndOrder, arg.ID, arg.PageID, arg.DisplayOrder)
 	if err != nil {
 		return 0, err
 	}

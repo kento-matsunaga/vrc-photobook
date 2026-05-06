@@ -174,3 +174,63 @@ WHERE i.owner_photobook_id = $1
         AND pp.image_id     = i.id
   )
 ORDER BY i.uploaded_at ASC;
+
+-- ============================================================================
+-- STOP P-1: page split / merge / move primitives (m2-edit Phase A)
+-- ----------------------------------------------------------------------------
+-- 計画: docs/plan/m2-edit-page-split-and-preview-plan.md §2.3 / §2.4
+-- 方針: 薄い primitive に保つ。draft check / version+1 / 30 page 上限 / reason mapping
+--       はすべて UseCase 層 (STOP P-2) で扱う。本 query は SQL レベルの ownership 検証
+--       (page は photobook_id 直 column、photo は photobook_pages 経由 JOIN) のみ行う。
+-- ============================================================================
+
+-- UpdatePhotobookPageCaption: page caption の単独編集 (P-1)。
+-- caption は VARCHAR/TEXT で NULL 許容。len validation は domain.NewCaption に委譲。
+-- WHERE 句で photobook_id 所属を検証 → 別 photobook の page を誤更新しない。
+-- 0 行 → ErrPageNotFound (Repository 層で変換)。
+-- name: UpdatePhotobookPageCaption :execrows
+UPDATE photobook_pages
+   SET caption    = $2,
+       updated_at = $3
+ WHERE id           = $1
+   AND photobook_id = $4;
+
+-- BulkOffsetPagesInPhotobook: page reorder / split / merge の +1000 escape primitive (P-1)。
+-- photo 版 BulkOffsetPhotoOrdersOnPage と同じ思想で、UNIQUE (photobook_id, display_order)
+-- との衝突を一時的に回避するため、対象 photobook の **全 page** の display_order を +1000
+-- する。呼び出し側 (UseCase) は同 TX 内で各 page を新しい display_order に書き戻す。
+-- updated_at は呼び出し側で渡す ($now)。
+-- name: BulkOffsetPagesInPhotobook :execrows
+UPDATE photobook_pages
+   SET display_order = display_order + 1000,
+       updated_at    = $2
+ WHERE photobook_id = $1;
+
+-- UpdatePhotobookPhotoPageAndOrder: photo の page_id + display_order を同時更新 (P-1)。
+-- 単純な単一行 UPDATE。UNIQUE (page_id, display_order) と衝突する new_order が target_page
+-- に既に取られていれば 23505 を返すため、呼び出し側 (UseCase) は事前に
+-- BulkOffsetPhotoOrdersOnPage(target_page) で escape してから呼ぶ。
+-- ownership (photo / target page が同 photobook 配下か) は Repository 層で
+-- FindPhotobookPhotoWithPhotobookID + FindPhotobookPageByID により検証する。
+-- 0 行 → ErrPhotoNotFound (Repository 層で変換)。
+-- name: UpdatePhotobookPhotoPageAndOrder :execrows
+UPDATE photobook_photos
+   SET page_id       = $2,
+       display_order = $3
+ WHERE id = $1;
+
+-- FindPhotobookPhotoWithPhotobookID: photo + 所属 photobook_id を JOIN で同時取得 (P-1)。
+-- ownership 検証用。row 不在は呼び出し側で ErrPhotoNotFound に変換。
+-- (caption / image_id / display_order も合わせて返すため、FindPhotobookPhotoByID の
+--  上位互換として move ロジックで利用しやすい)
+-- name: FindPhotobookPhotoWithPhotobookID :one
+SELECT pp.id            AS id,
+       pp.page_id       AS page_id,
+       pp.image_id      AS image_id,
+       pp.display_order AS display_order,
+       pp.caption       AS caption,
+       pp.created_at    AS created_at,
+       pg.photobook_id  AS photobook_id
+FROM photobook_photos pp
+JOIN photobook_pages  pg ON pg.id = pp.page_id
+WHERE pp.id = $1;
