@@ -58,13 +58,16 @@ export function ShareActions({ shareUrl, shareText }: Props) {
     setTimeout(() => setCopyState("idle"), 2000);
   }, [shareUrl]);
 
+  // ε-fix: PC RightPanel (約 300px 幅) に sm:flex-row + sm:min-w-[160px] × 2 だと
+  // 320px + gap で panel を超過して枠がずれる事象を確認。両 button とも w-full 縦
+  // stack に変更し、Mobile / PC RightPanel どちらの context でも安定。
   return (
-    <div data-testid="viewer-share-actions" className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+    <div data-testid="viewer-share-actions" className="flex flex-col gap-2">
       <button
         type="button"
         onClick={onShare}
         data-testid="viewer-share-x"
-        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-ink px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-ink-strong sm:w-auto sm:min-w-[160px]"
+        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-ink px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-ink-strong"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M18.244 2H21l-6.46 7.39L22 22h-6.91l-4.59-5.99L4.94 22H2.18l6.93-7.93L2 2h7.06l4.13 5.46L18.244 2zm-2.43 18h1.85L7.32 4h-1.9l10.39 16z" />
@@ -75,7 +78,7 @@ export function ShareActions({ shareUrl, shareText }: Props) {
         type="button"
         onClick={onCopy}
         data-testid="viewer-share-copy"
-        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-divider bg-surface px-5 text-sm font-bold text-ink-strong shadow-sm transition-colors hover:border-teal-300 hover:text-teal-700 sm:w-auto sm:min-w-[160px]"
+        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-divider bg-surface px-5 text-sm font-bold text-ink-strong shadow-sm transition-colors hover:border-teal-300 hover:text-teal-700"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="9" y="9" width="13" height="13" rx="2" />
