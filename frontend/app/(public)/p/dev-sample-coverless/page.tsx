@@ -1,8 +1,11 @@
-// /p/__sample_coverless__ — Dev 専用の Viewer プレビュールート (cover 無しフォールバック)。
+// /p/dev-sample-coverless — Dev 専用の Viewer プレビュールート (cover 無しフォールバック)。
 //
 // 目的:
 //   - 3 contrast pattern C (typography only) + simple layout + light variant の確認
 //   - meta 無しの Casual photobook の見え方確認
+//
+// folder 命名: `_` 始まりの folder は Next.js private 扱いで route 除外されるため、
+//   `dev-sample-coverless` に rename。
 //
 // 動作:
 //   - process.env.NODE_ENV === "production" の時は notFound() で 404

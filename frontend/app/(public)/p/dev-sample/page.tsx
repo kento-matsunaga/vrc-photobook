@@ -1,4 +1,10 @@
-// /p/__sample__ — Dev 専用の Viewer プレビュールート (page_meta あり)。
+// /p/dev-sample — Dev 専用の Viewer プレビュールート (page_meta あり)。
+//
+// folder 命名に関する注記:
+//   - Next.js App Router は `_` 始まりの folder を **private folder** として route から
+//     除外する (https://nextjs.org/docs/app/building-your-application/routing/colocation)
+//   - 当初 `__sample__` で作ったが、上記仕様により `[slug]` 動的 route に流れて 500 に
+//     なったため `dev-sample` に rename した
 //
 // 目的:
 //   - Backend が page_meta を返す前でも、人間が実機 / dev で「フォトブックっぽさ」
@@ -11,7 +17,7 @@
 //
 // セキュリティ:
 //   - production bundle にも本ファイルは含まれるが、production ガードで route 自体が 404
-//   - fixture data は dummy URL のみ (presigned / Secret 含まず)
+//   - fixture data は local public asset 参照のみ (presigned / Secret 含まず)
 
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";

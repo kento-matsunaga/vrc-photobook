@@ -4,10 +4,15 @@
 //   - vitest で表示分岐 (cover 有無 / coverTitle 有無 / meta 有無 / layout 4 種) を確認
 //   - dev 専用 route `/p/__sample__` で Backend 未拡張時の page_meta あり描画を確認
 //
+// 画像参照:
+//   - frontend/scripts/build-sample-images.sh で TESTImage/ 配下の VRChat 実写 PNG を
+//     圧縮して frontend/public/img/sample/ に配置 (cover P 1200×1800 / sample 01-07 L 1600×900)
+//   - 本 fixture は `/img/sample/<stable>.jpg` (display) / `<stable>.thumb.jpg` (thumbnail)
+//     を参照する。Cloudflare Workers ASSETS 経由で配信
+//
 // 制約:
-//   - 本ファイルは production bundle に混入しても安全 (純データのみ、Secret なし、
-//     presigned URL は dummy 文字列で raw URL 形式)。ただし dev-only route では
-//     middleware で production 時 404 にする
+//   - 本ファイルは production bundle に混入しても安全 (純データのみ、Secret なし)。ただし
+//     dev-only route 側は process.env.NODE_ENV === "production" で notFound に倒す
 //   - photobookId は raw 内部識別子の体裁で出さない。slug は dev-only 識別子を使う
 
 import type {
@@ -17,22 +22,56 @@ import type {
 
 const FAR_FUTURE_EXPIRES_AT = "2099-12-31T23:59:59Z";
 
-function dummyVariant(slug: string, w: number, h: number): PublicVariantSet {
+// 画像 stable name は frontend/scripts/build-sample-images.sh の MAPPING と一致させる
+type SampleSpec = {
+  slug: string;
+  displayW: number;
+  displayH: number;
+  thumbW: number;
+  thumbH: number;
+};
+
+const COVER_SPEC: SampleSpec = {
+  slug: "sample-cover",
+  displayW: 1200,
+  displayH: 1800,
+  thumbW: 300,
+  thumbH: 450,
+};
+
+const LANDSCAPE_SPEC = (slug: string): SampleSpec => ({
+  slug,
+  displayW: 1600,
+  displayH: 900,
+  thumbW: 480,
+  thumbH: 270,
+});
+
+function variantOf(spec: SampleSpec): PublicVariantSet {
   return {
     display: {
-      url: `https://images.example.invalid/${slug}.jpg`,
-      width: w,
-      height: h,
+      url: `/img/sample/${spec.slug}.jpg`,
+      width: spec.displayW,
+      height: spec.displayH,
       expiresAt: FAR_FUTURE_EXPIRES_AT,
     },
     thumbnail: {
-      url: `https://images.example.invalid/${slug}.thumb.jpg`,
-      width: Math.round(w / 4),
-      height: Math.round(h / 4),
+      url: `/img/sample/${spec.slug}.thumb.jpg`,
+      width: spec.thumbW,
+      height: spec.thumbH,
       expiresAt: FAR_FUTURE_EXPIRES_AT,
     },
   };
 }
+
+const COVER = variantOf(COVER_SPEC);
+const SAMPLE_01 = variantOf(LANDSCAPE_SPEC("sample-01"));
+const SAMPLE_02 = variantOf(LANDSCAPE_SPEC("sample-02"));
+const SAMPLE_03 = variantOf(LANDSCAPE_SPEC("sample-03"));
+const SAMPLE_04 = variantOf(LANDSCAPE_SPEC("sample-04"));
+const SAMPLE_05 = variantOf(LANDSCAPE_SPEC("sample-05"));
+const SAMPLE_06 = variantOf(LANDSCAPE_SPEC("sample-06"));
+const SAMPLE_07 = variantOf(LANDSCAPE_SPEC("sample-07"));
 
 /**
  * dev / test 用 sample (Sunset Memories)。
@@ -42,11 +81,15 @@ function dummyVariant(slug: string, w: number, h: number): PublicVariantSet {
  * - 5 page 構成 (page 1-5)、各 page に meta + caption + 1〜4 photos
  * - cover 画像 + coverTitle あり (3 contrast pattern A グラデーション)
  * - type: "event" (TypeAccent event バッジ確認用)
+ *
+ * 画像 (TESTImage 由来):
+ *   cover : 82E37915-... 縦長 portrait
+ *   photos: VRChat_2026-04-29_*.png 7 枚 landscape (sample-01..07)
  */
 export function sampleSunsetMemories(): PublicPhotobook {
   return {
     photobookId: "sample-sunset-redacted",
-    slug: "__sample__",
+    slug: "dev-sample",
     type: "event",
     title: "Sunset Memories",
     description: "あの日の集い、忘れぬための記録",
@@ -55,24 +98,15 @@ export function sampleSunsetMemories(): PublicPhotobook {
     creatorDisplayName: "ERENOA",
     creatorXId: "Noa_Fortevita",
     coverTitle: "Sunset Memories",
-    cover: dummyVariant("sample-cover", 1600, 2400),
+    cover: COVER,
     publishedAt: "2026-04-29T12:00:00Z",
     pages: [
       {
         caption: "屋上に集まったメンバー、夕焼けを背に。",
         photos: [
-          {
-            caption: "屋上の集合 (1/3)",
-            variants: dummyVariant("sample-01", 1600, 1066),
-          },
-          {
-            caption: "ENGINE が指差した先",
-            variants: dummyVariant("sample-02", 1200, 1600),
-          },
-          {
-            caption: "夕焼けと逆光",
-            variants: dummyVariant("sample-03", 1200, 1600),
-          },
+          { caption: "屋上の集合", variants: SAMPLE_01 },
+          { caption: "ENGINE が指差した先", variants: SAMPLE_02 },
+          { caption: "夕焼けと逆光", variants: SAMPLE_03 },
         ],
         meta: {
           eventDate: "2026-04-29",
@@ -85,14 +119,8 @@ export function sampleSunsetMemories(): PublicPhotobook {
       {
         caption: "ストリート散策",
         photos: [
-          {
-            caption: "夜の路地",
-            variants: dummyVariant("sample-04", 1200, 1600),
-          },
-          {
-            caption: "ネオンの反射",
-            variants: dummyVariant("sample-05", 1600, 1066),
-          },
+          { caption: "夜の路地", variants: SAMPLE_04 },
+          { caption: "ネオンの反射", variants: SAMPLE_05 },
         ],
         meta: {
           eventDate: "2026-04-29",
@@ -104,22 +132,10 @@ export function sampleSunsetMemories(): PublicPhotobook {
       {
         caption: "ライブ会場の興奮",
         photos: [
-          {
-            caption: "ステージ全景",
-            variants: dummyVariant("sample-06", 1600, 900),
-          },
-          {
-            caption: "客席のサイリウム",
-            variants: dummyVariant("sample-07", 1200, 1600),
-          },
-          {
-            caption: "間奏のシャウト",
-            variants: dummyVariant("sample-08", 1200, 1600),
-          },
-          {
-            caption: "アンコール",
-            variants: dummyVariant("sample-09", 1600, 1066),
-          },
+          { caption: "ステージ全景", variants: SAMPLE_06 },
+          { caption: "客席のサイリウム", variants: SAMPLE_07 },
+          { caption: "間奏のシャウト", variants: SAMPLE_03 },
+          { caption: "アンコール", variants: SAMPLE_01 },
         ],
         meta: {
           eventDate: "2026-04-29",
@@ -132,23 +148,14 @@ export function sampleSunsetMemories(): PublicPhotobook {
       {
         caption: "終演後、駅前にて",
         photos: [
-          {
-            caption: "改札前の別れ際",
-            variants: dummyVariant("sample-10", 1200, 1600),
-          },
+          { caption: "改札前の別れ際", variants: SAMPLE_04 },
         ],
       },
       {
         caption: "翌朝の余韻",
         photos: [
-          {
-            caption: "朝焼けの東京",
-            variants: dummyVariant("sample-11", 1600, 1066),
-          },
-          {
-            caption: "コーヒーと眠気",
-            variants: dummyVariant("sample-12", 1200, 1600),
-          },
+          { caption: "朝焼けの東京", variants: SAMPLE_02 },
+          { caption: "コーヒーと眠気", variants: SAMPLE_07 },
         ],
         meta: {
           eventDate: "2026-04-30",
@@ -166,7 +173,7 @@ export function sampleSunsetMemories(): PublicPhotobook {
 export function sampleCoverlessCasual(): PublicPhotobook {
   return {
     photobookId: "sample-coverless-redacted",
-    slug: "__sample_coverless__",
+    slug: "dev-sample-coverless",
     type: "casual",
     title: "おはツイまとめ 2026.04",
     description: undefined,
@@ -181,23 +188,14 @@ export function sampleCoverlessCasual(): PublicPhotobook {
       {
         caption: "今朝の空",
         photos: [
-          {
-            caption: undefined,
-            variants: dummyVariant("sample-cl-01", 1200, 1600),
-          },
+          { caption: undefined, variants: SAMPLE_05 },
         ],
       },
       {
         caption: "コーヒーと寝起きの自撮り",
         photos: [
-          {
-            caption: undefined,
-            variants: dummyVariant("sample-cl-02", 1200, 1600),
-          },
-          {
-            caption: undefined,
-            variants: dummyVariant("sample-cl-03", 1200, 1600),
-          },
+          { caption: undefined, variants: SAMPLE_06 },
+          { caption: undefined, variants: SAMPLE_07 },
         ],
       },
     ],
