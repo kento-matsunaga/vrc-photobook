@@ -43,10 +43,32 @@ export type PublicPhoto = {
   variants: PublicVariantSet;
 };
 
+/**
+ * ページ単位の補助メタ情報。
+ *
+ * Backend 拡張は別 STOP で予定されており、当面 API は未返却。
+ * Frontend は optional として受け入れ準備のみ行い、未返却時は undefined のまま
+ * → 各表示コンポーネントは安全側で何も描画しない。
+ */
+export type PublicPageMeta = {
+  /** ISO date 風文字列 ("2026-04-29" 等)。表示は YYYY.MM.DD で整形 */
+  eventDate?: string;
+  /** ワールド名 (例: "Sunset Rooftop") */
+  world?: string;
+  /** 出演者一覧 (X ID または display name)。順序固定 */
+  castList?: string[];
+  /** 撮影者 (display name または X ID) */
+  photographer?: string;
+  /** 引用ブロックに表示する短文ノート。改行は \n */
+  note?: string;
+};
+
 /** 1 ページ。 */
 export type PublicPage = {
   caption?: string;
   photos: PublicPhoto[];
+  /** Backend 未拡張のため optional。未返却時 undefined */
+  meta?: PublicPageMeta;
 };
 
 /** Public Viewer の photobook 全体。 */
@@ -124,9 +146,18 @@ type ApiPhoto = {
   variants: ApiVariantSet;
 };
 
+type ApiPageMeta = {
+  event_date?: string;
+  world?: string;
+  cast_list?: string[];
+  photographer?: string;
+  note?: string;
+};
+
 type ApiPage = {
   caption?: string;
   photos: ApiPhoto[];
+  page_meta?: ApiPageMeta;
 };
 
 type ApiPublicPhotobookPayload = {
@@ -181,7 +212,18 @@ function mapPublicPayload(p: ApiPublicPhotobookPayload): PublicPhotobook {
         caption: photo.caption,
         variants: mapVariantSet(photo.variants),
       })),
+      meta: page.page_meta ? mapPageMeta(page.page_meta) : undefined,
     })),
+  };
+}
+
+function mapPageMeta(m: ApiPageMeta): PublicPageMeta {
+  return {
+    eventDate: m.event_date,
+    world: m.world,
+    castList: m.cast_list,
+    photographer: m.photographer,
+    note: m.note,
   };
 }
 
