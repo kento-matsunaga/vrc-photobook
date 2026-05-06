@@ -43,10 +43,28 @@ export type PublicPhoto = {
   variants: PublicVariantSet;
 };
 
+/**
+ * ページに紐づく任意メタ情報。photobook_page_metas（1 page につき 0..1）に対応。
+ * Backend API が拡張されるまでは undefined のまま流れる。
+ *
+ * セキュリティ: world / cast / photographer / note は作成者入力の自由テキスト。
+ * 表示時は React の自動エスケープに任せ、innerHTML で出さないこと。
+ */
+export type PublicPageMeta = {
+  /** ISO 8601 日付（YYYY-MM-DD）。表示は viewer 側で整形 */
+  eventDate?: string;
+  world?: string;
+  castList?: string[];
+  photographer?: string;
+  note?: string;
+};
+
 /** 1 ページ。 */
 export type PublicPage = {
   caption?: string;
   photos: PublicPhoto[];
+  /** 任意メタ情報。Backend 未拡張のうちは undefined */
+  meta?: PublicPageMeta;
 };
 
 /** Public Viewer の photobook 全体。 */
@@ -124,9 +142,18 @@ type ApiPhoto = {
   variants: ApiVariantSet;
 };
 
+type ApiPageMeta = {
+  event_date?: string;
+  world?: string;
+  cast_list?: string[];
+  photographer?: string;
+  note?: string;
+};
+
 type ApiPage = {
   caption?: string;
   photos: ApiPhoto[];
+  meta?: ApiPageMeta;
 };
 
 type ApiPublicPhotobookPayload = {
@@ -181,7 +208,18 @@ function mapPublicPayload(p: ApiPublicPhotobookPayload): PublicPhotobook {
         caption: photo.caption,
         variants: mapVariantSet(photo.variants),
       })),
+      meta: page.meta ? mapPageMeta(page.meta) : undefined,
     })),
+  };
+}
+
+function mapPageMeta(m: ApiPageMeta): PublicPageMeta {
+  return {
+    eventDate: m.event_date,
+    world: m.world,
+    castList: m.cast_list,
+    photographer: m.photographer,
+    note: m.note,
   };
 }
 
