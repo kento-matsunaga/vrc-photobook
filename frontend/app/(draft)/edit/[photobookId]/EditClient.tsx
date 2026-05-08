@@ -16,6 +16,8 @@ import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { CompleteView } from "@/components/Complete/CompleteView";
 import { CoverPanel } from "@/components/Edit/CoverPanel";
 import { PageBlock } from "@/components/Edit/PageBlock";
+import { PreviewPane } from "@/components/Edit/PreviewPane";
+import { PreviewToggle, type ViewMode } from "@/components/Edit/PreviewToggle";
 import { PublishSettingsPanel } from "@/components/Edit/PublishSettingsPanel";
 import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
@@ -25,8 +27,10 @@ import {
   clearCoverImage,
   fetchEditViewClient,
   isEditApiError,
+  mergePages,
   movePhoto,
   removePhoto,
+  reorderPages,
   setCoverImage,
   splitPage,
   updatePageCaption,
@@ -87,6 +91,8 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   const [conflict, setConflict] = useState<ConflictState>("ok");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  // STOP P-6: edit / preview mode 切替。preview 中は mutation UI を出さない (read-only)。
+  const [mode, setMode] = useState<ViewMode>("edit");
 
   // Upload widget の state
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -216,6 +222,65 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
       }
     },
     [view.photobookId, view.version, handleApiError],
+  );
+
+  // === merge pages (STOP P-6、B 方式) ===
+  // 「上と結合」: source = 当該 page、target = ひとつ上の page。返却 EditView を setView。
+  // confirm UI は PageActionBar 内 (window.confirm)、ここでは API 呼出のみ。
+  // 1 page only / 先頭 page で merge button が出ないため defensive で reject される
+  // ことは想定外 (UI 防御で到達不能)。
+  const onMergeIntoPrev = useCallback(
+    (page: EditPage) => async () => {
+      const idx = view.pages.findIndex((p) => p.pageId === page.pageId);
+      if (idx <= 0) return; // defensive
+      const target = view.pages[idx - 1];
+      try {
+        const next = await mergePages(view.photobookId, page.pageId, target.pageId, view.version);
+        setView(next);
+      } catch (e) {
+        handleApiError(e);
+      }
+    },
+    [view.photobookId, view.version, view.pages, handleApiError],
+  );
+
+  // === reorder pages (STOP P-6、B 方式) ===
+  // 隣接 swap のみ。assignments は全 page を含み、display_order は 0..N-1 の permutation。
+  // adjacent swap のため必ず permutation になる (UI 側で invalid_reorder_assignments を防御)。
+  const swapPagesAndReorder = useCallback(
+    async (page: EditPage, targetIndex: number) => {
+      const fromIdx = view.pages.findIndex((p) => p.pageId === page.pageId);
+      if (fromIdx === -1 || fromIdx === targetIndex) return;
+      if (targetIndex < 0 || targetIndex >= view.pages.length) return;
+      const next = [...view.pages];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(targetIndex, 0, moved);
+      const assignments = next.map((p, i) => ({ pageId: p.pageId, displayOrder: i }));
+      try {
+        const res = await reorderPages(view.photobookId, assignments, view.version);
+        setView(res);
+      } catch (e) {
+        handleApiError(e);
+      }
+    },
+    [view.photobookId, view.version, view.pages, handleApiError],
+  );
+
+  const onPageMoveUp = useCallback(
+    (page: EditPage) => async () => {
+      const idx = view.pages.findIndex((p) => p.pageId === page.pageId);
+      if (idx > 0) await swapPagesAndReorder(page, idx - 1);
+    },
+    [view.pages, swapPagesAndReorder],
+  );
+
+  const onPageMoveDown = useCallback(
+    (page: EditPage) => async () => {
+      const idx = view.pages.findIndex((p) => p.pageId === page.pageId);
+      if (idx >= 0 && idx < view.pages.length - 1)
+        await swapPagesAndReorder(page, idx + 1);
+    },
+    [view.pages, swapPagesAndReorder],
   );
 
   // === reorder ===
@@ -515,6 +580,23 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
     );
   }
 
+  // STOP P-6: preview mode 中は edit UI を全て隠して PreviewPane を render。
+  // ViewerLayout は独自に PublicTopBar / Cover / 各 PageHero / PublicPageFooter を持つので、
+  // 余計な container は付けず、上部に「編集に戻る」toggle のみ overlay で出す。
+  if (mode === "preview") {
+    return (
+      <>
+        <div
+          className="fixed right-3 top-3 z-50"
+          data-testid="preview-toggle-floating"
+        >
+          <PreviewToggle mode={mode} onToggle={() => setMode("edit")} />
+        </div>
+        <PreviewPane view={view} />
+      </>
+    );
+  }
+
   return (
     <>
       {/* m2-design-refresh STOP β-4: PublicTopBar 統合 (`design/source/project/wf-shared.jsx:29-48`)。
@@ -524,9 +606,18 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
         <header className="space-y-2 border-b border-divider-soft pb-4">
           {/* design `wf-screens-b.jsx:99` PC eyebrow「Step 3 / 3」 */}
           <SectionEyebrow>Step 3 / 3</SectionEyebrow>
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-h1 tracking-tight text-ink sm:text-h1-lg">編集ページ</h1>
-            <span className="font-num text-xs text-ink-medium">version {view.version}</span>
+            <div className="flex items-center gap-3">
+              <span className="font-num text-xs text-ink-medium">version {view.version}</span>
+              {/* STOP P-6: edit / preview 切替。preview に入ると floating toggle で
+                  「編集に戻る」が右上に出る (PreviewPane の上に重なる)。 */}
+              <PreviewToggle
+                mode={mode}
+                disabled={isBusy}
+                onToggle={() => setMode("preview")}
+              />
+            </div>
           </div>
         </header>
 
@@ -630,6 +721,9 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
                   splitDisabledReasonOf={splitDisabledReasonOf(page)}
                   onSplit={onSplitPage(page.pageId)}
                   onMovePhoto={onMovePhoto}
+                  onMergeIntoPrev={onMergeIntoPrev(page)}
+                  onPageMoveUp={onPageMoveUp(page)}
+                  onPageMoveDown={onPageMoveDown(page)}
                 />
               ))
             )}
