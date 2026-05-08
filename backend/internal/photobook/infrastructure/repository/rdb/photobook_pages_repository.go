@@ -770,6 +770,32 @@ func (r *PhotobookRepository) UpdatePageOrder(
 	return nil
 }
 
+// DeletePage は draft Photobook の Page を削除する thin primitive (bumpVersion なし、
+// CASCADE で photos / metas も自動削除)。
+//
+// MergePages 等の TX 内多段 mutation で、bumpVersion を呼び出し側で 1 度だけ実施する形に
+// するために用意。photobook_id 整合は WHERE 句で担保 (photobookID 配下でない page を
+// 渡すと 0 行 UPDATE = ErrPageNotFound)。
+//
+// 0 行 → ErrPageNotFound。
+func (r *PhotobookRepository) DeletePage(
+	ctx context.Context,
+	photobookID photobook_id.PhotobookID,
+	id page_id.PageID,
+) error {
+	rows, err := r.q.DeletePhotobookPage(ctx, sqlcgen.DeletePhotobookPageParams{
+		ID:          pgtype.UUID{Bytes: id.UUID(), Valid: true},
+		PhotobookID: pgtype.UUID{Bytes: photobookID.UUID(), Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrPageNotFound
+	}
+	return nil
+}
+
 // UpdatePhotoOrder は単一 photo の display_order を更新する (薄い primitive、page_id 不変、
 // bumpVersion なし)。
 //

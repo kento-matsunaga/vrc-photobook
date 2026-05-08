@@ -108,6 +108,7 @@ func setupAttachRouter(pool *pgxpool.Pool) (http.Handler, *photobookhttp.EditHan
 		nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		uc,
 		nil, nil, nil, // STOP P-2: updatePageCaption / splitPage / movePhoto = nil (未使用)
+		nil, nil, // STOP P-3: mergePages / reorderPages = nil (未使用)
 	)
 	r := chi.NewRouter()
 	r.Post("/api/photobooks/{id}/prepare/attach-images", h.AttachPrepareImages)
@@ -120,6 +121,7 @@ func setupAttachRouterWithNilUsecase() http.Handler {
 		nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, // attachAvailableImages = nil
 		nil, nil, nil, // STOP P-2: updatePageCaption / splitPage / movePhoto = nil
+		nil, nil, // STOP P-3: mergePages / reorderPages = nil
 	)
 	r := chi.NewRouter()
 	r.Post("/api/photobooks/{id}/prepare/attach-images", h.AttachPrepareImages)

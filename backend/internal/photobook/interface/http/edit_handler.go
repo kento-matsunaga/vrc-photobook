@@ -38,6 +38,10 @@ const (
 	bodyConflictPageLimit       = `{"status":"version_conflict","reason":"page_limit_exceeded"}`
 	bodyConflictSplitEmpty      = `{"status":"version_conflict","reason":"split_would_create_empty_page"}`
 	bodyConflictInvalidPosition = `{"status":"bad_request","reason":"invalid_position"}`
+	// STOP P-3: merge / pages reorder の reason 分離 (計画 §3.4.4 / §3.4.5 / §5.5 / §5.13)。
+	bodyConflictMergeIntoSelf            = `{"status":"version_conflict","reason":"merge_into_self"}`
+	bodyConflictCannotRemoveLastPage     = `{"status":"version_conflict","reason":"cannot_remove_last_page"}`
+	bodyBadRequestInvalidReorderAssigns  = `{"status":"bad_request","reason":"invalid_reorder_assignments"}`
 )
 
 // EditHandlers は編集画面の HTTP handler 群。
@@ -59,6 +63,9 @@ type EditHandlers struct {
 	updatePageCaption *usecase.UpdatePageCaption
 	splitPage         *usecase.SplitPage
 	movePhoto         *usecase.MovePhotoBetweenPages
+	// STOP P-3: m2-edit Phase A 補強 2 endpoint (merge / pages reorder)
+	mergePages   *usecase.MergePages
+	reorderPages *usecase.ReorderPages
 }
 
 // NewEditHandlers は EditHandlers を組み立てる。
@@ -76,6 +83,8 @@ func NewEditHandlers(
 	updatePageCaption *usecase.UpdatePageCaption,
 	splitPage *usecase.SplitPage,
 	movePhoto *usecase.MovePhotoBetweenPages,
+	mergePages *usecase.MergePages,
+	reorderPages *usecase.ReorderPages,
 ) *EditHandlers {
 	return &EditHandlers{
 		getEditView: getEditView, updatePhotoCaption: updatePhotoCaption,
@@ -86,6 +95,8 @@ func NewEditHandlers(
 		updatePageCaption:     updatePageCaption,
 		splitPage:             splitPage,
 		movePhoto:             movePhoto,
+		mergePages:            mergePages,
+		reorderPages:          reorderPages,
 	}
 }
 
@@ -687,6 +698,11 @@ func (h *EditHandlers) RemovePhoto(w http.ResponseWriter, r *http.Request) {
 //   - usecase.ErrInvalidMovePosition → 400 + reason `invalid_position` (defensive、handler
 //     入口で先に弾くが UseCase 側でも検査するため漏れた場合の保険)
 //
+// STOP P-3 拡張 (merge / pages reorder、計画 §3.4.4 / §3.4.5 / §5.5 / §5.13):
+//   - usecase.ErrMergeIntoSelf → 409 + reason `merge_into_self`
+//   - usecase.ErrCannotRemoveLastPage → 409 + reason `cannot_remove_last_page`
+//   - usecase.ErrInvalidReorderAssignments → 400 + reason `invalid_reorder_assignments`
+//
 // 外部に詳細を漏らさない方針は維持。reason 追加は authenticated owner edit 経路のみ。
 func writeEditMutationError(w http.ResponseWriter, err error) {
 	switch {
@@ -696,6 +712,12 @@ func writeEditMutationError(w http.ResponseWriter, err error) {
 		writeJSONStatus(w, http.StatusConflict, bodyConflictSplitEmpty)
 	case errors.Is(err, usecase.ErrInvalidMovePosition):
 		writeJSONStatus(w, http.StatusBadRequest, bodyConflictInvalidPosition)
+	case errors.Is(err, usecase.ErrMergeIntoSelf):
+		writeJSONStatus(w, http.StatusConflict, bodyConflictMergeIntoSelf)
+	case errors.Is(err, usecase.ErrCannotRemoveLastPage):
+		writeJSONStatus(w, http.StatusConflict, bodyConflictCannotRemoveLastPage)
+	case errors.Is(err, usecase.ErrInvalidReorderAssignments):
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequestInvalidReorderAssigns)
 	case errors.Is(err, photobookrdb.ErrOptimisticLockConflict),
 		errors.Is(err, photobookrdb.ErrPhotoNotFound),
 		errors.Is(err, photobookrdb.ErrPageNotFound),
@@ -996,4 +1018,137 @@ func (h *EditHandlers) writeEditViewAfterMutation(
 		return
 	}
 	writeJSON(w, http.StatusOK, toEditViewPayload(out.View))
+}
+
+// ============================================================================
+// STOP P-3: m2-edit Phase A 補強 2 endpoint
+// ----------------------------------------------------------------------------
+// 計画: docs/plan/m2-edit-page-split-and-preview-plan.md §3.4.4 / §3.4.5
+// API spec:
+//   - POST  /pages/{pageId}/merge-into/{targetPageId}  (B 方式: 更新後 EditView)
+//   - PATCH /pages/reorder                              (B 方式: 更新後 EditView)
+// ============================================================================
+
+// === POST /api/photobooks/{id}/pages/{pageId}/merge-into/{targetPageId} ===
+
+type mergePagesRequest struct {
+	ExpectedVersion int `json:"expected_version"`
+}
+
+// MergePages は source page (pageId) の全 photo を target page 末尾に追加し、source page を
+// 削除する (B 方式)。source の caption / page_meta は破棄される (UI で警告 modal を出す前提)。
+//
+// edge case:
+//   - source == target → 409 + reason `merge_into_self` (5.5)
+//   - photobook に page 1 件 → 409 + reason `cannot_remove_last_page` (5.13)
+func (h *EditHandlers) MergePages(w http.ResponseWriter, r *http.Request) {
+	commonHeaders(w)
+
+	pid, ok := parsePhotobookID(r)
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	pageUUID, ok := parseUUIDParam(r, "pageId")
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	sourcePageID, err := page_id.FromUUID(pageUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	targetUUID, ok := parseUUIDParam(r, "targetPageId")
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	targetPageID, err := page_id.FromUUID(targetUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	var req mergePagesRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	if err := h.mergePages.Execute(r.Context(), usecase.MergePagesInput{
+		PhotobookID:     pid,
+		SourcePageID:    sourcePageID,
+		TargetPageID:    targetPageID,
+		ExpectedVersion: req.ExpectedVersion,
+		Now:             time.Now().UTC(),
+	}); err != nil {
+		writeEditMutationError(w, err)
+		return
+	}
+	// B 方式: 更新後 EditView を返す
+	h.writeEditViewAfterMutation(w, r, pid)
+}
+
+// === PATCH /api/photobooks/{id}/pages/reorder ===
+
+type reorderPagesAssignment struct {
+	PageID       string `json:"page_id"`
+	DisplayOrder int    `json:"display_order"`
+}
+
+type reorderPagesRequest struct {
+	Assignments     []reorderPagesAssignment `json:"assignments"`
+	ExpectedVersion int                      `json:"expected_version"`
+}
+
+// ReorderPages は photobook 配下の全 page を一括再採番する (B 方式)。
+//
+// assignments は当該 photobook の全 page を含む必要があり、display_order は 0..N-1 の
+// permutation でなければ 400 reason `invalid_reorder_assignments`。
+func (h *EditHandlers) ReorderPages(w http.ResponseWriter, r *http.Request) {
+	commonHeaders(w)
+
+	pid, ok := parsePhotobookID(r)
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	var req reorderPagesRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	if len(req.Assignments) == 0 {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequestInvalidReorderAssigns)
+		return
+	}
+	assigns := make([]usecase.ReorderPagesAssignment, 0, len(req.Assignments))
+	for _, a := range req.Assignments {
+		pgUUID, err := uuid.Parse(a.PageID)
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+			return
+		}
+		pgID, err := page_id.FromUUID(pgUUID)
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+			return
+		}
+		ord, err := display_order.New(a.DisplayOrder)
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+			return
+		}
+		assigns = append(assigns, usecase.ReorderPagesAssignment{PageID: pgID, DisplayOrder: ord})
+	}
+	if err := h.reorderPages.Execute(r.Context(), usecase.ReorderPagesInput{
+		PhotobookID:     pid,
+		Assignments:     assigns,
+		ExpectedVersion: req.ExpectedVersion,
+		Now:             time.Now().UTC(),
+	}); err != nil {
+		writeEditMutationError(w, err)
+		return
+	}
+	// B 方式: 更新後 EditView を返す
+	h.writeEditViewAfterMutation(w, r, pid)
 }

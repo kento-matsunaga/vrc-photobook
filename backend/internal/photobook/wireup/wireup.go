@@ -236,5 +236,8 @@ func BuildEditHandlers(pool *pgxpool.Pool, r2Client r2.Client) *photobookhttp.Ed
 		usecase.NewUpdatePageCaption(pool),
 		usecase.NewSplitPage(pool),
 		usecase.NewMovePhotoBetweenPages(pool),
+		// STOP P-3: m2-edit Phase A 補強 2 endpoint (計画 §3.4.4 / §3.4.5)
+		usecase.NewMergePages(pool),
+		usecase.NewReorderPages(pool),
 	)
 }

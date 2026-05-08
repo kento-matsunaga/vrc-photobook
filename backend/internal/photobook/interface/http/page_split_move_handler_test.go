@@ -62,6 +62,7 @@ func setupPageSplitMoveRouter(pool *pgxpool.Pool, fakeR2 r2.Client) http.Handler
 		usecase.NewUpdatePageCaption(pool),   // STOP P-2
 		usecase.NewSplitPage(pool),           // STOP P-2
 		usecase.NewMovePhotoBetweenPages(pool), // STOP P-2
+		nil, nil, // STOP P-3: mergePages / reorderPages = nil (本 test では未使用)
 	)
 	r := chi.NewRouter()
 	r.Patch("/api/photobooks/{id}/pages/{pageId}/caption", h.UpdatePageCaption)
