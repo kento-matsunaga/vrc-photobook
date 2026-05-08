@@ -189,6 +189,7 @@ func setupEditViewRouter(pool *pgxpool.Pool, fakeR2 r2.Client) http.Handler {
 	uc := usecase.NewGetEditView(pool, fakeR2)
 	h := photobookhttp.NewEditHandlers(
 		uc, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, // STOP P-2: updatePageCaption / splitPage / movePhoto = nil
 	)
 	r := chi.NewRouter()
 	r.Get("/api/photobooks/{id}/edit-view", h.GetEditView)

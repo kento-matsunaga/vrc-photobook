@@ -231,5 +231,10 @@ func BuildEditHandlers(pool *pgxpool.Pool, r2Client r2.Client) *photobookhttp.Ed
 		usecase.NewClearCoverImage(pool),
 		// /prepare/attach-images（plan v2 §3.4 / §5）。bulk attach UseCase。
 		usecase.NewAttachAvailableImages(pool),
+		// STOP P-2: m2-edit Phase A 核 3 endpoint
+		// (計画 docs/plan/m2-edit-page-split-and-preview-plan.md §3.4 / §11)
+		usecase.NewUpdatePageCaption(pool),
+		usecase.NewSplitPage(pool),
+		usecase.NewMovePhotoBetweenPages(pool),
 	)
 }

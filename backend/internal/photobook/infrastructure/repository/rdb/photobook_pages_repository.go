@@ -726,7 +726,7 @@ func (r *PhotobookRepository) UpdatePageCaption(
 // (page reorder / split / merge の escape primitive、bumpVersion なし)。
 //
 // UNIQUE (photobook_id, display_order) との衝突を一時回避するため、UseCase は同 TX 内で
-// 各 page を新しい display_order に書き戻す (UpdatePhotobookPageOrder を順次呼ぶ)。
+// 各 page を新しい display_order に書き戻す (UpdatePageOrder を順次呼ぶ)。
 //
 // 1 page も無い photobook での呼出は no-op (rows=0、エラーにしない)。
 func (r *PhotobookRepository) BulkOffsetPagesInPhotobook(
@@ -738,6 +738,76 @@ func (r *PhotobookRepository) BulkOffsetPagesInPhotobook(
 		PhotobookID: pgtype.UUID{Bytes: photobookID.UUID(), Valid: true},
 		UpdatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
 	})
+	return err
+}
+
+// UpdatePageOrder は単一 page の display_order を更新する (薄い primitive、bumpVersion なし)。
+//
+// BulkOffsetPagesInPhotobook で +1000 escape した直後に、各 page を新しい display_order に
+// 書き戻すために UseCase 層から呼ぶ。UNIQUE (photobook_id, display_order) と衝突する
+// new_order が既に他 page に取られていれば 23505 を返すため、呼び出し側は escape 後の
+// 順序を整合させて呼ぶこと。
+//
+// 0 行 UPDATE は ErrPageNotFound (pageID 不存在 / TX 内 race)。photobook_id 整合は
+// 呼び出し側で担保する (本 method の WHERE は id=$1 のみ)。
+func (r *PhotobookRepository) UpdatePageOrder(
+	ctx context.Context,
+	pageID page_id.PageID,
+	newOrder display_order.DisplayOrder,
+	now time.Time,
+) error {
+	rows, err := r.q.UpdatePhotobookPageOrder(ctx, sqlcgen.UpdatePhotobookPageOrderParams{
+		ID:           pgtype.UUID{Bytes: pageID.UUID(), Valid: true},
+		DisplayOrder: int32(newOrder.Int()),
+		UpdatedAt:    pgtype.Timestamptz{Time: now, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrPageNotFound
+	}
+	return nil
+}
+
+// UpdatePhotoOrder は単一 photo の display_order を更新する (薄い primitive、page_id 不変、
+// bumpVersion なし)。
+//
+// MovePhotoBetweenPages の同 page 内 reorder / cross page 移動の write-back で、page_id を
+// 変えずに display_order だけ更新したいときに使う。BulkOffsetPhotoOrdersOnPage で escape
+// した直後に呼ぶ前提。UNIQUE (page_id, display_order) と衝突する new_order が同 page で
+// 取られていれば 23505。
+//
+// 0 行 → ErrPhotoNotFound。
+func (r *PhotobookRepository) UpdatePhotoOrder(
+	ctx context.Context,
+	photoID photo_id.PhotoID,
+	newOrder display_order.DisplayOrder,
+) error {
+	rows, err := r.q.UpdatePhotobookPhotoOrder(ctx, sqlcgen.UpdatePhotobookPhotoOrderParams{
+		ID:           pgtype.UUID{Bytes: photoID.UUID(), Valid: true},
+		DisplayOrder: int32(newOrder.Int()),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrPhotoNotFound
+	}
+	return nil
+}
+
+// BulkOffsetPhotoOrdersOnPage は同 page 内全 photo の display_order を +1000 する
+// (cross page move / 同 page reorder の escape primitive、bumpVersion なし)。既存 SQL
+// `BulkOffsetPhotoOrdersOnPage` の Repository wrapper。0 photo の page では no-op。
+//
+// UseCase は同 TX で UpdatePhotoOrder / UpdatePhotoPageAndOrder を順次呼んで書き戻す。
+func (r *PhotobookRepository) BulkOffsetPhotoOrdersOnPage(
+	ctx context.Context,
+	pageID page_id.PageID,
+) error {
+	_, err := r.q.BulkOffsetPhotoOrdersOnPage(ctx,
+		pgtype.UUID{Bytes: pageID.UUID(), Valid: true})
 	return err
 }
 

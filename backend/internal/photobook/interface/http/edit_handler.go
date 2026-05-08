@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	imagedomainvo "vrcpb/backend/internal/image/domain/vo/image_id"
+	"vrcpb/backend/internal/photobook/domain"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/domain/vo/caption"
 	"vrcpb/backend/internal/photobook/domain/vo/display_order"
@@ -32,6 +33,11 @@ import (
 
 const (
 	bodyConflict = `{"status":"version_conflict"}`
+	// STOP P-2: 編集 mutation の publish-precondition-ux 流 reason 分離 (authenticated owner
+	// 経路は復旧導線優先)。計画 §3.4 / §11.3 / `.agents/rules/publish-precondition-ux.md`。
+	bodyConflictPageLimit       = `{"status":"version_conflict","reason":"page_limit_exceeded"}`
+	bodyConflictSplitEmpty      = `{"status":"version_conflict","reason":"split_would_create_empty_page"}`
+	bodyConflictInvalidPosition = `{"status":"bad_request","reason":"invalid_position"}`
 )
 
 // EditHandlers は編集画面の HTTP handler 群。
@@ -49,6 +55,10 @@ type EditHandlers struct {
 	// image を 1 TX で bulk attach」する usecase（plan v2 §3.4 / §5）。nil なら handler は
 	// 503 を返す（main.go で wire しない選択肢を残す）。
 	attachAvailableImages *usecase.AttachAvailableImages
+	// STOP P-2: m2-edit Phase A 核 3 endpoint
+	updatePageCaption *usecase.UpdatePageCaption
+	splitPage         *usecase.SplitPage
+	movePhoto         *usecase.MovePhotoBetweenPages
 }
 
 // NewEditHandlers は EditHandlers を組み立てる。
@@ -63,6 +73,9 @@ func NewEditHandlers(
 	setCover *usecase.SetCoverImage,
 	clearCover *usecase.ClearCoverImage,
 	attachAvailableImages *usecase.AttachAvailableImages,
+	updatePageCaption *usecase.UpdatePageCaption,
+	splitPage *usecase.SplitPage,
+	movePhoto *usecase.MovePhotoBetweenPages,
 ) *EditHandlers {
 	return &EditHandlers{
 		getEditView: getEditView, updatePhotoCaption: updatePhotoCaption,
@@ -70,6 +83,9 @@ func NewEditHandlers(
 		addPage: addPage, removePage: removePage, removePhoto: removePhoto,
 		setCoverImage: setCover, clearCoverImage: clearCover,
 		attachAvailableImages: attachAvailableImages,
+		updatePageCaption:     updatePageCaption,
+		splitPage:             splitPage,
+		movePhoto:             movePhoto,
 	}
 }
 
@@ -662,10 +678,24 @@ func (h *EditHandlers) RemovePhoto(w http.ResponseWriter, r *http.Request) {
 
 // writeEditMutationError は UseCase の error を HTTP status に変換する。
 //
-// すべての OCC 違反 / 状態不整合 / Image owner 不一致は **409 version_conflict** に集約。
-// 外部に詳細を漏らさない（業務知識 v4 の情報漏洩抑止方針）。
+// 既存方針:
+//   - OCC 違反 / 状態不整合 / Image owner 不一致 → 409 version_conflict (敵対者観測抑止)
+//
+// STOP P-2 拡張 (publish-precondition-ux ルールを編集 mutation にも展開、計画 §3.4 / §11.3):
+//   - domain.ErrPageLimitExceeded → 409 + reason `page_limit_exceeded`
+//   - usecase.ErrSplitWouldCreateEmptyPage → 409 + reason `split_would_create_empty_page`
+//   - usecase.ErrInvalidMovePosition → 400 + reason `invalid_position` (defensive、handler
+//     入口で先に弾くが UseCase 側でも検査するため漏れた場合の保険)
+//
+// 外部に詳細を漏らさない方針は維持。reason 追加は authenticated owner edit 経路のみ。
 func writeEditMutationError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, domain.ErrPageLimitExceeded):
+		writeJSONStatus(w, http.StatusConflict, bodyConflictPageLimit)
+	case errors.Is(err, usecase.ErrSplitWouldCreateEmptyPage):
+		writeJSONStatus(w, http.StatusConflict, bodyConflictSplitEmpty)
+	case errors.Is(err, usecase.ErrInvalidMovePosition):
+		writeJSONStatus(w, http.StatusBadRequest, bodyConflictInvalidPosition)
 	case errors.Is(err, photobookrdb.ErrOptimisticLockConflict),
 		errors.Is(err, photobookrdb.ErrPhotoNotFound),
 		errors.Is(err, photobookrdb.ErrPageNotFound),
@@ -755,4 +785,215 @@ func (h *EditHandlers) AttachPrepareImages(w http.ResponseWriter, r *http.Reques
 		PageCount:     out.PageCount,
 		SkippedCount:  out.SkippedCount,
 	})
+}
+
+// ============================================================================
+// STOP P-2: m2-edit Phase A 核 3 endpoint
+// ----------------------------------------------------------------------------
+// 計画: docs/plan/m2-edit-page-split-and-preview-plan.md §3.4 / §6
+// API spec:
+//   - PATCH /pages/{pageId}/caption        (A 方式: {"version": N+1})
+//   - POST  /pages/{pageId}/split          (B 方式: 更新後 EditView)
+//   - PATCH /photos/{photoId}/move         (B 方式: 更新後 EditView)
+// ============================================================================
+
+// === PATCH /api/photobooks/{id}/pages/{pageId}/caption ===
+
+type updatePageCaptionRequest struct {
+	Caption         *string `json:"caption"` // null or "" → caption をクリア
+	ExpectedVersion int     `json:"expected_version"`
+}
+
+type updatePageCaptionResponse struct {
+	Version int `json:"version"`
+}
+
+// UpdatePageCaption は page caption 単独編集 (A 方式: version のみ返す)。
+func (h *EditHandlers) UpdatePageCaption(w http.ResponseWriter, r *http.Request) {
+	commonHeaders(w)
+
+	pid, ok := parsePhotobookID(r)
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	pageUUID, ok := parseUUIDParam(r, "pageId")
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	pageID, err := page_id.FromUUID(pageUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	var req updatePageCaptionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	var capVO *caption.Caption
+	if req.Caption != nil && *req.Caption != "" {
+		c, err := caption.New(*req.Caption)
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+			return
+		}
+		capVO = &c
+	}
+	if err := h.updatePageCaption.Execute(r.Context(), usecase.UpdatePageCaptionInput{
+		PhotobookID:     pid,
+		PageID:          pageID,
+		Caption:         capVO,
+		ExpectedVersion: req.ExpectedVersion,
+		Now:             time.Now().UTC(),
+	}); err != nil {
+		writeEditMutationError(w, err)
+		return
+	}
+	// A 方式: 成功時 version+1 を返す (request の expected_version + 1)
+	writeJSON(w, http.StatusOK, updatePageCaptionResponse{Version: req.ExpectedVersion + 1})
+}
+
+// === POST /api/photobooks/{id}/pages/{pageId}/split ===
+
+type splitPageRequest struct {
+	PhotoID         string `json:"photo_id"`
+	ExpectedVersion int    `json:"expected_version"`
+}
+
+// SplitPage は source page の指定 photo の "次から" 末尾までを新 page に分離する (B 方式)。
+//
+// 成功時: 更新後 EditView 全体を返す (handler が改めて GetEditView を呼ぶ)。
+func (h *EditHandlers) SplitPage(w http.ResponseWriter, r *http.Request) {
+	commonHeaders(w)
+
+	pid, ok := parsePhotobookID(r)
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	pageUUID, ok := parseUUIDParam(r, "pageId")
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	sourcePageID, err := page_id.FromUUID(pageUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	var req splitPageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	phUUID, err := uuid.Parse(req.PhotoID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	splitAtPhotoID, err := photo_id.FromUUID(phUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	if _, err := h.splitPage.Execute(r.Context(), usecase.SplitPageInput{
+		PhotobookID:     pid,
+		SourcePageID:    sourcePageID,
+		SplitAtPhotoID:  splitAtPhotoID,
+		ExpectedVersion: req.ExpectedVersion,
+		Now:             time.Now().UTC(),
+	}); err != nil {
+		writeEditMutationError(w, err)
+		return
+	}
+	// B 方式: 更新後 EditView を返す
+	h.writeEditViewAfterMutation(w, r, pid)
+}
+
+// === PATCH /api/photobooks/{id}/photos/{photoId}/move ===
+
+type movePhotoRequest struct {
+	TargetPageID    string `json:"target_page_id"`
+	Position        string `json:"position"` // "start" | "end"
+	ExpectedVersion int    `json:"expected_version"`
+}
+
+// MovePhoto は photo を別 page (or 同 page) の start / end に移動する (B 方式)。
+func (h *EditHandlers) MovePhoto(w http.ResponseWriter, r *http.Request) {
+	commonHeaders(w)
+
+	pid, ok := parsePhotobookID(r)
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	photoUUID, ok := parseUUIDParam(r, "photoId")
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	photoID, err := photo_id.FromUUID(photoUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusNotFound, bodyNotFound)
+		return
+	}
+	var req movePhotoRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	targetUUID, err := uuid.Parse(req.TargetPageID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	targetPageID, err := page_id.FromUUID(targetUUID)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, bodyBadRequest)
+		return
+	}
+	// position は MVP "start" / "end" のみ。それ以外は 400 reason `invalid_position`。
+	var position usecase.MovePosition
+	switch req.Position {
+	case "start":
+		position = usecase.MovePositionStart
+	case "end":
+		position = usecase.MovePositionEnd
+	default:
+		writeJSONStatus(w, http.StatusBadRequest, bodyConflictInvalidPosition)
+		return
+	}
+	if err := h.movePhoto.Execute(r.Context(), usecase.MovePhotoBetweenPagesInput{
+		PhotobookID:     pid,
+		PhotoID:         photoID,
+		TargetPageID:    targetPageID,
+		Position:        position,
+		ExpectedVersion: req.ExpectedVersion,
+		Now:             time.Now().UTC(),
+	}); err != nil {
+		writeEditMutationError(w, err)
+		return
+	}
+	// B 方式: 更新後 EditView を返す
+	h.writeEditViewAfterMutation(w, r, pid)
+}
+
+// writeEditViewAfterMutation は SplitPage / MovePhoto などの B 方式 endpoint で、mutation
+// 成功後に GetEditView を呼んで更新後の EditView を JSON 返却する共通ヘルパー。
+//
+// 後続 GetEditView が失敗した場合 (理論上は発生しないが defensive): 500 を返す。mutation
+// 自体は成功しているため Frontend は別途 reload で取得を試みれば成立する。
+func (h *EditHandlers) writeEditViewAfterMutation(
+	w http.ResponseWriter,
+	r *http.Request,
+	pid photobook_id.PhotobookID,
+) {
+	out, err := h.getEditView.Execute(r.Context(), usecase.GetEditViewInput{PhotobookID: pid})
+	if err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, bodyServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, toEditViewPayload(out.View))
 }

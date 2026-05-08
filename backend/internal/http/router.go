@@ -130,6 +130,11 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 			sub.Patch("/settings", cfg.PhotobookEditHandlers.UpdateSettings)
 			sub.Post("/pages", cfg.PhotobookEditHandlers.AddPage)
 			sub.Delete("/pages/{pageId}", cfg.PhotobookEditHandlers.RemovePage)
+			// STOP P-2: m2-edit Phase A 核 3 endpoint
+			// (計画 docs/plan/m2-edit-page-split-and-preview-plan.md §3.4)
+			sub.Patch("/pages/{pageId}/caption", cfg.PhotobookEditHandlers.UpdatePageCaption)
+			sub.Post("/pages/{pageId}/split", cfg.PhotobookEditHandlers.SplitPage)
+			sub.Patch("/photos/{photoId}/move", cfg.PhotobookEditHandlers.MovePhoto)
 			sub.Patch("/photos/reorder", cfg.PhotobookEditHandlers.BulkReorderPhotos)
 			sub.Patch("/photos/{photoId}/caption", cfg.PhotobookEditHandlers.UpdatePhotoCaption)
 			sub.Delete("/photos/{photoId}", cfg.PhotobookEditHandlers.RemovePhoto)
