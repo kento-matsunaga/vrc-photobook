@@ -20,8 +20,9 @@
 
 import { useState } from "react";
 
-import type { EditPhoto, EditPage } from "@/lib/editPhotobook";
+import type { EditPhoto, EditPage, MovePosition } from "@/lib/editPhotobook";
 import { CaptionEditor } from "./CaptionEditor";
+import { PhotoActionBar } from "./PhotoActionBar";
 import { ReorderControls } from "./ReorderControls";
 
 type Props = {
@@ -37,6 +38,11 @@ type Props = {
   onSetCover: (imageId: string) => Promise<void>;
   onClearCover: () => Promise<void>;
   onRemovePhoto: (photoId: string) => Promise<void>;
+  // m2-edit Phase A (STOP P-5): split / move 配線。未注入 (undefined) なら action bar を出さない。
+  pages?: EditPage[];
+  splitDisabledReasonOf?: (photoId: string, idx: number) => string | undefined;
+  onSplit?: (photoId: string) => Promise<void>;
+  onMovePhoto?: (photoId: string, targetPageId: string, position: MovePosition) => Promise<void>;
 };
 
 export function PhotoGrid({
@@ -51,6 +57,10 @@ export function PhotoGrid({
   onSetCover,
   onClearCover,
   onRemovePhoto,
+  pages,
+  splitDisabledReasonOf,
+  onSplit,
+  onMovePhoto,
 }: Props) {
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -146,6 +156,24 @@ export function PhotoGrid({
                   削除
                 </button>
               </div>
+              {/* m2-edit Phase A (STOP P-5): split / move 配線。caller が pages / handler を
+                  注入した場合にのみ action bar を描画 (既存 caller との互換性維持)。 */}
+              {pages !== undefined && onSplit !== undefined && onMovePhoto !== undefined && (
+                <PhotoActionBar
+                  pages={pages}
+                  currentPageId={page.pageId}
+                  disabled={busy}
+                  splitDisabledReason={
+                    splitDisabledReasonOf
+                      ? splitDisabledReasonOf(photo.photoId, idx)
+                      : undefined
+                  }
+                  onSplit={() => wrap(photo.photoId, () => onSplit(photo.photoId))}
+                  onMove={(targetPageId, position) =>
+                    wrap(photo.photoId, () => onMovePhoto(photo.photoId, targetPageId, position))
+                  }
+                />
+              )}
             </div>
           </li>
         );

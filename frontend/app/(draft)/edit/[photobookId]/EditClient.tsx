@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { CompleteView } from "@/components/Complete/CompleteView";
 import { CoverPanel } from "@/components/Edit/CoverPanel";
-import { PhotoGrid } from "@/components/Edit/PhotoGrid";
+import { PageBlock } from "@/components/Edit/PageBlock";
 import { PublishSettingsPanel } from "@/components/Edit/PublishSettingsPanel";
 import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
@@ -25,14 +25,18 @@ import {
   clearCoverImage,
   fetchEditViewClient,
   isEditApiError,
+  movePhoto,
   removePhoto,
   setCoverImage,
+  splitPage,
+  updatePageCaption,
   updatePhotobookSettings,
   updatePhotoCaption,
   type EditApiError,
   type EditPage,
   type EditSettings,
   type EditView,
+  type MovePosition,
 } from "@/lib/editPhotobook";
 import {
   publishPhotobook,
@@ -160,6 +164,55 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
       } catch (e) {
         handleApiError(e);
         throw e;
+      }
+    },
+    [view.photobookId, view.version, handleApiError],
+  );
+
+  // === page caption (STOP P-5、A 方式) ===
+  // updatePageCaption は {version: N+1} を返す。setView では caption と version を同時に
+  // 反映する (Backend で内部 bumpVersion されているため、view.version は +1 が正しい)。
+  const onPageCaptionSave = useCallback(
+    (pageId: string) => async (caption: string | null) => {
+      try {
+        const res = await updatePageCaption(view.photobookId, pageId, caption, view.version);
+        setView((v) => ({
+          ...v,
+          version: res.version,
+          pages: v.pages.map((p) =>
+            p.pageId === pageId ? { ...p, caption: caption ?? undefined } : p,
+          ),
+        }));
+      } catch (e) {
+        handleApiError(e);
+        throw e;
+      }
+    },
+    [view.photobookId, view.version, handleApiError],
+  );
+
+  // === split page (STOP P-5、B 方式) ===
+  // 成功時は更新後 EditView を setView で丸ごと反映 (presigned URL も再発行されている)。
+  const onSplitPage = useCallback(
+    (pageId: string) => async (splitAtPhotoId: string) => {
+      try {
+        const next = await splitPage(view.photobookId, pageId, splitAtPhotoId, view.version);
+        setView(next);
+      } catch (e) {
+        handleApiError(e);
+      }
+    },
+    [view.photobookId, view.version, handleApiError],
+  );
+
+  // === move photo between pages (STOP P-5、B 方式) ===
+  const onMovePhoto = useCallback(
+    async (photoId: string, targetPageId: string, position: MovePosition) => {
+      try {
+        const next = await movePhoto(view.photobookId, photoId, targetPageId, position, view.version);
+        setView(next);
+      } catch (e) {
+        handleApiError(e);
       }
     },
     [view.photobookId, view.version, handleApiError],
@@ -421,6 +474,23 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
   const isBusy = conflict === "conflict";
   const appBaseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "";
   const totalAvailablePhotos = view.pages.reduce((n, p) => n + p.photos.length, 0);
+  // STOP P-5: split disable 理由判定。
+  // - 30 page 上限到達: 全 photo で split 不可
+  // - page 末尾 photo (sole も含む): 新 page が空になるため split 不可
+  // 計画 §5.1 / §5.4。tooltip 文言は UI で表示するため文字列で返す。
+  const MAX_PAGES = 30;
+  const splitDisabledReasonOf = (page: EditPage) => (
+    _photoId: string,
+    idx: number,
+  ): string | undefined => {
+    if (view.pages.length >= MAX_PAGES) {
+      return "ページ数が上限 (30) に達しています";
+    }
+    if (idx === page.photos.length - 1) {
+      return "末尾の写真ではページを分けられません";
+    }
+    return undefined;
+  };
   const publishDisabledReason =
     totalAvailablePhotos === 0
       ? "公開には最低 1 枚の写真が必要です。"
@@ -541,29 +611,26 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
               </div>
             ) : (
               view.pages.map((page) => (
-                <section
+                <PageBlock
                   key={page.pageId}
-                  className="space-y-3 rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:p-5"
-                >
-                  <h2 className="flex items-center gap-2 text-xs font-bold tracking-[0.04em] text-ink-strong">
-                    <span aria-hidden="true" className="block h-3.5 w-1 rounded-sm bg-teal-500" />
-                    ページ {page.displayOrder + 1}
-                  </h2>
-                  <PhotoGrid
-                    page={page}
-                    expectedVersion={view.version}
-                    isCover={(imageId) => view.coverImageId === imageId}
-                    isBusy={isBusy}
-                    onCaptionSave={onCaptionSave}
-                    onMoveUp={onMoveUp(page)}
-                    onMoveDown={onMoveDown(page)}
-                    onMoveTop={onMoveTop(page)}
-                    onMoveBottom={onMoveBottom(page)}
-                    onSetCover={onSetCover}
-                    onClearCover={onClearCover}
-                    onRemovePhoto={(photoId) => onRemovePhoto(page, photoId)}
-                  />
-                </section>
+                  page={page}
+                  allPages={view.pages}
+                  expectedVersion={view.version}
+                  isBusy={isBusy}
+                  isCover={(imageId) => view.coverImageId === imageId}
+                  onPhotoCaptionSave={onCaptionSave}
+                  onMoveUp={onMoveUp(page)}
+                  onMoveDown={onMoveDown(page)}
+                  onMoveTop={onMoveTop(page)}
+                  onMoveBottom={onMoveBottom(page)}
+                  onSetCover={onSetCover}
+                  onClearCover={onClearCover}
+                  onRemovePhoto={(photoId) => onRemovePhoto(page, photoId)}
+                  onPageCaptionSave={onPageCaptionSave(page.pageId)}
+                  splitDisabledReasonOf={splitDisabledReasonOf(page)}
+                  onSplit={onSplitPage(page.pageId)}
+                  onMovePhoto={onMovePhoto}
+                />
               ))
             )}
 
