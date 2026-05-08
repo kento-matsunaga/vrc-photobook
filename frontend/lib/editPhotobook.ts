@@ -310,6 +310,111 @@ export async function prepareAttachImages(
   };
 }
 
+// ============================================================================
+// STOP P-4: m2-edit Phase A 5 mutation lib (Backend STOP P-1〜P-3 endpoint)
+// ----------------------------------------------------------------------------
+// 設計参照:
+//   - docs/plan/m2-edit-page-split-and-preview-plan.md §3.4 / §6.11 / §7.4
+// API spec:
+//   - PATCH /pages/{pageId}/caption                                A 方式: {"version": N+1}
+//   - POST  /pages/{pageId}/split                                   B 方式: 更新後 EditView
+//   - PATCH /photos/{photoId}/move                                  B 方式: 更新後 EditView
+//   - POST  /pages/{pageId}/merge-into/{targetPageId}              B 方式: 更新後 EditView
+//   - PATCH /pages/reorder                                          B 方式: 更新後 EditView
+// すべて credentials: "include" (Client Component から呼ぶ前提、SSR 用ではない)。
+// ============================================================================
+
+/** PATCH /pages/{pageId}/caption (A 方式)。null/空文字で caption をクリア。
+ *  成功時は `{ version: N+1 }` を返す。EditView 全体は返さない。 */
+export async function updatePageCaption(
+  photobookId: string,
+  pageId: string,
+  caption: string | null,
+  expectedVersion: number,
+): Promise<{ version: number }> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/pages/${encodeURIComponent(pageId)}/caption`;
+  const res = await mutate(url, "PATCH", { caption, expected_version: expectedVersion });
+  const body = (await res.json()) as { version: number };
+  return { version: body.version };
+}
+
+/** POST /pages/{pageId}/split (B 方式)。指定 photo の "次から" 末尾までを新 page に分離。
+ *  成功時は更新後の EditView 全体を返す (handler 側で GetEditView を呼んで返却)。 */
+export async function splitPage(
+  photobookId: string,
+  sourcePageId: string,
+  splitAtPhotoId: string,
+  expectedVersion: number,
+): Promise<EditView> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/pages/${encodeURIComponent(sourcePageId)}/split`;
+  const res = await mutate(url, "POST", {
+    photo_id: splitAtPhotoId,
+    expected_version: expectedVersion,
+  });
+  const body = (await res.json()) as ApiEditViewPayload;
+  return mapEditViewPayload(body);
+}
+
+/** photo の移動先位置 (MVP は start / end のみ、中間挿入は Phase B+)。 */
+export type MovePosition = "start" | "end";
+
+/** PATCH /photos/{photoId}/move (B 方式)。photo を別 page (or 同 page) の start / end に移動。
+ *  same-page の場合は内部 reorder と等価 (Backend 側で分岐)。成功時は EditView を返す。 */
+export async function movePhoto(
+  photobookId: string,
+  photoId: string,
+  targetPageId: string,
+  position: MovePosition,
+  expectedVersion: number,
+): Promise<EditView> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/photos/${encodeURIComponent(photoId)}/move`;
+  const res = await mutate(url, "PATCH", {
+    target_page_id: targetPageId,
+    position,
+    expected_version: expectedVersion,
+  });
+  const body = (await res.json()) as ApiEditViewPayload;
+  return mapEditViewPayload(body);
+}
+
+/** POST /pages/{pageId}/merge-into/{targetPageId} (B 方式)。source page の全 photo を target
+ *  page 末尾に移動し、source page を削除する。source の caption / page_meta は破棄される
+ *  (UI で警告 modal を出す前提)。成功時は EditView を返す。 */
+export async function mergePages(
+  photobookId: string,
+  sourcePageId: string,
+  targetPageId: string,
+  expectedVersion: number,
+): Promise<EditView> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/pages/${encodeURIComponent(sourcePageId)}/merge-into/${encodeURIComponent(targetPageId)}`;
+  const res = await mutate(url, "POST", { expected_version: expectedVersion });
+  const body = (await res.json()) as ApiEditViewPayload;
+  return mapEditViewPayload(body);
+}
+
+/** ReorderPages の 1 page 分の指示。 */
+export type ReorderPagesAssignment = { pageId: string; displayOrder: number };
+
+/** PATCH /pages/reorder (B 方式)。photobook 配下の全 page を一括再採番。assignments は
+ *  全 page を含む必要があり、display_order は 0..N-1 の permutation でなければ 400。
+ *  成功時は EditView を返す。 */
+export async function reorderPages(
+  photobookId: string,
+  assignments: ReorderPagesAssignment[],
+  expectedVersion: number,
+): Promise<EditView> {
+  const url = `${getApiBaseUrl()}/api/photobooks/${encodeURIComponent(photobookId)}/pages/reorder`;
+  const res = await mutate(url, "PATCH", {
+    assignments: assignments.map((a) => ({
+      page_id: a.pageId,
+      display_order: a.displayOrder,
+    })),
+    expected_version: expectedVersion,
+  });
+  const body = (await res.json()) as ApiEditViewPayload;
+  return mapEditViewPayload(body);
+}
+
 // === payload mapping ===
 
 type ApiPresignedURL = { url: string; width: number; height: number; expires_at: string };

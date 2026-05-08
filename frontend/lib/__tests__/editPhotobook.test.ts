@@ -7,9 +7,14 @@ import {
   fetchEditView,
   fetchEditViewClient,
   isEditApiError,
+  mergePages,
+  movePhoto,
   prepareAttachImages,
   removePhoto,
+  reorderPages,
   setCoverImage,
+  splitPage,
+  updatePageCaption,
   updatePhotobookSettings,
   updatePhotoCaption,
 } from "@/lib/editPhotobook";
@@ -344,5 +349,288 @@ describe("mutation API", () => {
     expect(calls[0].init.method).toBe("DELETE");
     const body = JSON.parse(calls[0].init.body);
     expect(body.page_id).toBe("page1");
+  });
+});
+
+// ============================================================================
+// STOP P-4: m2-edit Phase A 5 mutation lib
+// ----------------------------------------------------------------------------
+// docs/plan/m2-edit-page-split-and-preview-plan.md §3.4 / §7.4
+// ============================================================================
+
+// B 方式 endpoint の response として返す EditView 型 fixture (snake_case API payload)。
+// 各 test で fetch mock の response body に使う。
+const editViewFixture = {
+  photobook_id: "00000000-0000-0000-0000-000000000001",
+  status: "draft",
+  version: 8,
+  settings: {
+    type: "memory",
+    title: "Title",
+    layout: "simple",
+    opening_style: "light",
+    visibility: "unlisted",
+  },
+  pages: [
+    {
+      page_id: "page-1",
+      display_order: 0,
+      caption: "p1-cap",
+      photos: [
+        {
+          photo_id: "photo-1",
+          image_id: "image-1",
+          display_order: 0,
+          variants: {
+            display: { url: "https://r.test/d1", width: 1600, height: 1200, expires_at: "2026-05-08T00:15:00Z" },
+            thumbnail: { url: "https://r.test/t1", width: 480, height: 360, expires_at: "2026-05-08T00:15:00Z" },
+          },
+        },
+      ],
+    },
+  ],
+  processing_count: 0,
+  failed_count: 0,
+  images: [],
+};
+
+describe("updatePageCaption (A 方式)", () => {
+  it("正常_PATCH_caption_と_expected_version_を_body_に出し_version_を返す", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => ({ version: 9 }) };
+    }));
+    const r = await updatePageCaption("pb1", "page1", "hello", 8);
+    expect(calls[0].url).toBe("https://api.test/api/photobooks/pb1/pages/page1/caption");
+    expect(calls[0].init.method).toBe("PATCH");
+    expect(calls[0].init.credentials).toBe("include");
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({ caption: "hello", expected_version: 8 });
+    expect(r.version).toBe(9);
+  });
+
+  it("正常_caption_null_でクリア", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => ({ version: 10 }) };
+    }));
+    await updatePageCaption("pb1", "page1", null, 9);
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body.caption).toBe(null);
+  });
+
+  for (const tt of [
+    { status: 400, kind: "bad_request" },
+    { status: 404, kind: "not_found" },
+    { status: 409, kind: "version_conflict" },
+    { status: 500, kind: "server_error" },
+  ] as const) {
+    it(`異常_${tt.status}_kind_${tt.kind}`, async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ status: tt.status, json: async () => ({}) })));
+      try {
+        await updatePageCaption("pb1", "page1", "x", 0);
+      } catch (e) {
+        expect(isEditApiError(e)).toBe(true);
+        if (isEditApiError(e)) expect(e.kind).toBe(tt.kind);
+      }
+    });
+  }
+
+  it("異常_network_失敗で_kind_network", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    try {
+      await updatePageCaption("pb1", "page1", "x", 0);
+    } catch (e) {
+      expect(isEditApiError(e)).toBe(true);
+      if (isEditApiError(e)) expect(e.kind).toBe("network");
+    }
+  });
+});
+
+describe("splitPage (B 方式)", () => {
+  it("正常_POST_photo_id_と_expected_version_を_body_に出し_EditView_を返す", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => editViewFixture };
+    }));
+    const view = await splitPage("pb1", "page1", "ph1", 7);
+    expect(calls[0].url).toBe("https://api.test/api/photobooks/pb1/pages/page1/split");
+    expect(calls[0].init.method).toBe("POST");
+    expect(calls[0].init.credentials).toBe("include");
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({ photo_id: "ph1", expected_version: 7 });
+    // B 方式: EditView shape を返す (camelCase 化済)
+    expect(view.version).toBe(8);
+    expect(view.photobookId).toBe("00000000-0000-0000-0000-000000000001");
+    expect(view.pages[0].photos[0].variants.display.width).toBe(1600);
+    expect(view.pages[0].caption).toBe("p1-cap");
+  });
+
+  for (const tt of [
+    { status: 400, kind: "bad_request" },
+    { status: 404, kind: "not_found" },
+    { status: 409, kind: "version_conflict" },
+    { status: 401, kind: "unauthorized" },
+    { status: 500, kind: "server_error" },
+  ] as const) {
+    it(`異常_${tt.status}_kind_${tt.kind}`, async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ status: tt.status, json: async () => ({}) })));
+      try {
+        await splitPage("pb1", "page1", "ph1", 0);
+      } catch (e) {
+        expect(isEditApiError(e)).toBe(true);
+        if (isEditApiError(e)) expect(e.kind).toBe(tt.kind);
+      }
+    });
+  }
+});
+
+describe("movePhoto (B 方式)", () => {
+  it("正常_PATCH_target_page_id_position_expected_version_を_body_に出し_EditView_を返す", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => editViewFixture };
+    }));
+    const view = await movePhoto("pb1", "ph1", "page2", "end", 6);
+    expect(calls[0].url).toBe("https://api.test/api/photobooks/pb1/photos/ph1/move");
+    expect(calls[0].init.method).toBe("PATCH");
+    expect(calls[0].init.credentials).toBe("include");
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({ target_page_id: "page2", position: "end", expected_version: 6 });
+    expect(view.version).toBe(8);
+  });
+
+  it("正常_position_start_でも同じ_request_shape", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => editViewFixture };
+    }));
+    await movePhoto("pb1", "ph1", "page2", "start", 6);
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body.position).toBe("start");
+  });
+
+  for (const tt of [
+    { status: 400, kind: "bad_request" },
+    { status: 409, kind: "version_conflict" },
+    { status: 404, kind: "not_found" },
+  ] as const) {
+    it(`異常_${tt.status}_kind_${tt.kind}`, async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ status: tt.status, json: async () => ({}) })));
+      try {
+        await movePhoto("pb1", "ph1", "page2", "end", 0);
+      } catch (e) {
+        expect(isEditApiError(e)).toBe(true);
+        if (isEditApiError(e)) expect(e.kind).toBe(tt.kind);
+      }
+    });
+  }
+});
+
+describe("mergePages (B 方式)", () => {
+  it("正常_POST_expected_version_のみを_body_に出し_EditView_を返す", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => editViewFixture };
+    }));
+    const view = await mergePages("pb1", "pageSrc", "pageTgt", 5);
+    expect(calls[0].url).toBe("https://api.test/api/photobooks/pb1/pages/pageSrc/merge-into/pageTgt");
+    expect(calls[0].init.method).toBe("POST");
+    expect(calls[0].init.credentials).toBe("include");
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({ expected_version: 5 });
+    expect(view.pages).toHaveLength(1);
+  });
+
+  for (const tt of [
+    { status: 400, kind: "bad_request" },
+    { status: 409, kind: "version_conflict" },
+    { status: 404, kind: "not_found" },
+  ] as const) {
+    it(`異常_${tt.status}_kind_${tt.kind}`, async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ status: tt.status, json: async () => ({}) })));
+      try {
+        await mergePages("pb1", "pageSrc", "pageTgt", 0);
+      } catch (e) {
+        expect(isEditApiError(e)).toBe(true);
+        if (isEditApiError(e)) expect(e.kind).toBe(tt.kind);
+      }
+    });
+  }
+});
+
+describe("reorderPages (B 方式)", () => {
+  it("正常_PATCH_assignments_を_snake_case_に整形し_EditView_を返す", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return { status: 200, json: async () => editViewFixture };
+    }));
+    const view = await reorderPages(
+      "pb1",
+      [
+        { pageId: "pageC", displayOrder: 0 },
+        { pageId: "pageA", displayOrder: 1 },
+        { pageId: "pageB", displayOrder: 2 },
+      ],
+      4,
+    );
+    expect(calls[0].url).toBe("https://api.test/api/photobooks/pb1/pages/reorder");
+    expect(calls[0].init.method).toBe("PATCH");
+    expect(calls[0].init.credentials).toBe("include");
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({
+      assignments: [
+        { page_id: "pageC", display_order: 0 },
+        { page_id: "pageA", display_order: 1 },
+        { page_id: "pageB", display_order: 2 },
+      ],
+      expected_version: 4,
+    });
+    expect(view.version).toBe(8);
+  });
+
+  for (const tt of [
+    { status: 400, kind: "bad_request" },
+    { status: 409, kind: "version_conflict" },
+    { status: 404, kind: "not_found" },
+  ] as const) {
+    it(`異常_${tt.status}_kind_${tt.kind}`, async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ status: tt.status, json: async () => ({}) })));
+      try {
+        await reorderPages("pb1", [{ pageId: "p", displayOrder: 0 }], 0);
+      } catch (e) {
+        expect(isEditApiError(e)).toBe(true);
+        if (isEditApiError(e)) expect(e.kind).toBe(tt.kind);
+      }
+    });
+  }
+});
+
+describe("error body raw 値非露出 (defensive)", () => {
+  // EditApiError は kind だけを露出する (raw error body の reason / 内部詳細を含まない)。
+  // P-2 / P-3 で Backend は reason 付き body を返すが、Frontend lib では kind に丸める。
+  // reason 別 UI 文言は EditClient 側 (P-5/P-6) で handler 化する想定。
+  it("正常_409_reason_付き_body_でも_kind_だけが_throw_される", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      status: 409,
+      json: async () => ({ status: "version_conflict", reason: "merge_into_self" }),
+    })));
+    try {
+      await mergePages("pb1", "pgA", "pgA", 0);
+    } catch (e) {
+      expect(isEditApiError(e)).toBe(true);
+      if (isEditApiError(e)) {
+        expect(e.kind).toBe("version_conflict");
+        // reason / status などの raw key は含まない (kind のみ)
+        expect(Object.keys(e)).toEqual(["kind"]);
+      }
+    }
   });
 });
