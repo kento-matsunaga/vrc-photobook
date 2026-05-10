@@ -318,7 +318,7 @@ git diff --staged --name-only | xargs -I{} grep -lE \
 ### 7.2 landing image 専用チェック
 
 - `frontend/__tests__/landing-images.test.ts` PASS
-- 合計サイズ ≤ 4 MiB（slot 数を増やす場合は plan で更新後に test 上限も連動更新）
+- **合計サイズ ≤ 4 MiB を維持**（§8.1 Q6 仮決定。slot 数増を伴う変更は本 plan の上書き必須、test 上限も連動更新）
 - 各 file > 1 KB
 - raw `.png` が `frontend/public/img/landing/` に混入していない（test 内 guard）
 - raw filename が React component / 直 commit に出ていない（grep）
@@ -330,7 +330,16 @@ git diff --staged --name-only | xargs -I{} grep -lE \
 npm --prefix frontend run build 2>&1 | grep -E 'First Load JS|^├|^└' | tee /tmp/build-size.txt
 ```
 
-悪化基準（参考）: First Load JS が 10% 以上増加したら原因確認。画像差し替えのみで JS bundle は通常変動しない。
+悪化基準（§8.1 Q6 仮決定）:
+- **First Load JS 増加 ≤ 10%**（画像差し替えのみで JS bundle は通常変動しないため、超過時は原因確認）
+- **landing image 合計 ≤ 4 MiB**（§7.2 の test guard と連動）
+- **Workers `cf:check` Total Upload ≤ 9 MiB target を維持**（直近 deploy 値: 5507.55 KiB / gzip 1303.29 KiB。9 MiB は OpenNext + landing assets + bundle の余裕込み上限の目安）
+
+```bash
+# Workers Total Upload の確認（dry-run）
+npm --prefix frontend run cf:check 2>&1 | grep -iE 'Total Upload|gzip'
+# 期待: Total Upload < 9 MiB
+```
 
 ### 7.4 mobile Safari / desktop Chrome smoke（Unit 3）
 
@@ -355,12 +364,35 @@ npm --prefix frontend run build 2>&1 | grep -E 'First Load JS|^├|^└' | tee /
 - Cloud Run service: 不要（Backend 不変）
 - Cloud Run Jobs image tag 同期: 不要（Backend 不変、Jobs drift 許容方針継続）
 - 対象は **Workers のみ**（`wrangler deploy`）
+- Workers Total Upload が **9 MiB target** 以下であること（§7.3、§8.1 Q6）
 
 ---
 
 ## 8. open questions（user 判断待ち）
 
-実装着手前に user に確定してもらう項目:
+### 8.1 2026-05-10 仮決定（本 plan commit 直後に user 確定）
+
+| # | 項目 | 仮決定 | 上書きタイミング |
+|---|---|---|---|
+| Q1 | LP 既存 7 slot の扱い | **部分差し替え**（効果の高い slot のみ差し替え、全継続 / 全差し替えではない） | Unit 1 着手時 |
+| Q2 | About に画像を入れるか | **画像なし**（slot 8 追加なし、`landing-images.test.ts` の `STABLE_NAMES` / `MAX_TOTAL_BYTES` も不変） | 必要が出れば次 plan サイクル |
+| Q3 | 採用画像 匿名 ID ↔ slot 対応 | **Unit 1 着手時に決定**（user が画像選定 → slot 対応を提示 → MAPPING 差し替え） | Unit 1 着手時 |
+| Q4 | `objectPosition` 希望値 | **Unit 1 で実画像 preview を見て決定**（build-landing-images.sh 実行後の preview を見ながら微調整） | Unit 1 polish loop 内 |
+| Q5 | commit 分割 | **Unit 単位 3 commit**（Unit 1 / Unit 2 / Unit 3 を別 commit、レビュー / rollback 容易） | 確定（変更しない） |
+| Q6 | bundle size 許容基準 | **landing image 合計 ≤ 4 MiB / cf:check Total Upload ≤ 9 MiB target を維持**（First Load JS の悪化基準は §7.3 既存 +10% を継続） | 確定（§7 で検証） |
+
+理由（user 提示）: LP は改善効果が高い一方、About / legal / help に写真を増やすと信頼性が
+落ちやすい。まず LP の画像と crop だけ絞って進めるのが安全。
+
+### 8.2 §8.1 仮決定の確定／変更ルール
+
+- Q5 / Q6 は本 plan で確定（実装中の変更なし）
+- Q1 / Q2 / Q3 / Q4 は Unit 1 着手 STOP で user が確定
+- 変更が必要な場合は Unit 1 着手前に plan を更新（実装中に plan と乖離させない）
+
+### 8.3 reference: 元の open questions（仮決定のもとになった選択肢）
+
+実装着手前に user に確定してもらう項目（§8.1 で仮決定済の選択肢一覧）:
 
 1. **LP の既存 7 slot を継続するか / 差し替えるか**
    - 全継続 / 部分差し替え（slot 単位） / 全差し替え
@@ -382,3 +414,4 @@ npm --prefix frontend run build 2>&1 | grep -E 'First Load JS|^├|^└' | tee /
 | 日付 | 変更 |
 |------|------|
 | 2026-05-10 | 初版作成（plan-only commit、実装未着手）。STOP α として本書を user 承認に提出。Unit 1 / Unit 2 / Unit 3 の 3 本に集約 |
+| 2026-05-10 | §8.1 仮決定テーブル追加（Q1 部分差し替え / Q2 About 画像なし / Q3 slot 対応は Unit 1 着手時 / Q4 objectPosition は preview を見て決定 / Q5 commit 単位 3 本確定 / Q6 image 4 MiB + cf:check 9 MiB target 確定）。§7.2 / §7.3 / §7.5 に cf:check Total Upload 9 MiB target 検証を追加 |
