@@ -153,7 +153,9 @@ const heroBookSpreadTop: LandingImage = {
   alt: HERO_ALT,
   width: 1600,
   height: 900,
-  objectPosition: "center 40%",
+  // Unit 1 polish: 新 hero は人物の顔が垂直 20-40% 付近にあるため "center 30%" で
+  // MockBook spreadTop (col-span-2、横長 cell) の中央バンドに顔を合わせる。
+  objectPosition: "center 30%",
 };
 const heroBookSpreadBottomLeft: LandingImage = {
   slug: "sample-04",

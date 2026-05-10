@@ -63,10 +63,10 @@ fi
 # 4) raw → stable name mapping (β-2c Q-2c-1 確定。raw filename はここに閉じ込める)
 #    形式: "STABLE_NAME=RAW_BASENAME"
 MAPPING=(
-  "hero=VRChat_2026-03-13_14-03-24.992_3840x2160.png"
+  "hero=VRChat_2026-04-29_00-31-03.185_3840x2160.png"
   "mock-cover=82E37915-2A9D-4B69-B890-5427DB9BFC71VRChat_2026-04-06_23-37-30.108_2160x3840.png"
   "sample-01=VRChat_2026-03-22_23-48-33.324_2160x3840.png"
-  "sample-02=VRChat_2026-04-14_15-59-36.459_3840x2160.png"
+  "sample-02=VRChat_2026-04-29_00-28-49.430_3840x2160.png"
   "sample-03=VRChat_2026-03-03_22-55-45.806_2160x3840.png"
   "sample-04=VRChat_2026-03-27_00-07-06.943_2160x3840.png"
   "sample-05=VRChat_2026-03-27_00-02-57.153_2160x3840.png"
