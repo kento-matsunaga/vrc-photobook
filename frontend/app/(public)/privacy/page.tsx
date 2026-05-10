@@ -121,7 +121,7 @@ export default function PrivacyPage() {
 
         <div className="mt-5 space-y-3 sm:space-y-4">
           <PolicyArticle id="privacy-1" number="第 1 条" title="取得する情報">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>
                 作成者がフォトブック作成時に入力する情報（表示名、任意で X ID、タイトル、本文、画像）
               </li>
@@ -137,7 +137,7 @@ export default function PrivacyPage() {
           </PolicyArticle>
 
           <PolicyArticle id="privacy-2" number="第 2 条" title="利用目的">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>サービスの提供・公開・運用（フォトブック作成・公開 / 編集 / 削除）</li>
               <li>通報対応および通報者への必要な連絡</li>
               <li>荒らし・スパム抑止のためのレート制限（IP ハッシュおよび関連 scope ハッシュ）</li>
@@ -147,7 +147,7 @@ export default function PrivacyPage() {
           </PolicyArticle>
 
           <PolicyArticle id="privacy-3" number="第 3 条" title="IP ハッシュ・scope ハッシュの取り扱い">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>生 IP アドレスは保存しません。受信時にバージョン管理されたソルトと SHA-256 でハッシュ化した値（IP ハッシュ）のみを記録します。</li>
               <li>通報・利用制限（レート制限）に用いる scope ハッシュも、IP ハッシュおよび対象 photobook ID の組み合わせを SHA-256 でハッシュ化した値です。</li>
               <li>ソルトはローテーション可能であり、ローテーション時には長期にわたる追跡性を意図的に失います。</li>
@@ -187,7 +187,7 @@ export default function PrivacyPage() {
           </PolicyArticle>
 
           <PolicyArticle id="privacy-6" number="第 6 条" title="保持期間">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>論理削除されたフォトブックおよび画像は、一定の保持期間を経て物理削除されます。</li>
               <li>通報の詳細・連絡先・IP ハッシュは、用途完了後の一定期間内に NULL 化されます。</li>
               <li>管理 URL 控え送信先メールアドレスは、提供時のみ送信処理に必要な短期間（24 時間目安）でのみ保持されます。</li>
@@ -196,7 +196,7 @@ export default function PrivacyPage() {
           </PolicyArticle>
 
           <PolicyArticle id="privacy-7" number="第 7 条" title="削除請求・権利侵害申立て">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>作成者は、自身のフォトブックの管理 URL を用いて、いつでも自分のフォトブックを削除できます。</li>
               <li>
                 被写体・権利者など第三者からの削除申立ては、対象フォトブックページの「このフォトブックを通報」から運営にお送りください。

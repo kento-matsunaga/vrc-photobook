@@ -58,7 +58,8 @@ export function PolicyArticle({
         </span>
         {title}
       </h2>
-      <div className="mt-3 space-y-2 text-sm leading-relaxed text-ink-strong">
+      {/* Unit 2 polish: 法務文言の readability 改善のため leading を 1.75 / paragraph 間 gap を 3 に */}
+      <div className="mt-3.5 space-y-3 text-sm leading-[1.75] text-ink-strong">
         {children}
       </div>
     </section>
@@ -86,10 +87,11 @@ export function PolicyToc({ items, ariaLabel }: TocProps) {
       data-testid="policy-toc"
       className="border-l-2 border-teal-200 py-1 pl-4"
     >
-      <p className="mb-2 text-xs font-bold tracking-[0.04em] text-ink-strong">
+      <p className="mb-2.5 text-xs font-bold tracking-[0.04em] text-ink-strong">
         目次
       </p>
-      <ul className="grid gap-2 text-[12.5px] text-ink-medium sm:grid-cols-2">
+      {/* Unit 2 polish: 文字 size 13px / gap 2.5 で TOC link がぎゅっとせず視線を落としやすくする */}
+      <ul className="grid gap-2.5 text-[13px] text-ink-medium sm:grid-cols-2">
         {items.map((it) => (
           <li key={it.id}>
             <a
@@ -128,7 +130,7 @@ export function PolicyNotice({ children }: NoticeProps) {
       >
         i
       </span>
-      <p className="text-xs leading-[1.6] text-ink-strong">{children}</p>
+      <p className="text-xs leading-[1.7] text-ink-strong">{children}</p>
     </div>
   );
 }

@@ -98,7 +98,7 @@ export default function TermsPage() {
           </PolicyArticle>
 
           <PolicyArticle id="terms-2" number="第 2 条" title="投稿される画像に関する権利と責任">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>
                 作成者は、投稿する画像について必要な権利（著作権、被写体の許諾、ワールド・アバター等の取り扱い等）を有していることを表明するものとします。
               </li>
@@ -110,7 +110,7 @@ export default function TermsPage() {
 
           <PolicyArticle id="terms-3" number="第 3 条" title="禁止事項">
             <p>以下の行為を禁止します。</p>
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>他者のプライバシー侵害、無断転載、誹謗中傷</li>
               <li>性的表現、未成年を連想させる性的表現、暴力表現</li>
               <li>関係者の同意なく特定可能な情報を晒す行為（個人攻撃・晒し・doxxing 含む）</li>
@@ -119,7 +119,7 @@ export default function TermsPage() {
           </PolicyArticle>
 
           <PolicyArticle id="terms-4" number="第 4 条" title="運営の権限と運用">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>
                 通報等を受けた場合、運営は内容を確認し、必要に応じて<strong>一時非表示・削除等の措置</strong>を講じることができます。
               </li>
@@ -131,7 +131,7 @@ export default function TermsPage() {
           </PolicyArticle>
 
           <PolicyArticle id="terms-5" number="第 5 条" title="管理 URL の取り扱い">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>
                 管理 URL は、フォトブックの編集・公開停止・削除を行う唯一のリンクです。管理責任は作成者に帰属します。
               </li>
@@ -159,7 +159,7 @@ export default function TermsPage() {
           </PolicyArticle>
 
           <PolicyArticle id="terms-7" number="第 7 条" title="免責">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>本サービスは現状有姿で提供され、運営は表明・保証を行いません。</li>
               <li>
                 本サービスの利用または利用不能から生じるいかなる損害についても、運営は責任を負いません（適用法令で禁じられない範囲）。
@@ -169,7 +169,7 @@ export default function TermsPage() {
           </PolicyArticle>
 
           <PolicyArticle id="terms-8" number="第 8 条" title="お問い合わせ・準拠法">
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>
                 権利侵害・削除希望・不適切表現の報告は、対象フォトブックページの「このフォトブックを通報」から行ってください。
                 運営は通報を正式な窓口として扱います。

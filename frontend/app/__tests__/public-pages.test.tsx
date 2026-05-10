@@ -179,6 +179,14 @@ describe("TermsPage（/terms）", () => {
     expect(html).toContain("管理 URL");
     expect(html).toContain("一時非表示");
   });
+
+  it("正常_article数は9件で固定_data-testid_policy-article-terms_カウント", () => {
+    // Unit 2 polish: article 数の invariant を data-testid 一致数で固定。
+    // article を増減させる変更は本 test を意図的に更新する必要がある。
+    const html = renderToStaticMarkup(<TermsPage />);
+    const articleMatches = html.match(/data-testid="policy-article-terms-/g) ?? [];
+    expect(articleMatches.length).toBe(9);
+  });
 });
 
 describe("PrivacyPage（/privacy）", () => {
@@ -246,6 +254,14 @@ describe("PrivacyPage（/privacy）", () => {
     expect(html).toContain("位置情報");
     expect(html).toContain("未成年");
     expect(html).toContain("HttpOnly Cookie");
+  });
+
+  it("正常_article数は10件で固定_data-testid_policy-article-privacy_カウント", () => {
+    // Unit 2 polish: article 数の invariant を data-testid 一致数で固定。
+    // article を増減させる変更は本 test を意図的に更新する必要がある。
+    const html = renderToStaticMarkup(<PrivacyPage />);
+    const articleMatches = html.match(/data-testid="policy-article-privacy-/g) ?? [];
+    expect(articleMatches.length).toBe(10);
   });
 });
 

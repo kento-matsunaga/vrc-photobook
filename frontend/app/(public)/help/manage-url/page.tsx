@@ -82,7 +82,8 @@ function HelpQuestion({
         </span>
         {title}
       </h2>
-      <div className="mt-3 space-y-2 text-sm leading-relaxed text-ink-strong">
+      {/* Unit 2 polish: PolicyArticle と同等の readability rhythm に揃える (leading 1.75 / gap 3) */}
+      <div className="mt-3.5 space-y-3 text-sm leading-[1.75] text-ink-strong">
         {children}
       </div>
     </section>
@@ -144,7 +145,7 @@ export default function ManageUrlHelpPage() {
             number="Q4."
             title="管理用 URL のおすすめの保存方法は？"
           >
-            <ul className="list-disc space-y-1 pl-5">
+            <ul className="list-disc space-y-1.5 pl-5 marker:text-teal-600">
               <li>パスワードマネージャ（1Password / Bitwarden / iCloud キーチェーン等）への保存</li>
               <li>Complete 画面の <strong>.txt ファイルとして保存</strong> ボタン</li>
               <li>Complete 画面の <strong>自分宛にメールを書く</strong> ボタンで自分のメール宛に送信</li>

@@ -162,7 +162,7 @@ export default function AboutPage() {
           className="mt-7 rounded-lg border border-divider-soft bg-surface p-5 shadow-sm sm:p-6"
         >
           <SectionTitle id="about-positioning-heading">サービスの位置づけ</SectionTitle>
-          <p className="text-sm leading-relaxed text-ink-strong">
+          <p className="text-sm leading-[1.75] text-ink-strong">
             VRChat で撮影された写真を、ログイン不要・スマホファーストでフォトブックとしてまとめ、X で共有することを主目的としたサービスです。
             管理用 URL 方式で、編集・公開停止・削除をログインなしで実現しています。
           </p>
@@ -215,7 +215,7 @@ export default function AboutPage() {
                   <CircleIcon kind="check" />
                   <div className="flex-1">
                     <p className="text-sm font-bold text-ink">{c.title}</p>
-                    <p className="mt-1 text-xs leading-[1.6] text-ink-medium">
+                    <p className="mt-1 text-xs leading-[1.7] text-ink-medium">
                       {c.body}
                     </p>
                   </div>
@@ -241,7 +241,7 @@ export default function AboutPage() {
                   <CircleIcon kind="cross" />
                   <div className="flex-1">
                     <p className="text-sm font-bold text-ink">{c.title}</p>
-                    <p className="mt-1 text-xs leading-[1.6] text-ink-medium">
+                    <p className="mt-1 text-xs leading-[1.7] text-ink-medium">
                       {c.body}
                     </p>
                   </div>
@@ -278,7 +278,7 @@ export default function AboutPage() {
               保存方法・紛失時) を 1 行 caption で保持 (削減なし) */}
           <p
             data-testid="about-policy-summary"
-            className="mt-3 text-xs leading-[1.6] text-ink-soft"
+            className="mt-3 text-xs leading-[1.7] text-ink-soft"
           >
             利用規約は投稿画像の権利・運営による一時非表示・削除・免責、プライバシーポリシーは取得情報・利用目的・保持期間・外部サービス利用、管理 URL についてには保存方法・紛失時の対応・メール送信機能の状況をそれぞれ記載しています。
           </p>
@@ -286,7 +286,7 @@ export default function AboutPage() {
               production 文言で具体化、削減なし) */}
           <p
             data-testid="about-report-note"
-            className="mt-3 text-xs leading-[1.6] text-ink-medium"
+            className="mt-3 text-xs leading-[1.7] text-ink-medium"
           >
             権利侵害・削除希望・不適切表現の報告は、対象フォトブックページの「このフォトブックを通報」リンクから運営にお送りください。運営は通報を正式な窓口として扱います。
           </p>
