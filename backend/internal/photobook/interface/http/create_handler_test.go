@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -335,6 +336,257 @@ func TestCreatePhotobook_Success_OptionalFields(t *testing.T) {
 			}
 			if resp.PhotobookID == "" || resp.DraftEditToken == "" || resp.DraftEditURLPath == "" {
 				t.Errorf("response missing required fields (photobook_id / draft_edit_token / draft_edit_url_path)")
+			}
+		})
+	}
+}
+
+// TestClassifyUserAgent は UA 文字列を粗い 4 種に分類する helper の挙動を assert する。
+// 個人特定可能な UA 全文を logs に残さないために enum を絞る設計の単体保証。
+func TestClassifyUserAgent(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		ua          string
+		want        string
+	}{
+		{
+			name:        "正常_iPhone_Safari_iOS18.7はios-safari",
+			description: "Given: iPhone OS 18_7 + Safari Version/26.4, When: classify, Then: ios-safari",
+			ua:          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Mobile/15E148 Safari/604.1",
+			want:        "ios-safari",
+		},
+		{
+			name:        "正常_iPhone_Chrome_CriOSはios-chromium",
+			description: "Given: iPhone CriOS/148, When: classify, Then: ios-chromium",
+			ua:          "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/148.0.7778.100 Mobile/15E148 Safari/604.1",
+			want:        "ios-chromium",
+		},
+		{
+			name:        "正常_iPad_Safariはios-safari",
+			description: "Given: iPad Safari, When: classify, Then: ios-safari",
+			ua:          "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+			want:        "ios-safari",
+		},
+		{
+			name:        "正常_macOS_Safariはmacos-safari",
+			description: "Given: Macintosh + Safari/605, no Chrome, When: classify, Then: macos-safari",
+			ua:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+			want:        "macos-safari",
+		},
+		{
+			name:        "正常_macOS_Chromeはother",
+			description: "Given: Macintosh + Chrome/120, When: classify, Then: other (macos-safari ではない)",
+			ua:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			want:        "other",
+		},
+		{
+			name:        "正常_macOS_Edgeはother",
+			description: "Given: Macintosh + Edg/120, When: classify, Then: other",
+			ua:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+			want:        "other",
+		},
+		{
+			name:        "正常_macOS_Firefoxはother",
+			description: "Given: Macintosh + Firefox/, When: classify, Then: other",
+			ua:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
+			want:        "other",
+		},
+		{
+			name:        "正常_Windows_Chromeはother",
+			description: "Given: Windows + Chrome, When: classify, Then: other",
+			ua:          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			want:        "other",
+		},
+		{
+			name:        "正常_Android_Chromeはother",
+			description: "Given: Android + Chrome, When: classify, Then: other",
+			ua:          "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+			want:        "other",
+		},
+		{
+			name:        "正常_空文字はother",
+			description: "Given: \"\" (UA 不在), When: classify, Then: other",
+			ua:          "",
+			want:        "other",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyUserAgent(tt.ua)
+			if got != tt.want {
+				t.Errorf("classifyUserAgent(%q) = %q, want %q\n  description: %s", tt.ua, got, tt.want, tt.description)
+			}
+		})
+	}
+}
+
+// TestCreatePhotobook_TurnstileFailure_LogsObservability は Turnstile siteverify 失敗時に
+// 観測 log（error_codes / hostname / action / ua_class）が JSON で出力され、
+// raw token / Cookie / IP / UA 全文が含まれないことを assert する。
+//
+// 起点: harness/work-logs/2026-05-10_safari-turnstile-403-investigation.md（予定）
+// 目的: iPhone Safari 403 の原因を Cloud Run logs で診断するため、Cloudflare 公開 enum の
+// error_codes を logs に出すように handler を改修した（本 PR）。
+func TestCreatePhotobook_TurnstileFailure_LogsObservability(t *testing.T) {
+	tests := []struct {
+		name              string
+		description       string
+		verifyOut         turnstile.VerifyOutput
+		verifyErr         error
+		ua                string
+		wantStatus        int
+		wantUAClass       string
+		wantErrorCodes    []string
+		wantGotHostname   string
+		wantGotAction     string
+		wantNoLog         bool // ErrUnavailable は log を出さない（503 path）
+	}{
+		{
+			name:        "異常_Safari_timeout-or-duplicateはerror_codes付きでwarn",
+			description: "Given: iPhone Safari + ErrVerificationFailed + error_codes=[timeout-or-duplicate], When: POST, Then: 403 + warn log に error_codes / ua_class=ios-safari",
+			verifyOut: turnstile.VerifyOutput{
+				Success:    false,
+				Hostname:   "app.vrc-photobook.com",
+				Action:     "photobook-create",
+				ErrorCodes: []string{"timeout-or-duplicate"},
+			},
+			verifyErr:       turnstile.ErrVerificationFailed,
+			ua:              "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Mobile/15E148 Safari/604.1",
+			wantStatus:      http.StatusForbidden,
+			wantUAClass:     "ios-safari",
+			wantErrorCodes:  []string{"timeout-or-duplicate"},
+			wantGotHostname: "app.vrc-photobook.com",
+			wantGotAction:   "photobook-create",
+		},
+		{
+			name:        "異常_iOS_Chrome_invalid-input-responseでもwarnが出る",
+			description: "Given: CriOS + ErrVerificationFailed + error_codes=[invalid-input-response], When: POST, Then: 403 + warn log に ua_class=ios-chromium",
+			verifyOut: turnstile.VerifyOutput{
+				Success:    false,
+				Hostname:   "app.vrc-photobook.com",
+				Action:     "photobook-create",
+				ErrorCodes: []string{"invalid-input-response"},
+			},
+			verifyErr:       turnstile.ErrVerificationFailed,
+			ua:              "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/148.0.7778.100 Mobile/15E148 Safari/604.1",
+			wantStatus:      http.StatusForbidden,
+			wantUAClass:     "ios-chromium",
+			wantErrorCodes:  []string{"invalid-input-response"},
+			wantGotHostname: "app.vrc-photobook.com",
+			wantGotAction:   "photobook-create",
+		},
+		{
+			name:        "異常_ErrUnavailableは503でwarnを出さない",
+			description: "Given: ErrUnavailable, When: POST, Then: 503 + warn log なし（503 path は既存仕様維持）",
+			verifyOut:   turnstile.VerifyOutput{},
+			verifyErr:   turnstile.ErrUnavailable,
+			ua:          "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.4 Mobile/15E148 Safari/604.1",
+			wantStatus:  http.StatusServiceUnavailable,
+			wantNoLog:   true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := &fakeVerifier{
+				verifyFn: func(ctx context.Context, in turnstile.VerifyInput) (turnstile.VerifyOutput, error) {
+					return tt.verifyOut, tt.verifyErr
+				},
+			}
+			h := NewCreateHandlers(nil, verifier, "app.vrc-photobook.com", "photobook-create", nil)
+
+			// JSON Logger を inject して log 行を捕捉。
+			var buf bytes.Buffer
+			h.logger = slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+			body, _ := json.Marshal(createRequest{
+				Type:           "memory",
+				TurnstileToken: "synthetic-test-token",
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/photobooks", bytes.NewReader(body))
+			req.Header.Set("User-Agent", tt.ua)
+			req.Header.Set("Cookie", "session=synthetic-cookie-value-DO-NOT-LOG")
+			req.RemoteAddr = "203.0.113.42:54321" // RFC5737 documentation IP
+			rec := httptest.NewRecorder()
+
+			h.CreatePhotobook(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body=%q)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+
+			logOutput := buf.String()
+
+			if tt.wantNoLog {
+				// ErrUnavailable は 503 path で warn を出さない。turnstile_verify_failed イベントが
+				// log に存在しないことを確認。
+				if strings.Contains(logOutput, "turnstile_verify_failed") {
+					t.Errorf("ErrUnavailable で turnstile_verify_failed log が出ている: %s", logOutput)
+				}
+				return
+			}
+
+			// log に turnstile_verify_failed イベントが出ていること
+			if !strings.Contains(logOutput, "turnstile_verify_failed") {
+				t.Fatalf("turnstile_verify_failed log が出ていない: %s", logOutput)
+			}
+
+			// log を JSON parse して各 field を assert
+			var entry map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(logOutput)), &entry); err != nil {
+				t.Fatalf("log JSON parse failed: %v\nraw: %s", err, logOutput)
+			}
+
+			if got, _ := entry["event"].(string); got != "turnstile_verify_failed" {
+				t.Errorf("event = %q, want turnstile_verify_failed", got)
+			}
+			if got, _ := entry["route"].(string); got != "/api/photobooks" {
+				t.Errorf("route = %q, want /api/photobooks", got)
+			}
+			if got, _ := entry["ua_class"].(string); got != tt.wantUAClass {
+				t.Errorf("ua_class = %q, want %q", got, tt.wantUAClass)
+			}
+			if got, _ := entry["got_hostname"].(string); got != tt.wantGotHostname {
+				t.Errorf("got_hostname = %q, want %q", got, tt.wantGotHostname)
+			}
+			if got, _ := entry["got_action"].(string); got != tt.wantGotAction {
+				t.Errorf("got_action = %q, want %q", got, tt.wantGotAction)
+			}
+
+			// error_codes を assert（[]any として deserialize される）
+			if codes, ok := entry["error_codes"].([]any); !ok {
+				t.Errorf("error_codes 不在 or 型不一致: %v", entry["error_codes"])
+			} else {
+				if len(codes) != len(tt.wantErrorCodes) {
+					t.Errorf("error_codes len = %d, want %d", len(codes), len(tt.wantErrorCodes))
+				}
+				for i, c := range codes {
+					if i >= len(tt.wantErrorCodes) {
+						break
+					}
+					if got, _ := c.(string); got != tt.wantErrorCodes[i] {
+						t.Errorf("error_codes[%d] = %q, want %q", i, got, tt.wantErrorCodes[i])
+					}
+				}
+			}
+
+			// 漏洩防止 assert: log に raw token / Cookie / IP / UA 全文が含まれないこと
+			forbidden := []string{
+				"synthetic-test-token",                  // turnstile token raw
+				"synthetic-cookie-value-DO-NOT-LOG",     // Cookie value
+				"203.0.113.42",                          // RemoteAddr IP
+				"54321",                                 // RemoteAddr port
+				"AppleWebKit/605.1.15",                  // UA 全文の特徴的部分
+				"Mobile/15E148",                         // UA 全文の特徴的部分
+				"CriOS/148.0.7778.100",                  // UA 全文の特徴的部分
+				"Version/26.4",                          // UA 全文の特徴的部分
+			}
+			for _, p := range forbidden {
+				if strings.Contains(logOutput, p) {
+					t.Errorf("log に禁止パターン %q が含まれている: log=%s", p, logOutput)
+				}
 			}
 		})
 	}

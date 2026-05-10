@@ -18,6 +18,7 @@ package http
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -55,6 +56,10 @@ type CreateHandlers struct {
 	turnstileHostname string
 	turnstileAction   string
 	clock             Clock
+	// logger は観測用。nil のとき slog.Default() を使う。
+	// raw token / Cookie / IP / 個人特定可能 UA 全文は logs に出さない方針
+	// （security-guard.md / turnstile package コメント）。
+	logger *slog.Logger
 }
 
 // NewCreateHandlers は CreateHandlers を組み立てる。
@@ -147,7 +152,7 @@ func (h *CreateHandlers) CreatePhotobook(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Turnstile siteverify
-	_, err = h.turnstileVerifier.Verify(r.Context(), turnstile.VerifyInput{
+	tsOut, err := h.turnstileVerifier.Verify(r.Context(), turnstile.VerifyInput{
 		Token:    req.TurnstileToken,
 		Action:   h.turnstileAction,
 		Hostname: h.turnstileHostname,
@@ -157,6 +162,18 @@ func (h *CreateHandlers) CreatePhotobook(w http.ResponseWriter, r *http.Request)
 			writeJSONStatus(w, http.StatusServiceUnavailable, bodyTurnstileUnavailable)
 			return
 		}
+		// Safari Turnstile 403 原因特定用の観測 log。Cloudflare 公開 enum の
+		// error_codes / siteverify が返した hostname / action と、UA を粗く分類した
+		// ua_class のみを出力する。raw token / Cookie / IP / UA 全文は出さない。
+		h.log().Warn("turnstile_verify_failed",
+			slog.String("event", "turnstile_verify_failed"),
+			slog.String("route", "/api/photobooks"),
+			slog.String("error", err.Error()),
+			slog.Any("error_codes", tsOut.ErrorCodes),
+			slog.String("got_hostname", tsOut.Hostname),
+			slog.String("got_action", tsOut.Action),
+			slog.String("ua_class", classifyUserAgent(r.UserAgent())),
+		)
 		writeJSONStatus(w, http.StatusForbidden, bodyTurnstileFailed)
 		return
 	}
@@ -191,4 +208,49 @@ func (h *CreateHandlers) CreatePhotobook(w http.ResponseWriter, r *http.Request)
 		DraftEditURLPath: "/draft/" + rawToken,
 		DraftExpiresAt:   expiresAt,
 	})
+}
+
+// log は handler の logger を返す。フィールド未設定時は slog.Default() に fallback。
+// 本 handler では turnstile_verify_failed の観測のみで利用する。
+func (h *CreateHandlers) log() *slog.Logger {
+	if h.logger != nil {
+		return h.logger
+	}
+	return slog.Default()
+}
+
+// classifyUserAgent は UA 文字列を粗い enum 4 種に分類する観測用ヘルパー。
+//
+// 個人特定可能な UA 全文を logs に残さないために、以下の値だけを返す:
+//
+//   - "ios-safari"   : iPhone / iPad / iPod の native Safari (CriOS など他ブラウザを含まない)
+//   - "ios-chromium" : iPhone / iPad / iPod の Chrome (CriOS) — iOS 上の他 Chromium 系もここに分類する
+//   - "macos-safari" : Macintosh 上の Safari (Chrome / Edge / Firefox / Opera を除外)
+//   - "other"        : 上記以外（Windows / Linux / Android / iPad Pro desktop mode 等）
+//
+// Safari Turnstile 403 原因切り分けのため "ios-safari" / "macos-safari" を識別できれば足りる
+// 粒度に絞った。詳細な version / OS / Build 番号は logs に出さない。
+func classifyUserAgent(ua string) string {
+	if ua == "" {
+		return "other"
+	}
+	isIOS := strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") || strings.Contains(ua, "iPod")
+	if isIOS {
+		if strings.Contains(ua, "CriOS") {
+			return "ios-chromium"
+		}
+		return "ios-safari"
+	}
+	if strings.Contains(ua, "Macintosh") {
+		// Macintosh 上で他ブラウザ識別子を含まず、かつ Safari/ を含むケースのみ macos-safari。
+		// macOS Chrome / Edge は "Chrome/" / "Edg/" を含むため除外する。
+		if !strings.Contains(ua, "Chrome/") &&
+			!strings.Contains(ua, "Firefox/") &&
+			!strings.Contains(ua, "Edg/") &&
+			!strings.Contains(ua, "OPR/") &&
+			strings.Contains(ua, "Safari/") {
+			return "macos-safari"
+		}
+	}
+	return "other"
 }
