@@ -20,6 +20,10 @@
 import type { ManagePhotobook } from "@/lib/managePhotobook";
 import { UrlRow } from "@/components/UrlRow";
 import { HiddenByOperatorBanner } from "@/components/Manage/HiddenByOperatorBanner";
+import { ManageEditResumeButton } from "@/components/Manage/ManageEditResumeButton";
+import { ManageSessionRevokeButton } from "@/components/Manage/ManageSessionRevokeButton";
+import { ManageUrlNoticeBanner } from "@/components/Manage/ManageUrlNoticeBanner";
+import { ManageVisibilitySensitiveForm } from "@/components/Manage/ManageVisibilitySensitiveForm";
 
 type Props = {
   photobook: ManagePhotobook;
@@ -72,6 +76,11 @@ export function ManagePanel({ photobook, appBaseUrl }: Props) {
         </div>
       )}
 
+      {/* M-1a: 常設注意喚起バナー（warn ではなく info tone） */}
+      <div className="mt-5">
+        <ManageUrlNoticeBanner />
+      </div>
+
       {/* design `wf-screens-b.jsx:379` PC `wf-grid-2-1`、Mobile は単 col */}
       <div className="mt-7 grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr] lg:items-start lg:gap-5">
         {/* Left col: 公開 URL + 情報 panel */}
@@ -103,10 +112,63 @@ export function ManagePanel({ photobook, appBaseUrl }: Props) {
               )}
             </dl>
           </section>
+
+          {/* M-1a: 公開設定（visibility unlisted/private + sensitive 切替） */}
+          {photobook.status === "published" && (
+            <section className="rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:p-5">
+              <SectionTitle>公開設定</SectionTitle>
+              <ManageVisibilitySensitiveForm
+                photobookId={photobook.photobookId}
+                initialVersion={photobook.version}
+                initialVisibility={
+                  (photobook.visibility === "public" ||
+                  photobook.visibility === "unlisted" ||
+                  photobook.visibility === "private")
+                    ? photobook.visibility
+                    : "unlisted"
+                }
+                initialSensitive={photobook.sensitive}
+              />
+            </section>
+          )}
+
+          {/* M-1a: 編集を再開
+              Backend `GetEditView` は status='draft' 以外を ErrEditNotAllowed で reject する
+              ため、ボタンを押しても /edit で詰まる UX を避ける。draft 状態のときのみボタンを
+              表示し、それ以外は「未対応」案内のみ出す。Backend `IssueDraftSessionFromManage`
+              endpoint / UseCase / `ManageEditResumeButton` component は M-1b の unpublish
+              着地後に活用される plumbing として保持する。 */}
+          <section
+            data-testid="manage-edit-resume-section-wrapper"
+            className="rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:p-5"
+          >
+            <SectionTitle>編集を再開</SectionTitle>
+            {photobook.status === "draft" ? (
+              <>
+                <p className="mb-3 text-xs leading-[1.6] text-ink-medium">
+                  編集画面に戻り、内容を修正します。
+                </p>
+                <ManageEditResumeButton photobookId={photobook.photobookId} />
+              </>
+            ) : (
+              <p
+                data-testid="manage-edit-resume-not-supported"
+                className="text-xs leading-[1.6] text-ink-medium"
+              >
+                公開済みのフォトブックの再編集は MVP 範囲では未対応です。公開停止機能の提供後に利用可能になります。
+              </p>
+            )}
+          </section>
         </div>
 
-        {/* Right col: 管理リンクの再発行 (dashed disabled placeholder) */}
+        {/* Right col: M-1a session revoke + 管理リンクの再発行 placeholder */}
         <div className="space-y-4">
+          {/* M-1a: この端末の管理権限を削除 */}
+          <section className="rounded-lg border border-divider-soft bg-surface p-4 shadow-sm sm:p-5">
+            <SectionTitle>この端末の管理権限</SectionTitle>
+            <ManageSessionRevokeButton photobookId={photobook.photobookId} />
+          </section>
+
           <section className="space-y-3 rounded-lg border-2 border-dashed border-divider-soft bg-surface-soft p-4 sm:p-5">
             <SectionTitle>管理リンクの再発行</SectionTitle>
             <p className="text-xs leading-[1.6] text-ink-medium">

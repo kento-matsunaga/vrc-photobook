@@ -605,6 +605,40 @@ func (q *Queries) TouchDraftPhotobook(ctx context.Context, arg TouchDraftPhotobo
 	return result.RowsAffected(), nil
 }
 
+const updatePhotobookSensitiveFromManage = `-- name: UpdatePhotobookSensitiveFromManage :execrows
+UPDATE photobooks
+   SET sensitive  = $2,
+       updated_at = $3,
+       version    = version + 1
+ WHERE id      = $1
+   AND status  = 'published'
+   AND version = $4
+`
+
+type UpdatePhotobookSensitiveFromManageParams struct {
+	ID        pgtype.UUID
+	Sensitive bool
+	UpdatedAt pgtype.Timestamptz
+	Version   int32
+}
+
+// M-1a: sensitive flag を published photobook に対して更新する。
+//
+// /api/manage/photobooks/{id}/sensitive 経路から呼ぶ。`status='published'` 必須。
+// 0 行影響は ErrOptimisticLockConflict。
+func (q *Queries) UpdatePhotobookSensitiveFromManage(ctx context.Context, arg UpdatePhotobookSensitiveFromManageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePhotobookSensitiveFromManage,
+		arg.ID,
+		arg.Sensitive,
+		arg.UpdatedAt,
+		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updatePhotobookSettings = `-- name: UpdatePhotobookSettings :execrows
 UPDATE photobooks
    SET type           = $2,
@@ -649,6 +683,41 @@ func (q *Queries) UpdatePhotobookSettings(ctx context.Context, arg UpdatePhotobo
 		arg.OpeningStyle,
 		arg.Visibility,
 		arg.CoverTitle,
+		arg.UpdatedAt,
+		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePhotobookVisibilityFromManage = `-- name: UpdatePhotobookVisibilityFromManage :execrows
+UPDATE photobooks
+   SET visibility = $2,
+       updated_at = $3,
+       version    = version + 1
+ WHERE id      = $1
+   AND status  = 'published'
+   AND version = $4
+`
+
+type UpdatePhotobookVisibilityFromManageParams struct {
+	ID         pgtype.UUID
+	Visibility string
+	UpdatedAt  pgtype.Timestamptz
+	Version    int32
+}
+
+// M-1a: visibility を published photobook に対して更新する。
+//
+// /api/manage/photobooks/{id}/visibility 経路から呼ぶ。`status='published'` 必須、
+// `unlisted` / `private` のみ受理（public は handler 側で reject、本 query は受理に来ない）。
+// 0 行影響は ErrOptimisticLockConflict（version 不一致 / status≠published を区別しない）。
+func (q *Queries) UpdatePhotobookVisibilityFromManage(ctx context.Context, arg UpdatePhotobookVisibilityFromManageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePhotobookVisibilityFromManage,
+		arg.ID,
+		arg.Visibility,
 		arg.UpdatedAt,
 		arg.Version,
 	)

@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"vrcpb/backend/internal/auth/session/domain/vo/session_token"
@@ -116,6 +117,15 @@ type ManageSessionRevoker interface {
 		photobookID photobook_id.PhotobookID,
 		oldVersion int,
 	) (int64, error)
+}
+
+// CurrentSessionRevoker は単一 session を session_id 指定で revoke する。
+//
+// M-1a: /api/manage/photobooks/{id}/session-revoke から、middleware が context に
+// セットした現在 Cookie session の id を渡して破棄する。raw token / 元 manage_url_token
+// には影響しない（設計書 §3.3）。
+type CurrentSessionRevoker interface {
+	RevokeOne(ctx context.Context, sessionID uuid.UUID) error
 }
 
 // ManageSessionRevokerFactory は pgx.Tx 起点で ManageSessionRevoker を作るファクトリ。

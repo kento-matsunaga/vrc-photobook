@@ -96,8 +96,8 @@ func main() {
 	var photobookPublishHandlers *photobookhttp.PublishHandlers
 	if pool != nil {
 		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
-		// 管理ページ read endpoint（pool だけで完結）
-		photobookManageHandlers = wireup.BuildManageReadHandlers(pool)
+		// 管理ページ read + M-1a mutation endpoints（pool だけで完結）
+		photobookManageHandlers = wireup.BuildManageReadHandlers(pool, photobookhttp.SystemClock{})
 		// publish endpoint（PublishFromDraft UseCase の HTTP 化）
 		// PR36: usage + ipHashSalt（REPORT_IP_HASH_SALT_V1 流用）で 1 時間 5 冊制限
 		photobookPublishHandlers = wireup.BuildPublishHandlers(pool, usageCheck, cfg.ReportIPHashSaltV1)

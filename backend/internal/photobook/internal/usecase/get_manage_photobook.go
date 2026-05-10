@@ -52,6 +52,7 @@ type ManagePhotobookView struct {
 	Title                 string
 	Status                string // draft / published / deleted
 	Visibility            string
+	Sensitive             bool
 	HiddenByOperator      bool
 	PublicURLSlug         *string // null if not yet published
 	PublicURLPath         *string // "/p/{slug}" 形式、未発行は null
@@ -60,6 +61,9 @@ type ManagePhotobookView struct {
 	DraftExpiresAt        *time.Time
 	ManageURLTokenVersion int
 	AvailableImageCount   int
+	// Version は photobook 本体の楽観ロック用 version。M-1a で /manage 経路の
+	// PATCH /visibility / /sensitive で OCC のため expected_version として使う。
+	Version int
 }
 
 // GetManagePhotobookOutput は UseCase の出力。
@@ -123,6 +127,7 @@ func (u *GetManagePhotobook) Execute(
 		Title:                 pb.Title(),
 		Status:                pb.Status().String(),
 		Visibility:            pb.Visibility().String(),
+		Sensitive:             pb.Sensitive(),
 		HiddenByOperator:      pb.HiddenByOperator(),
 		PublicURLSlug:         publicSlug,
 		PublicURLPath:         publicPath,
@@ -131,6 +136,7 @@ func (u *GetManagePhotobook) Execute(
 		DraftExpiresAt:        pb.DraftExpiresAt(),
 		ManageURLTokenVersion: pb.ManageUrlTokenVersion().Int(),
 		AvailableImageCount:   availableCount,
+		Version:               pb.Version(),
 	}
 	return GetManagePhotobookOutput{View: view}, nil
 }

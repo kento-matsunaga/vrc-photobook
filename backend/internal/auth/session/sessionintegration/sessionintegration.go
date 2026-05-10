@@ -139,3 +139,22 @@ func RevokeAllManageByTokenVersionWithTx(
 	uc := authuc.NewRevokeAllManageByTokenVersion(repo)
 	return uc.Execute(ctx, pid, oldVersion)
 }
+
+// RevokeOneSession は session_id 一致の単一 session を revoke する（pool 起点、TX 不要）。
+//
+// M-1a: /api/manage/photobooks/{id}/session-revoke から、現在の Cookie session を
+// 明示破棄する用途で呼ぶ。元の draft_edit_token / manage_url_token は失効させない
+// （別端末からの再入場を妨げない、設計書 §3.3）。
+func RevokeOneSession(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	sessionID uuid.UUID,
+) error {
+	sid, err := session_id.FromUUID(sessionID)
+	if err != nil {
+		return err
+	}
+	repo := authsessrepo.NewSessionRepository(pool)
+	uc := authuc.NewRevokeSession(repo)
+	return uc.Execute(ctx, sid)
+}

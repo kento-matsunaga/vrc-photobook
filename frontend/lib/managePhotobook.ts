@@ -30,6 +30,7 @@ export type ManagePhotobook = {
   title: string;
   status: string;
   visibility: string;
+  sensitive: boolean;
   hiddenByOperator: boolean;
   publicUrlSlug?: string;
   publicUrlPath?: string;
@@ -38,6 +39,8 @@ export type ManagePhotobook = {
   draftExpiresAt?: string;
   manageUrlTokenVersion: number;
   availableImageCount: number;
+  /** photobook 本体の楽観ロック用 version。M-1a で PATCH の expected_version に使う。 */
+  version: number;
 };
 
 /**
@@ -88,6 +91,7 @@ type ApiManagePayload = {
   title: string;
   status: string;
   visibility: string;
+  sensitive: boolean;
   hidden_by_operator: boolean;
   public_url_slug?: string;
   public_url_path?: string;
@@ -96,6 +100,7 @@ type ApiManagePayload = {
   draft_expires_at?: string;
   manage_url_token_version: number;
   available_image_count: number;
+  version: number;
 };
 
 function mapManagePayload(p: ApiManagePayload): ManagePhotobook {
@@ -105,6 +110,7 @@ function mapManagePayload(p: ApiManagePayload): ManagePhotobook {
     title: p.title,
     status: p.status,
     visibility: p.visibility,
+    sensitive: p.sensitive ?? false,
     hiddenByOperator: p.hidden_by_operator,
     publicUrlSlug: p.public_url_slug,
     publicUrlPath: p.public_url_path,
@@ -113,10 +119,193 @@ function mapManagePayload(p: ApiManagePayload): ManagePhotobook {
     draftExpiresAt: p.draft_expires_at,
     manageUrlTokenVersion: p.manage_url_token_version,
     availableImageCount: p.available_image_count,
+    version: p.version ?? 0,
   };
 }
 
 /** Manage 経路エラー判定 type guard。 */
 export function isManageLookupError(e: unknown): e is ManageLookupError {
   return typeof e === "object" && e !== null && "kind" in e;
+}
+
+// =============================================================================
+// M-1a: Manage safety baseline mutation API
+// -----------------------------------------------------------------------------
+// 設計参照: docs/plan/m-1-manage-mvp-safety-plan.md §3
+//
+// 種別:
+//   - 直接 Backend を叩く (credentials: "include" cross-origin):
+//       updateVisibilityFromManage / updateSensitiveFromManage
+//   - Workers Route Handler 経由（app domain Cookie 操作が必要）:
+//       issueDraftSessionFromManage  → /manage/<id>/issue-draft (新 Route Handler)
+//       revokeManageSession          → /manage/<id>/revoke-session (新 Route Handler)
+//
+// セキュリティ:
+//   - raw session_token / Cookie は Route Handler 内で消費し、Frontend lib では受け取らない
+//   - 失敗詳細は kind だけを返す（既存 ManageLookupError と同パターン）
+// =============================================================================
+
+/** Manage mutation API のエラー種別。 */
+export type ManageMutationError =
+  | { kind: "unauthorized" }
+  | { kind: "not_found" }
+  | { kind: "version_conflict" }
+  | { kind: "public_change_not_allowed" }
+  | { kind: "not_draft" }
+  | { kind: "invalid_payload" }
+  | { kind: "server_error" }
+  | { kind: "network" };
+
+export function isManageMutationError(e: unknown): e is ManageMutationError {
+  return typeof e === "object" && e !== null && "kind" in e;
+}
+
+type Body409 = { status?: string; reason?: string };
+
+function map409Reason(body: Body409): ManageMutationError {
+  if (body.status === "manage_precondition_failed") {
+    if (body.reason === "public_change_not_allowed") return { kind: "public_change_not_allowed" };
+    if (body.reason === "not_draft") return { kind: "not_draft" };
+  }
+  return { kind: "version_conflict" };
+}
+
+async function manageMutate(
+  url: string,
+  method: "PATCH" | "POST" | "DELETE",
+  body?: unknown,
+): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw { kind: "network" } satisfies ManageMutationError;
+  }
+  if (res.status >= 200 && res.status < 300) {
+    return res;
+  }
+  if (res.status === 401) {
+    throw { kind: "unauthorized" } satisfies ManageMutationError;
+  }
+  if (res.status === 404) {
+    throw { kind: "not_found" } satisfies ManageMutationError;
+  }
+  if (res.status === 400) {
+    throw { kind: "invalid_payload" } satisfies ManageMutationError;
+  }
+  if (res.status === 409) {
+    let parsed: Body409 = {};
+    try {
+      parsed = (await res.json()) as Body409;
+    } catch {
+      // ignore body parse error; fallback to version_conflict
+    }
+    throw map409Reason(parsed);
+  }
+  throw { kind: "server_error" } satisfies ManageMutationError;
+}
+
+/** PATCH /api/manage/photobooks/{id}/visibility (unlisted/private のみ受理)。 */
+export async function updateVisibilityFromManage(
+  photobookId: string,
+  visibility: "unlisted" | "private",
+  expectedVersion: number,
+): Promise<{ version: number }> {
+  const url = `${getApiBaseUrl()}/api/manage/photobooks/${encodeURIComponent(photobookId)}/visibility`;
+  const res = await manageMutate(url, "PATCH", {
+    visibility,
+    expected_version: expectedVersion,
+  });
+  const body = (await res.json()) as { version: number };
+  return { version: body.version };
+}
+
+/** PATCH /api/manage/photobooks/{id}/sensitive。 */
+export async function updateSensitiveFromManage(
+  photobookId: string,
+  sensitive: boolean,
+  expectedVersion: number,
+): Promise<{ version: number }> {
+  const url = `${getApiBaseUrl()}/api/manage/photobooks/${encodeURIComponent(photobookId)}/sensitive`;
+  const res = await manageMutate(url, "PATCH", {
+    sensitive,
+    expected_version: expectedVersion,
+  });
+  const body = (await res.json()) as { version: number };
+  return { version: body.version };
+}
+
+/**
+ * 編集を再開: manage session から draft session を発行して /edit/<id> に遷移する。
+ *
+ * Workers Route Handler `/manage/<id>/issue-draft` (POST) を叩く。Route Handler が
+ * Backend `/api/manage/photobooks/<id>/draft-session` を proxy で呼び、raw token を
+ * 受け取って app-domain HttpOnly Cookie に書き込み、`{ edit_url }` を JSON で返す。
+ *
+ * 失敗 (not_draft / unauthorized / network) は ManageMutationError で throw。
+ */
+export async function issueDraftSessionFromManage(
+  photobookId: string,
+): Promise<{ editUrl: string }> {
+  const url = `/manage/${encodeURIComponent(photobookId)}/issue-draft`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {
+    throw { kind: "network" } satisfies ManageMutationError;
+  }
+  if (res.status >= 200 && res.status < 300) {
+    const body = (await res.json()) as { edit_url: string };
+    return { editUrl: body.edit_url };
+  }
+  if (res.status === 401) throw { kind: "unauthorized" } satisfies ManageMutationError;
+  if (res.status === 404) throw { kind: "not_found" } satisfies ManageMutationError;
+  if (res.status === 409) {
+    let parsed: Body409 = {};
+    try {
+      parsed = (await res.json()) as Body409;
+    } catch {
+      // ignore
+    }
+    throw map409Reason(parsed);
+  }
+  throw { kind: "server_error" } satisfies ManageMutationError;
+}
+
+/**
+ * この端末の管理権限を削除: manage session を revoke して app-domain Cookie をクリア。
+ *
+ * Workers Route Handler `/manage/<id>/revoke-session` (POST) を叩く。Route Handler が
+ * Backend `/api/manage/photobooks/<id>/session-revoke` を proxy で呼び、成功時に
+ * app-domain manage Cookie を Max-Age=-1 でクリアする。
+ *
+ * raw token は受け取らない / 表示しない。
+ */
+export async function revokeManageSession(photobookId: string): Promise<void> {
+  const url = `/manage/${encodeURIComponent(photobookId)}/revoke-session`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {
+    throw { kind: "network" } satisfies ManageMutationError;
+  }
+  if (res.status >= 200 && res.status < 300) {
+    return;
+  }
+  if (res.status === 401) throw { kind: "unauthorized" } satisfies ManageMutationError;
+  if (res.status === 404) throw { kind: "not_found" } satisfies ManageMutationError;
+  throw { kind: "server_error" } satisfies ManageMutationError;
 }

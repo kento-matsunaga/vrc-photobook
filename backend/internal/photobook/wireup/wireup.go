@@ -61,15 +61,28 @@ func BuildPublicHandlers(pool *pgxpool.Pool, r2Client r2.Client) *photobookhttp.
 	return photobookhttp.NewPublicHandlers(uc)
 }
 
-// BuildManageReadHandlers は管理ページ用の HTTP Handlers を組み立てる（PR25a）。
+// BuildManageReadHandlers は管理ページ用の HTTP Handlers を組み立てる（PR25a + M-1a 拡張）。
 //
-// pool が nil の場合は nil を返す。
-func BuildManageReadHandlers(pool *pgxpool.Pool) *photobookhttp.ManageHandlers {
+// M-1a 拡張で、read 系 (GetManagePhotobook) に加え以下の mutation を組み込む:
+//   - UpdatePhotobookVisibilityFromManage  (PATCH /visibility)
+//   - UpdatePhotobookSensitiveFromManage   (PATCH /sensitive)
+//   - IssueDraftSessionFromManage          (POST /draft-session)
+//   - RevokeCurrentManageSession           (POST /session-revoke)
+//
+// pool が nil の場合は nil を返す（main.go は本 Handlers が nil なら manage 経路を
+// router に登録しない）。clock は nil で SystemClock が使われる。
+func BuildManageReadHandlers(pool *pgxpool.Pool, clock photobookhttp.Clock) *photobookhttp.ManageHandlers {
 	if pool == nil {
 		return nil
 	}
-	uc := usecase.NewGetManagePhotobook(pool)
-	return photobookhttp.NewManageHandlers(uc)
+	get := usecase.NewGetManagePhotobook(pool)
+	updVis := usecase.NewUpdatePhotobookVisibilityFromManage(pool)
+	updSens := usecase.NewUpdatePhotobookSensitiveFromManage(pool)
+	draftIssuer := session_adapter.NewDraftIssuer(pool)
+	issueDraft := usecase.NewIssueDraftSessionFromManage(pool, draftIssuer)
+	currentRev := session_adapter.NewCurrentRevoker(pool)
+	revokeCurr := usecase.NewRevokeCurrentManageSession(currentRev)
+	return photobookhttp.NewManageHandlers(get, updVis, updSens, issueDraft, revokeCurr, clock)
 }
 
 // BuildPublishHandlers は publish 用 HTTP Handlers を組み立てる（PR28）。

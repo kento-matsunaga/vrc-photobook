@@ -115,10 +115,16 @@ func NewRouter(cfg RouterConfig) *chi.Mux {
 	}
 
 	// 管理ページ read endpoint。manage session middleware を chain。
+	// M-1a: visibility / sensitive / draft-session / session-revoke を追加。
 	if cfg.PhotobookManageHandlers != nil && cfg.ManageSessionValidator != nil {
 		r.Route("/api/manage/photobooks/{id}", func(sub chi.Router) {
 			sub.Use(authmiddleware.RequireManageSession(cfg.ManageSessionValidator, photobookIDFromURL))
 			sub.Get("/", cfg.PhotobookManageHandlers.GetManagePhotobook)
+			// M-1a mutation endpoints
+			sub.Patch("/visibility", cfg.PhotobookManageHandlers.UpdateVisibility)
+			sub.Patch("/sensitive", cfg.PhotobookManageHandlers.UpdateSensitive)
+			sub.Post("/draft-session", cfg.PhotobookManageHandlers.IssueDraftSession)
+			sub.Post("/session-revoke", cfg.PhotobookManageHandlers.RevokeCurrentSession)
 		})
 	}
 

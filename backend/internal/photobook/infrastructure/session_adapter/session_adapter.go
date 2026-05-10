@@ -18,6 +18,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -138,4 +139,27 @@ func NewManageRevokerFactory() usecase.ManageSessionRevokerFactory {
 	return func(tx pgx.Tx) usecase.ManageSessionRevoker {
 		return &txManageRevoker{tx: tx}
 	}
+}
+
+// === Single revoke (TX 不要) ===
+
+// CurrentRevoker は usecase.CurrentSessionRevoker を実装する。
+//
+// M-1a: /api/manage/photobooks/{id}/session-revoke から、現在 Cookie session を
+// 1 件 revoke するために使う。pool 起点で TX を張らず単一 SQL UPDATE する。
+type CurrentRevoker struct {
+	pool *pgxpool.Pool
+}
+
+// NewCurrentRevoker は CurrentRevoker を作る。
+func NewCurrentRevoker(pool *pgxpool.Pool) *CurrentRevoker {
+	return &CurrentRevoker{pool: pool}
+}
+
+// 静的型チェック: ports.CurrentSessionRevoker を満たすことを compile-time で保証。
+var _ usecase.CurrentSessionRevoker = (*CurrentRevoker)(nil)
+
+// RevokeOne は session_id 一致の単一 session を revoke する。
+func (a *CurrentRevoker) RevokeOne(ctx context.Context, sessionID uuid.UUID) error {
+	return sessionintegration.RevokeOneSession(ctx, a.pool, sessionID)
 }

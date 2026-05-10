@@ -17,11 +17,13 @@ const baseManagePhotobook: ManagePhotobook = {
   title: "Test Photobook",
   status: "published",
   visibility: "unlisted",
+  sensitive: false,
   hiddenByOperator: false,
   publicUrlSlug: "ok12pp34zz56gh78",
   publicUrlPath: "/p/ok12pp34zz56gh78",
   manageUrlTokenVersion: 1,
   availableImageCount: 5,
+  version: 1,
 };
 
 describe("HiddenByOperatorBanner", () => {

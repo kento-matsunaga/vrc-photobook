@@ -340,3 +340,61 @@ func (r *PhotobookRepository) ListHiddenForOps(ctx context.Context, limit, offse
 	}
 	return out, nil
 }
+
+// =============================================================================
+// M-1a: Manage safety baseline 用 Repository methods（published photobook の
+// visibility / sensitive flag を /api/manage 経路から更新する。OCC + status='published'
+// 制約は SQL の WHERE で守られる。0 行影響は ErrOptimisticLockConflict に変換）。
+// =============================================================================
+
+// UpdateVisibilityFromManage は published photobook の visibility 列を更新する。
+//
+// `unlisted` / `private` のみ受理する想定（`public` は handler 側で reject、本 method には
+// 到達しない）。WHERE status='published' で draft / deleted を除外し、0 行影響は
+// ErrOptimisticLockConflict（version 不一致 / status≠published を区別しない、敵対者観測抑止）。
+func (r *PhotobookRepository) UpdateVisibilityFromManage(
+	ctx context.Context,
+	id photobook_id.PhotobookID,
+	visibilityValue string,
+	expectedVersion int,
+	now time.Time,
+) error {
+	rows, err := r.q.UpdatePhotobookVisibilityFromManage(ctx, sqlcgen.UpdatePhotobookVisibilityFromManageParams{
+		ID:         pgtype.UUID{Bytes: id.UUID(), Valid: true},
+		Visibility: visibilityValue,
+		UpdatedAt:  pgtype.Timestamptz{Time: now, Valid: true},
+		Version:    int32(expectedVersion),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrOptimisticLockConflict
+	}
+	return nil
+}
+
+// UpdateSensitiveFromManage は published photobook の sensitive flag を更新する。
+//
+// WHERE status='published' で draft / deleted を除外し、0 行影響は ErrOptimisticLockConflict。
+func (r *PhotobookRepository) UpdateSensitiveFromManage(
+	ctx context.Context,
+	id photobook_id.PhotobookID,
+	sensitive bool,
+	expectedVersion int,
+	now time.Time,
+) error {
+	rows, err := r.q.UpdatePhotobookSensitiveFromManage(ctx, sqlcgen.UpdatePhotobookSensitiveFromManageParams{
+		ID:        pgtype.UUID{Bytes: id.UUID(), Valid: true},
+		Sensitive: sensitive,
+		UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
+		Version:   int32(expectedVersion),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrOptimisticLockConflict
+	}
+	return nil
+}

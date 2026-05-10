@@ -28,7 +28,10 @@ import (
 func setupManageRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 	t.Helper()
 	uc := usecase.NewGetManagePhotobook(pool)
-	h := photobookhttp.NewManageHandlers(uc)
+	// M-1a: 既存 GetManagePhotobook 単体テスト用 setup。M-1a 追加 mutation はここでは
+	// nil で渡す（GetManagePhotobook テストでは実行されない）。M-1a の mutation テストは
+	// manage_actions_handler_test.go で個別 setup する。
+	h := photobookhttp.NewManageHandlers(uc, nil, nil, nil, nil, nil)
 	r := chi.NewRouter()
 	r.Get("/api/manage/photobooks/{id}", h.GetManagePhotobook)
 	return r

@@ -218,3 +218,30 @@ SELECT
     updated_at
 FROM photobooks
 WHERE id = $1;
+
+-- M-1a: visibility を published photobook に対して更新する。
+--
+-- /api/manage/photobooks/{id}/visibility 経路から呼ぶ。`status='published'` 必須、
+-- `unlisted` / `private` のみ受理（public は handler 側で reject、本 query は受理に来ない）。
+-- 0 行影響は ErrOptimisticLockConflict（version 不一致 / status≠published を区別しない）。
+-- name: UpdatePhotobookVisibilityFromManage :execrows
+UPDATE photobooks
+   SET visibility = $2,
+       updated_at = $3,
+       version    = version + 1
+ WHERE id      = $1
+   AND status  = 'published'
+   AND version = $4;
+
+-- M-1a: sensitive flag を published photobook に対して更新する。
+--
+-- /api/manage/photobooks/{id}/sensitive 経路から呼ぶ。`status='published'` 必須。
+-- 0 行影響は ErrOptimisticLockConflict。
+-- name: UpdatePhotobookSensitiveFromManage :execrows
+UPDATE photobooks
+   SET sensitive  = $2,
+       updated_at = $3,
+       version    = version + 1
+ WHERE id      = $1
+   AND status  = 'published'
+   AND version = $4;
