@@ -1,9 +1,11 @@
-# /edit Phase A + brand icon/themeColor 本番反映 準備ログ（deploy 前停止）
+# /edit Phase A + brand icon/themeColor 本番反映 準備ログ（actual state 訂正済）
 
-> 状態: **deploy 承認前停止**。本ログは work-log 作成 + γ verification + deploy / rollback / smoke
-> 計画固定までを記録する。実 Backend / Workers deploy は未実施。
+> 状態: **クローズ済み（2026-05-10 cycle 完了）**。本ログ作成時の前提（「Backend / Workers
+> ともに Phase A 未 deploy」）は実態調査で誤りと判明、deploy 戦略を **Workers-only deploy
+> に変更**して実施完了。詳細は §11 actual state を参照。
 >
-> 次サイクルで本ログを根拠に deploy 実行（各 STOP で停止 → user 承認 → 進行）。
+> 本書 §1〜§9 は **作成時の plan / verification 記録**として歴史的にそのまま残す。
+> §11（実態訂正） / §10 履歴 が現状の正典。
 
 ## 0. 関連参照
 
@@ -371,3 +373,73 @@ deploy 完了後に別 PR で扱う想定。本 PR の deploy 範囲には含め
 | 日付 | 変更 |
 |------|------|
 | 2026-05-10 | 初版作成。Phase A 6 commit + icon 1 commit を本番反映する deploy plan を確定（deploy 未実施） |
+| 2026-05-10 | 実態調査で Backend / Workers ともに Phase A は **2026-05-08 に既に deploy 済**と判明 → §11 を追記。Workers-only deploy で icon / themeColor のみ反映、Backend は別途 observability hotfix を deploy。Cloud Run Jobs 同期省略 |
+
+---
+
+## 11. 実態訂正（2026-05-10 cycle 完了時に追記）
+
+§1〜§9 の作成時前提は「Backend / Workers ともに Phase A 未 deploy」だったが、実態は以下。
+
+### 11.1 cycle 開始時点（本書作成直前）の実態
+
+| 範囲 | 状態 | 補足 |
+|---|---|---|
+| Backend Cloud Run `vrcpb-api` | **既に Phase A deploy 済** | revision `vrcpb-api-00029-95n` / image `:fb7b0d8`（2026-05-08T15:24 UTC）。Phase A 5 endpoint は本番で稼働中 |
+| Workers `vrcpb-frontend` | **既に Phase A deploy 済** | version `673a8e03-...` 系を経由し 2026-05-08T15:35 UTC に Phase A frontend 込みで反映済（その後 PR37 design rebuild deploy が乗っていた） |
+| 残ギャップ | icon assets + themeColor のみ未反映 | `frontend/app/icon*.png` / `apple-icon.png` / `favicon.ico` / `viewport.themeColor` は commit `37d7744` で push 済だが Workers 未反映 |
+
+`git diff fb7b0d8..HEAD -- backend/` は空であり、Backend 再 deploy は機能変更ゼロ。
+そのため当初プランの「Backend → Workers 二段 deploy」は不要と判断。
+
+### 11.2 採用した deploy 戦略（Option A: Workers-only deploy）
+
+- **Workers-only deploy** で icon / themeColor を反映
+- Backend deploy / Cloud Run Jobs image tag 同期 / routing wait は省略
+- 実施手順: `cf:build` → `( cd frontend && npx wrangler deploy )`（subshell で cwd drift 回避）
+
+### 11.3 結果（Workers-only deploy 完了）
+
+| 項目 | 値 |
+|---|---|
+| 新 Workers version | `2143bd55-19b2-41bd-a3c7-73043bb0873a` |
+| Rollback target | `3b7bcc46-0a68-48af-a807-8e904b9ce7ad` |
+| Total Upload | 5507.55 KiB / gzip 1303.29 KiB |
+| 新規 / 変更 asset | 3 件（`/BUILD_ID` / `_buildManifest.js` / `/favicon.ico`）+ 80 cache hit |
+| icon assets HTTP | `/icon.png` `/apple-icon.png` `/favicon.ico` `/icon1.png` 全 200 |
+| LP HTML `theme-color` | `<meta name="theme-color" content="#0F2A2E"/>` 反映 |
+| Phase A UI marker | production chunk に `page-action-bar` / `page-caption-editor` / `page-move-picker` / `draft-preview` / `page-merge` / `page-reorder-down` 維持 |
+| Safari smoke（macOS + iPhone） | 全 PASS |
+
+### 11.4 同 cycle 内で発生した別 deploy（Backend hotfix）
+
+Safari `/create` の Turnstile 403 一時発生事象を診断するため、Workers-only deploy の後に
+別途 Backend hotfix を deploy（`fix(observability): log turnstile verification failure codes`）:
+
+| 項目 | 値 |
+|---|---|
+| Hotfix commit | `4e935a9` |
+| Cloud Build ID | `a4be587d-1ffb-4d9c-860c-a4f2339eeaac` |
+| 新 Backend revision | `vrcpb-api-00030-2fp` / image `:4e935a9` |
+| Rollback target | `vrcpb-api-00029-95n` / image `:fb7b0d8` |
+| Cloud Run Jobs 同期 | **省略**（`vrcpb-image-processor` / `vrcpb-outbox-worker` ともに `:9c4fb7d` のまま、handler 経路に到達せず実害なし） |
+| Safari `/create` 結果 | deploy 直後から連続 201 成功（Turnstile 一時 state 不整合の自然回復、`harness/failure-log/2026-05-10_safari-turnstile-403-transient.md`） |
+
+### 11.5 §1〜§9 plan との差分（要点）
+
+- §3.1 含む / §3.2 含まない / §5 deploy plan / §6 smoke plan / §7 rollback plan は
+  **本来想定していた Backend → Workers 二段 deploy 用**の記述で、実際には Workers-only
+  + 後続 Backend hotfix の構成で進行
+- §1.1 / §2.3 / §3.1 の「Backend Phase A 未 deploy 前提」は誤り（実態: 既 deploy 済）
+- §4 verification results（γ）は Workers-only deploy 直前のものとして有効
+
+### 11.6 Cloud Run Jobs image tag drift（許容方針）
+
+| Job | image tag | 状態 |
+|---|---|---|
+| `vrcpb-image-processor` | `:9c4fb7d` | Backend service `:4e935a9` から drift |
+| `vrcpb-outbox-worker` | `:9c4fb7d` | 同上 |
+
+両 Job は image-processor / outbox-worker binary を起動するため、`/api/photobooks` handler
+には到達しない。drift していても機能影響なし。次回機能 deploy 時にまとめて image tag を
+揃える運用方針（user 推奨）。

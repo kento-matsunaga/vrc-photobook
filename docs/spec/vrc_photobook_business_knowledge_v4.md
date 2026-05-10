@@ -354,6 +354,9 @@ public_url_slug / manage_url_token 発行、draft_edit_token 失効、draft sess
 - draft 状態の Photobook に紐づく Image は `owner_photobook_id` でこの draft を指す
 - `draft_expires_at` を過ぎた draft は削除対象となる（自動 reconciler の `draft_expired`）
 - タイプを変更した場合、既定レイアウトと既定の開き方が新しいタイプのものに切り替わる
+- **`rights_agreed` は本機能（draft 作成・編集）では取得しない**。権利・配慮確認の同意は §3.2 公開機能の責任範囲であり、**publish 操作と同一トランザクション内で取得・保存**する（`status='draft'→'published'` 遷移と同 TX で `rights_agreed=true` を確定。途中保存は不可）。
+  - 同 TX 化により「同意したが publish 失敗 → 次回 publish で再同意せず通過」「未同意で publish 成立」のいずれもが防止される
+  - 実装は `9c4fb7d` で確定（Backend handler / Frontend `PublishSettingsPanel` / OCC 規約）
 
 ---
 
