@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
@@ -23,6 +23,13 @@ export const metadata: Metadata = {
     index: false,
     follow: false,
   },
+};
+
+// themeColor は design system の --ink (`design/source/project/wireframe-styles.css:18`) と一致。
+// アイコン背景 (`frontend/app/icon.png` 等、`design/source/icon/photobook-icon.png` 由来) と
+// 同色にすることで、モバイル Safari のステータスバー / Chrome アドレスバーがアイコンと統一される。
+export const viewport: Viewport = {
+  themeColor: "#0F2A2E",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
