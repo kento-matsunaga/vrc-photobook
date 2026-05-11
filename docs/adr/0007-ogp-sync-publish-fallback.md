@@ -221,3 +221,4 @@ KPI 未達時は以下を再評価:
 | 日付 | 変更 |
 |------|------|
 | 2026-05-11 | 初版作成（Proposed）。STOP α plan と同時起票、実装着手前承認待ち |
+| 2026-05-11 | STOP β / γ / δ 実装 + 本番反映完了に伴い、配信仕様の付記。 `unlisted` も OGP 配信許可（A 案）として `CanDeliverPublicOgp` を `visibility ∈ {public, unlisted}` に拡張。`private` / `hidden_by_operator=true` / `draft` / `deleted` / `purged` は不可を維持。背景: `unlisted` の業務定義「URL を知っている人のみ閲覧可能」と SNS 共有時の OGP UX を整合させるため。検索拒否は `noindex` 全ページ付与（v4 §7.6）で別経路維持。詳細は v4 §6.17 / cross-cutting/ogp-generation.md §7.2.1 |

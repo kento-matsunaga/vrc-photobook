@@ -201,6 +201,24 @@ photobook_ogp_images.status:
 
 実装上は閲覧ハンドラでこのロジックを通す。
 
+#### 7.2.1 配信可否（visibility / status / hidden）
+
+配信判定は **OGP row の status とは独立**に、photobook 集約の状態でも切り分ける（業務知識 v4 §3.2 / §6.17）。
+
+| photobook 状態 | OGP 配信 |
+|---|---|
+| `status='published'` かつ `hidden_by_operator=false` かつ `visibility='public'` | **可**（generated 画像を配信） |
+| `status='published'` かつ `hidden_by_operator=false` かつ `visibility='unlisted'` | **可**（2026-05-11 A 案、URL 共有時の OGP UX のため許可） |
+| `status='published'` かつ `hidden_by_operator=false` かつ `visibility='private'` | 不可（`not_public`、default OGP に fallback） |
+| `hidden_by_operator=true` | 不可（visibility 不問、`not_public`） |
+| `status` が `draft` / `deleted` / `purged` | 不可（`not_public`） |
+| 配信可と判定された photobook で OGP row が `pending` / `failed` / `stale` 等 | default OGP に fallback（generated 化まで待つ / worker fallback） |
+
+実装は pure 関数 `CanDeliverPublicOgp(d ogprdb.OgpDelivery) bool`（`backend/internal/ogp/internal/usecase/get_public_ogp.go`）に集約。配信判定が false の場合 UseCase は `OgpImageStatus = "not_public"` を返し、HTTP handler は `image_url_path = /og/default.png` で応答する。
+
+> **検索 / 一覧表示との独立性**:
+> `unlisted` の検索拒否・一覧非表示は HTML 側の `noindex` 全ページ付与（§7.6）/ sitemap 不生成で別途維持しており、OGP 配信許可は検索 index 化を意味しない。SNS crawler は OGP メタタグから直接 image URL を取得するため、検索エンジンの index には影響しない。
+
 ### 7.3 キャッシュ戦略
 
 - OGP画像URLに version クエリを付与（`?v={photobook_ogp_images.version}`）

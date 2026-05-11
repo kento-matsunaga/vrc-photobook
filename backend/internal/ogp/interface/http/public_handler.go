@@ -24,6 +24,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -38,13 +39,23 @@ import (
 // 既定 OGP の Frontend 静的配信パス。Workers + middleware 経由で取得される。
 const defaultOgpImagePath = "/og/default.png"
 
-// PublicHandlers は OGP lookup HTTP handler。
-type PublicHandlers struct {
-	getPublic *usecase.GetPublicOgp
+// GetPublicOgpExecutor は GetOgp handler が依存する最小 interface。
+//
+// production では `*usecase.GetPublicOgp` を直接渡す。test では fake 実装で
+// visibility 別の Execute outcome（unlisted → generated, private → not_public 等）
+// を制御し、handler のレスポンス整形を独立検証する。
+type GetPublicOgpExecutor interface {
+	Execute(ctx context.Context, pid photobookid.PhotobookID) (usecase.PublicOgpView, error)
 }
 
-// NewPublicHandlers は組み立て関数。
-func NewPublicHandlers(getPublic *usecase.GetPublicOgp) *PublicHandlers {
+// PublicHandlers は OGP lookup HTTP handler。
+type PublicHandlers struct {
+	getPublic GetPublicOgpExecutor
+}
+
+// NewPublicHandlers は組み立て関数。`*usecase.GetPublicOgp` が
+// `GetPublicOgpExecutor` を満たすため production 呼び出し側の変更不要。
+func NewPublicHandlers(getPublic GetPublicOgpExecutor) *PublicHandlers {
 	return &PublicHandlers{getPublic: getPublic}
 }
 
