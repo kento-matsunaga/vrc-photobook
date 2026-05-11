@@ -13,15 +13,18 @@ package wireup
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vrcpb/backend/internal/imageupload/infrastructure/r2"
+	"vrcpb/backend/internal/ogp/ogpintegration"
 	openingstyle "vrcpb/backend/internal/photobook/domain/vo/opening_style"
 	pblayout "vrcpb/backend/internal/photobook/domain/vo/photobook_layout"
 	pbtype "vrcpb/backend/internal/photobook/domain/vo/photobook_type"
 	pbvisibility "vrcpb/backend/internal/photobook/domain/vo/visibility"
+	"vrcpb/backend/internal/photobook/infrastructure/ogp_adapter"
 	photobookrdb "vrcpb/backend/internal/photobook/infrastructure/repository/rdb"
 	"vrcpb/backend/internal/photobook/infrastructure/session_adapter"
 	photobookhttp "vrcpb/backend/internal/photobook/interface/http"
@@ -85,22 +88,32 @@ func BuildManageReadHandlers(pool *pgxpool.Pool, clock photobookhttp.Clock) *pho
 	return photobookhttp.NewManageHandlers(get, updVis, updSens, issueDraft, revokeCurr, clock)
 }
 
-// BuildPublishHandlers は publish 用 HTTP Handlers を組み立てる（PR28）。
+// BuildPublishHandlers は publish 用 HTTP Handlers を組み立てる（PR28 + M-2 ADR-0007）。
 //
 // pool が nil なら nil を返す。
 //
 // PR36: ipHashSalt（REPORT_IP_HASH_SALT_V1 流用）と usage UseCase を渡すと
 // 1 時間 5 冊の publish UsageLimit が有効化される（業務知識 v4 §3.7）。
 // 空文字 / nil なら UsageLimit を skip。
+//
+// M-2 (ADR-0007): r2Client / bucketName / logger を渡すと、publish commit 後の
+// OGP 同期生成 + WithTx 内 pending 行 INSERT が有効化される。r2Client が nil の
+// 場合は OGP 同期を skip（旧 worker fallback のみで生成）。
 func BuildPublishHandlers(
 	pool *pgxpool.Pool,
 	usage *usagelimitwireup.Check,
 	ipHashSalt string,
+	r2Client r2.Client,
+	bucketName string,
+	logger *slog.Logger,
 ) *photobookhttp.PublishHandlers {
 	if pool == nil {
 		return nil
 	}
-	return photobookhttp.NewPublishHandlers(BuildPublishFromDraft(pool, usage), ipHashSalt)
+	return photobookhttp.NewPublishHandlers(
+		BuildPublishFromDraft(pool, usage, r2Client, bucketName, logger),
+		ipHashSalt,
+	)
 }
 
 // BuildCreateDraftPhotobook は CreateDraftPhotobook UseCase を組み立てる（CLI / batch
@@ -114,13 +127,43 @@ func BuildCreateDraftPhotobook(pool *pgxpool.Pool) *usecase.CreateDraftPhotobook
 // CLI / batch 用に再利用できるよう export）。
 //
 // PR36: usage が nil なら UsageLimit 連動を skip（旧互換 + test 用）。
-func BuildPublishFromDraft(pool *pgxpool.Pool, usage *usagelimitwireup.Check) *usecase.PublishFromDraft {
+// M-2 (ADR-0007): r2Client が nil の場合は OGP 同期生成を skip。renderer 初期化に
+// 失敗した場合も警告 log を出して skip し、publish 自体は成功させる
+// （OGP は worker fallback で生成される）。
+func BuildPublishFromDraft(
+	pool *pgxpool.Pool,
+	usage *usagelimitwireup.Check,
+	r2Client r2.Client,
+	bucketName string,
+	logger *slog.Logger,
+) *usecase.PublishFromDraft {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	var ogpEnsurer usecase.OgpPendingEnsurerWithTx
+	var ogpSync usecase.OgpSyncGenerator
+	if r2Client != nil {
+		ogpEnsurer = ogp_adapter.NewPendingEnsurer()
+		syncGen, err := ogpintegration.NewSyncGenerator(pool, r2Client, bucketName, logger)
+		if err != nil {
+			// renderer 初期化失敗は致命ではない（OGP は worker で後追い生成可能）。
+			// publish endpoint 自体は使えるようにし、警告だけ残す。
+			logger.Warn("ogp sync generator init failed; publish will skip OGP sync (worker fallback only)",
+				slog.String("error", err.Error()),
+			)
+		} else {
+			ogpSync = ogp_adapter.NewSyncGenerator(syncGen)
+		}
+	}
 	return usecase.NewPublishFromDraft(
 		pool,
 		session_adapter.NewPhotobookTxRepositoryFactory(),
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
 		usage,
+		ogpEnsurer,
+		ogpSync,
+		logger,
 	)
 }
 
@@ -172,8 +215,9 @@ func CreateAndPublishForCLI(
 	pid := createOut.Photobook.ID()
 	_ = createOut.RawDraftToken // 破棄
 
-	// CLI 経路は UsageLimit の対象外（運営/admin による作成）
-	publishUC := BuildPublishFromDraft(pool, nil)
+	// CLI 経路は UsageLimit の対象外（運営/admin による作成）。
+	// M-2: CLI 経路は OGP 同期生成も skip（r2Client nil）。OGP は worker で後追い。
+	publishUC := BuildPublishFromDraft(pool, nil, nil, "", nil)
 	publishOut, err := publishUC.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
 		ExpectedVersion: 0,

@@ -84,6 +84,9 @@ func TestPublishFromDraft_429_NoSideEffects(t *testing.T) {
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
 		usagelimitwireup.NewCheck(pool),
+		nil, // M-2: OGP pending ensurer (test 経路は OGP 同期 skip)
+		nil, // M-2: OGP sync generator (test 経路は OGP 同期 skip)
+		nil, // logger (nil → slog.Default())
 	)
 	out, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,

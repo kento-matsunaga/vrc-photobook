@@ -134,3 +134,17 @@ LEFT JOIN image_variants v
     ON v.image_id = o.image_id
    AND v.kind = 'ogp'
 WHERE o.photobook_id = $1;
+
+-- name: EnsureCreatedPendingOgp :exec
+-- M-2 OGP 同期化 (STOP β): publish 同 TX で pending 行を冪等 INSERT する。
+-- photobook_id UNIQUE 違反は ON CONFLICT DO NOTHING で吸収（既存 row があれば no-op）。
+-- worker 側 `CreatePendingOgp` 経路は existence check 後の strict INSERT を残し、
+-- 本 query は publish UC からの冪等 ensure 専用とする。
+INSERT INTO photobook_ogp_images (
+    id, photobook_id, status, version,
+    created_at, updated_at
+) VALUES (
+    $1, $2, 'pending', 1,
+    $3, $3
+)
+ON CONFLICT (photobook_id) DO NOTHING;

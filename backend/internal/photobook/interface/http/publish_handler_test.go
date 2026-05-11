@@ -44,6 +44,9 @@ func setupPublishRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
 		nil, // PR36: test 経路は UsageLimit skip
+		nil, // M-2: OGP pending ensurer (test 経路は OGP 同期 skip)
+		nil, // M-2: OGP sync generator (test 経路は OGP 同期 skip)
+		nil, // logger (nil → slog.Default())
 	)
 	h := photobookhttp.NewPublishHandlers(uc, "" /* ipHashSalt: PR36 test 経路は salt 空で UsageLimit skip */)
 	r := chi.NewRouter()

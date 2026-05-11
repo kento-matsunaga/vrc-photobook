@@ -138,3 +138,49 @@ type ManageSessionRevokerFactory func(tx pgx.Tx) ManageSessionRevoker
 type SlugGenerator interface {
 	Generate(ctx context.Context) (slug.Slug, error)
 }
+
+// === OGP 連携 ports（M-2 同期 publish / ADR-0007） ===
+//
+// publish UC は本 interface 群を経由して OGP 機構を呼ぶ。
+// 実装は infrastructure/ogp_adapter/ で ogpintegration を呼ぶ薄い wrapper。
+
+// OgpPendingEnsurerWithTx は publish UC の WithTx 内で photobook_ogp_images の
+// pending 行を冪等 INSERT する（ON CONFLICT DO NOTHING）。
+//
+// ADR-0007 §3 (1): publish と pending 行の存在を同一 TX で保証することで、
+// 1st X crawler hit 時に row が無く `/og/default.png` redirect される事故を防ぐ。
+type OgpPendingEnsurerWithTx interface {
+	EnsurePendingWithTx(
+		ctx context.Context,
+		tx pgx.Tx,
+		photobookID photobook_id.PhotobookID,
+		now time.Time,
+	) error
+}
+
+// OgpSyncOutcome は commit 後 sync の結果分類（log 用）。
+//
+// 値は ogpintegration.SyncOutcome と 1:1 対応するが、photobook 集約から ogp の型を
+// 直接参照しないため string 表現でやり取りする（小文字 snake_case 固定）。
+type OgpSyncOutcome string
+
+const (
+	OgpSyncOutcomeSuccess          OgpSyncOutcome = "success"
+	OgpSyncOutcomeTimeout          OgpSyncOutcome = "timeout"
+	OgpSyncOutcomeNotPublished     OgpSyncOutcome = "not_published"
+	OgpSyncOutcomePhotobookMissing OgpSyncOutcome = "photobook_missing"
+	OgpSyncOutcomeError            OgpSyncOutcome = "error"
+)
+
+// OgpSyncGenerator は publish commit 後の best-effort 同期生成を実行する。
+//
+// 呼び出し側は context.WithTimeout(2.5s) を渡す。失敗時も pending 行は維持され、
+// outbox-worker / Cloud Scheduler の fallback 経路（ADR-0007 §3 (2) (3)、
+// Scheduler 整備は未確定）で再試行される。
+type OgpSyncGenerator interface {
+	GenerateSync(
+		ctx context.Context,
+		photobookID photobook_id.PhotobookID,
+		now time.Time,
+	) OgpSyncOutcome
+}

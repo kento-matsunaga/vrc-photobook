@@ -87,6 +87,9 @@ func TestPublishFromDraft_TxCommit_RevokesDraftSessions(t *testing.T) {
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
 		nil, // PR36: test 経路は UsageLimit skip
+		nil, // M-2: OGP pending ensurer (test 経路は OGP 同期 skip)
+		nil, // M-2: OGP sync generator (test 経路は OGP 同期 skip)
+		nil, // logger (nil → slog.Default())
 	)
 	pubOut, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
@@ -147,6 +150,9 @@ func TestPublishFromDraft_TxRollback_OnRevokerError(t *testing.T) {
 		},
 		usecase.NewMinimalSlugGenerator(),
 		nil, // PR36: test 経路は UsageLimit skip
+		nil, // M-2: OGP pending ensurer (test 経路は OGP 同期 skip)
+		nil, // M-2: OGP sync generator (test 経路は OGP 同期 skip)
+		nil, // logger (nil → slog.Default())
 	)
 	_, err = publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,
@@ -197,6 +203,9 @@ func TestReissueManageUrl_TxCommit_RevokesOldManageSessions(t *testing.T) {
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
 		nil, // PR36: test 経路は UsageLimit skip
+		nil, // M-2: OGP pending ensurer (test 経路は OGP 同期 skip)
+		nil, // M-2: OGP sync generator (test 経路は OGP 同期 skip)
+		nil, // logger (nil → slog.Default())
 	)
 	if _, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pid,

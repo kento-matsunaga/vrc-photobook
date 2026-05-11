@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,6 +27,13 @@ import (
 	usagelimitscopetype "vrcpb/backend/internal/usagelimit/domain/vo/scope_type"
 	usagelimitwireup "vrcpb/backend/internal/usagelimit/wireup"
 )
+
+// ogpSyncTimeout は publish commit 後の best-effort 同期生成に許容する最大時間。
+//
+// ADR-0007 §3 (2) / docs/plan/m2-ogp-sync-publish-plan.md STOP β: 95th 推定
+// (warm ~430 ms) に対し十分なマージンを取りつつ、HTTP response を過度に遅らせない。
+// 失敗 / timeout 時は pending 行を維持し worker fallback に委ねる。
+const ogpSyncTimeout = 2500 * time.Millisecond
 
 // ErrPublishConflict は publish 楽観ロック失敗（version 不一致 / status≠draft）。
 var ErrPublishConflict = errors.New("publish conflict (version mismatch or not in draft state)")
@@ -137,25 +145,42 @@ type PublishFromDraft struct {
 	revokerFactory       DraftSessionRevokerFactory
 	slugGen              SlugGenerator
 	usage                *usagelimitwireup.Check // PR36: nil なら UsageLimit skip
+	ogpEnsurer           OgpPendingEnsurerWithTx // M-2: nil なら OGP pending INSERT を skip（旧互換）
+	ogpSync              OgpSyncGenerator        // M-2: nil なら commit 後 sync を skip（旧互換）
+	logger               *slog.Logger            // nil なら slog.Default()
 }
 
 // NewPublishFromDraft は UseCase を組み立てる。
 //
 // PR36: usage が nil の場合 UsageLimit 連動を行わない（旧互換維持）。
 // 本番では非 nil で渡す。
+//
+// M-2 (ADR-0007): ogpEnsurer / ogpSync が nil の場合は OGP 同期化を skip し、
+// 旧 worker 経路（outbox + Scheduler）のみで OGP 行を作成する。test では nil を
+// 渡して旧経路の挙動を確認できる。本番では wireup で非 nil を渡す。
+// logger は slog 観測 (`event=ogp_sync_result`) 用。
 func NewPublishFromDraft(
 	pool *pgxpool.Pool,
 	photobookRepoFactory PhotobookTxRepositoryFactory,
 	revokerFactory DraftSessionRevokerFactory,
 	slugGen SlugGenerator,
 	usage *usagelimitwireup.Check,
+	ogpEnsurer OgpPendingEnsurerWithTx,
+	ogpSync OgpSyncGenerator,
+	logger *slog.Logger,
 ) *PublishFromDraft {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &PublishFromDraft{
 		pool:                 pool,
 		photobookRepoFactory: photobookRepoFactory,
 		revokerFactory:       revokerFactory,
 		slugGen:              slugGen,
 		usage:                usage,
+		ogpEnsurer:           ogpEnsurer,
+		ogpSync:              ogpSync,
+		logger:               logger,
 	}
 }
 
@@ -269,11 +294,65 @@ func (u *PublishFromDraft) Execute(
 		if err := outboxrdb.NewOutboxRepository(tx).Create(ctx, ev); err != nil {
 			return fmt.Errorf("outbox create photobook.published: %w", err)
 		}
+		// M-2 (ADR-0007 §3 (1)): photobook_ogp_images の pending 行を同一 TX で冪等 INSERT。
+		// publish と pending 行の存在を atomic に揃え、1st X crawler hit 時に row が無く
+		// `/og/default.png` redirect される事故を防ぐ。
+		// SQL 側 ON CONFLICT DO NOTHING で worker 側 CreatePending との race を吸収する。
+		if u.ogpEnsurer != nil {
+			if err := u.ogpEnsurer.EnsurePendingWithTx(ctx, tx, pb.ID(), in.Now); err != nil {
+				return fmt.Errorf("ogp ensure pending: %w", err)
+			}
+		}
 		resultPB = next
 		return nil
 	})
 	if err != nil {
 		return PublishFromDraftOutput{}, err
 	}
+
+	// M-2 (ADR-0007 §3 (2)): commit 後 best-effort 同期生成。
+	// timeout / 失敗時も publish 自体は成功扱い（pending 行は維持され worker fallback）。
+	// 観測: slog `event=ogp_sync_result` で outcome / duration_ms を必ず出す。
+	u.runOgpSync(ctx, resultPB.ID(), in.Now)
+
 	return PublishFromDraftOutput{Photobook: resultPB, RawManageToken: rawManage}, nil
+}
+
+// runOgpSync は publish commit 後の best-effort sync を起動する。
+//
+// ogpSync が nil の場合は何もしない（旧互換）。
+// timeout は ogpSyncTimeout (2.5s)。outcome / duration_ms を slog で必ず出力する。
+// 内部 panic / OGP UC error は呼び出し側 (HTTP handler) には伝播させない（best-effort）。
+//
+// 注意: 親 ctx が既に cancel されている場合でも sync を試みるため、parent ctx を
+// 引き継ぐが timeout のみ 2.5s で制約する。HTTP response を返した直後に worker が
+// goroutine を即座に reap しないよう、同期実行 (caller blocking) で実装する。
+func (u *PublishFromDraft) runOgpSync(ctx context.Context, photobookID photobook_id.PhotobookID, now time.Time) {
+	if u.ogpSync == nil {
+		return
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, ogpSyncTimeout)
+	defer cancel()
+	start := time.Now()
+	outcome := u.ogpSync.GenerateSync(syncCtx, photobookID, now)
+	durMs := time.Since(start).Milliseconds()
+
+	// logger は本来 NewPublishFromDraft で nil チェック済だが、unit test 等で直接
+	// 構築されるケースを想定し defensive に default へ倒す。
+	logger := u.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	attrs := []any{
+		slog.String("event", "ogp_sync_result"),
+		slog.String("outcome", string(outcome)),
+		slog.Int64("duration_ms", durMs),
+		slog.String("photobook_id", photobookID.String()),
+	}
+	if outcome == OgpSyncOutcomeSuccess {
+		logger.InfoContext(ctx, "ogp sync after publish", attrs...)
+	} else {
+		// 失敗時も WarnContext のみ。publish 自体は成功扱いのため Error は使わない。
+		logger.WarnContext(ctx, "ogp sync after publish (non-success)", attrs...)
+	}
 }

@@ -98,6 +98,9 @@ func createDraftAndPublish(t *testing.T, pool *pgxpool.Pool) (string, string) {
 		session_adapter.NewDraftRevokerFactory(),
 		usecase.NewMinimalSlugGenerator(),
 		nil, // PR36: test 経路は UsageLimit skip
+		nil, // M-2: OGP pending ensurer (test 経路は OGP 同期 skip)
+		nil, // M-2: OGP sync generator (test 経路は OGP 同期 skip)
+		nil, // logger (nil → slog.Default())
 	)
 	pub, err := publish.Execute(ctx, usecase.PublishFromDraftInput{
 		PhotobookID:     pubOut.Photobook.ID(),

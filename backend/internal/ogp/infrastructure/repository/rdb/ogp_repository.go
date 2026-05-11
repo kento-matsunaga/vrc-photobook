@@ -47,6 +47,34 @@ func (r *OgpRepository) CreatePending(ctx context.Context, ev domain.OgpImage) e
 	})
 }
 
+// EnsureCreatedPending は photobook_id を key にした冪等 INSERT を実行する。
+//
+// M-2 OGP 同期化 (STOP β、ADR-0007): publish UC が WithTx 内で pending 行を先行
+// INSERT する用途。photobook_id UNIQUE 違反は SQL 側 ON CONFLICT DO NOTHING で吸収し、
+// 既存 row があっても error にしない（worker 側の `CreatePending` を経た後に再度
+// publish 経路が走るケース等を含む冪等動作）。
+//
+// 呼び出し側は内部で uuid v7 / domain.NewPending を実行し、両者が race しても
+// SQL 側 UNIQUE constraint で先勝ち row が残るため安全。
+func (r *OgpRepository) EnsureCreatedPending(
+	ctx context.Context,
+	photobookID photobookid.PhotobookID,
+	now time.Time,
+) error {
+	pending, err := domain.NewPending(domain.NewPendingParams{
+		PhotobookID: photobookID,
+		Now:         now,
+	})
+	if err != nil {
+		return err
+	}
+	return r.q.EnsureCreatedPendingOgp(ctx, sqlcgen.EnsureCreatedPendingOgpParams{
+		ID:          pgtype.UUID{Bytes: pending.ID(), Valid: true},
+		PhotobookID: pgtype.UUID{Bytes: photobookID.UUID(), Valid: true},
+		CreatedAt:   pgtype.Timestamptz{Time: now, Valid: true},
+	})
+}
+
 // FindByPhotobookID は photobook_id から row を取得する（無ければ ErrNotFound）。
 func (r *OgpRepository) FindByPhotobookID(ctx context.Context, pid photobookid.PhotobookID) (domain.OgpImage, error) {
 	row, err := r.q.FindOgpByPhotobookID(ctx, pgtype.UUID{Bytes: pid.UUID(), Valid: true})

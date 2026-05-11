@@ -98,9 +98,6 @@ func main() {
 		photobookHandlers = wireup.BuildHandlers(pool, manageSessionTTL, photobookhttp.SystemClock{})
 		// 管理ページ read + M-1a mutation endpoints（pool だけで完結）
 		photobookManageHandlers = wireup.BuildManageReadHandlers(pool, photobookhttp.SystemClock{})
-		// publish endpoint（PublishFromDraft UseCase の HTTP 化）
-		// PR36: usage + ipHashSalt（REPORT_IP_HASH_SALT_V1 流用）で 1 時間 5 冊制限
-		photobookPublishHandlers = wireup.BuildPublishHandlers(pool, usageCheck, cfg.ReportIPHashSaltV1)
 	}
 
 	// R2 が configured かつ pool 利用可能なときに imageupload endpoint と、
@@ -109,6 +106,9 @@ func main() {
 	var imageUploadHandlers *imageuploadhttp.Handlers
 	var photobookPublicHandlers *photobookhttp.PublicHandlers
 	var photobookEditHandlers *photobookhttp.EditHandlers
+	// M-2 (ADR-0007): publish handlers は r2Client が揃った後に組み立てる
+	// （OGP 同期生成のため）。r2 未設定時は後段で fallback init する。
+	var r2ClientForPublish r2.Client
 	if pool != nil && cfg.IsR2Configured() {
 		r2Client, err := r2.NewAWSClient(r2.AWSConfig{
 			AccountID:       cfg.R2AccountID,
@@ -126,10 +126,31 @@ func main() {
 			photobookPublicHandlers = wireup.BuildPublicHandlers(pool, r2Client)
 			// 編集 UI も edit-view で variant URL を返すため r2Client が必要
 			photobookEditHandlers = wireup.BuildEditHandlers(pool, r2Client)
+			r2ClientForPublish = r2Client
 			logger.Info("r2 configured; image upload endpoints enabled")
 		}
 	} else if pool != nil {
 		logger.Info("r2 not configured; image upload endpoints disabled")
+	}
+
+	// publish endpoint（PublishFromDraft UseCase の HTTP 化）
+	// PR36: usage + ipHashSalt（REPORT_IP_HASH_SALT_V1 流用）で 1 時間 5 冊制限
+	// M-2 (ADR-0007): r2Client が利用可能なら publish commit 後の OGP 同期生成も有効化。
+	// r2 未設定時は ogp sync skip（worker fallback のみで生成）。
+	if pool != nil {
+		photobookPublishHandlers = wireup.BuildPublishHandlers(
+			pool,
+			usageCheck,
+			cfg.ReportIPHashSaltV1,
+			r2ClientForPublish,
+			cfg.R2BucketName,
+			logger,
+		)
+		if r2ClientForPublish != nil {
+			logger.Info("publish: OGP sync enabled (commit-after best-effort + outbox fallback)")
+		} else {
+			logger.Info("publish: OGP sync disabled (worker fallback only; r2 not configured)")
+		}
 	}
 
 	// Turnstile が configured かつ pool 利用可能なときに upload-verifications endpoint を
