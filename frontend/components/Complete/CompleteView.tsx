@@ -10,7 +10,18 @@
 //   - チェック前は閉じる導線（編集ページに戻る / 公開ページを開く）に注意文を出し、
 //     ボタン自体は disable しない（誤誘導防止のため警告中心、選択肢は奪わない）
 //
-// m2-design-refresh STOP β-4 (本 commit、visual のみ):
+// M-2 STOP δ (ADR-0007):
+//   - photobookId prop を追加し、Backend `/api/public/photobooks/{id}/ogp` を 2 s 間隔 /
+//     最大 30 s polling して OGP readiness を確認する
+//   - polling 中は「公開ページを開く」/ 共有 (UrlCopyPanel public copy) を disable + spinner
+//   - generated 到達で全 enable、テキスト「OGP プレビュー画像の準備が完了しました」
+//   - 30 s timeout で enable + info「OGP 画像の反映に少し時間がかかっています。SNS で
+//     プレビューが表示されない場合は数十秒後に再度お試しください。」
+//   - polling 失敗 (network / error / 例外) は **公開完了扱いを壊さない**。timeout 後
+//     enable 経路で扱う
+//   - photobookId / raw API URL は DOM / aria-label / log に残さない（fetch 内に閉じる）
+//
+// m2-design-refresh STOP β-4:
 //   - design `wf-screens-b.jsx:197-246` (M) / `:247-293` (PC) `WFComplete` 視覚整合
 //   - eyebrow「Status: PUBLISHED」+ h1「フォトブックを公開しました」(design 通り)
 //   - PC は wf-grid-2 で公開 URL + 管理 URL 並列、Mobile は縦 stack
@@ -22,10 +33,11 @@
 //     ManageUrlSavePanel / ManageUrlWarning / UrlCopyPanel logic は **触らない**
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PublicTopBar } from "@/components/Public/PublicTopBar";
 import { SectionEyebrow } from "@/components/Public/SectionEyebrow";
+import { fetchOgpReadinessClient } from "@/lib/ogpReadiness";
 
 import { ManageUrlSavePanel } from "./ManageUrlSavePanel";
 import { ManageUrlWarning } from "./ManageUrlWarning";
@@ -33,10 +45,20 @@ import { UrlCopyPanel } from "./UrlCopyPanel";
 
 type Props = {
   appBaseUrl: string;
+  photobookId: string;
   publicUrlPath: string;
   manageUrlPath: string;
   onBackToEdit: () => void;
 };
+
+// M-2 (ADR-0007): polling 間隔 / timeout。renderer warm 10-13 ms + R2 PUT p95 200 ms +
+// 同期 timeout 2.5 s + worker fallback 60 s 想定に対し、user 体感の上限として 30 s を採用。
+// User-facing なので const 直書きで明示する。
+const OGP_POLL_INTERVAL_MS = 2_000;
+const OGP_POLL_TIMEOUT_MS = 30_000;
+
+// OGP polling phase。共有 UI の disable / enable / 文言切替えで使う。
+type OgpPhase = "checking" | "ready" | "timeout";
 
 // extractSlugFromManagePath は public_url_path から slug を取り出す（無ければ undefined）。
 // 想定形式: "/p/<slug>" または "/manage/<...>"。manage_url_path は token 含むので使わない。
@@ -47,6 +69,7 @@ function extractSlugFromPublicPath(publicUrlPath: string): string | undefined {
 
 export function CompleteView({
   appBaseUrl,
+  photobookId,
   publicUrlPath,
   manageUrlPath,
   onBackToEdit,
@@ -57,6 +80,53 @@ export function CompleteView({
   const slug = extractSlugFromPublicPath(publicUrlPath);
 
   const [savedConfirmed, setSavedConfirmed] = useState(false);
+
+  // M-2 STOP δ: OGP readiness polling。public endpoint への fetch を 2 s 間隔で繰り返す。
+  // ready / timeout のいずれかに至ったら interval を停止する。
+  const [ogpPhase, setOgpPhase] = useState<OgpPhase>("checking");
+  const ogpPhaseRef = useRef<OgpPhase>("checking");
+  useEffect(() => {
+    let cancelled = false;
+    const abortController = new AbortController();
+    const startedAt = Date.now();
+
+    const tick = async () => {
+      if (cancelled) return;
+      const status = await fetchOgpReadinessClient(photobookId, abortController.signal);
+      if (cancelled) return;
+      if (status === "generated") {
+        ogpPhaseRef.current = "ready";
+        setOgpPhase("ready");
+        return;
+      }
+      // pending / not_found / error はいずれも polling 継続 (ADR-0007 §3 (4))。
+      // timeout 判定は次回 tick で interval の clearInterval により打ち切られる。
+    };
+
+    // 即時 1 回 + その後 2 s 間隔。
+    void tick();
+    const intervalId = window.setInterval(() => {
+      if (cancelled) return;
+      if (Date.now() - startedAt >= OGP_POLL_TIMEOUT_MS) {
+        if (ogpPhaseRef.current !== "ready") {
+          ogpPhaseRef.current = "timeout";
+          setOgpPhase("timeout");
+        }
+        window.clearInterval(intervalId);
+        return;
+      }
+      void tick();
+    }, OGP_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      abortController.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [photobookId]);
+
+  // ready / timeout 後は共有 CTA を enable。checking 中のみ disable + spinner で誘導抑止。
+  const shareEnabled = ogpPhase !== "checking";
 
   return (
     <>
@@ -109,19 +179,81 @@ export function CompleteView({
           />
         </div>
 
+        {/* M-2 STOP δ: OGP readiness 状態表示。data-testid は phase ごとに分け、Workers
+            production chunk の grep 検証に使う（raw photobook_id は出さない）。 */}
+        <div className="mt-5" data-testid={`complete-ogp-${ogpPhase}`}>
+          {ogpPhase === "checking" && (
+            <div
+              className="flex items-start gap-2.5 rounded-lg border border-divider-soft bg-surface-soft p-3.5 text-xs leading-[1.6] text-ink-medium"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                aria-hidden="true"
+                className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-teal-400 border-t-transparent"
+              />
+              <p className="flex-1">
+                OGP プレビュー画像の準備中です。SNS シェアの前に少しお待ちください。
+              </p>
+            </div>
+          )}
+          {ogpPhase === "ready" && (
+            <div
+              className="flex items-start gap-2.5 rounded-lg border-l-[3px] border-status-success bg-status-success-soft p-3.5 text-xs leading-[1.6] text-ink-strong"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="flex-1">
+                OGP プレビュー画像の準備が完了しました。公開 URL を SNS にシェアできます。
+              </p>
+            </div>
+          )}
+          {ogpPhase === "timeout" && (
+            <div
+              className="flex items-start gap-2.5 rounded-lg border-l-[3px] border-teal-300 bg-teal-50 p-3.5 text-xs leading-[1.6] text-ink-strong"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="flex-1">
+                OGP 画像の反映に少し時間がかかっています。SNS でプレビューが表示されない場合は
+                数十秒後に再度お試しください。
+              </p>
+            </div>
+          )}
+        </div>
+
         <section
           className="mt-7 flex flex-col gap-3 border-t border-divider-soft pt-5 sm:flex-row sm:items-center sm:justify-between"
           data-testid="complete-actions"
         >
-          <a
-            href={publicURL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex h-12 items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover"
-            data-testid="complete-open-viewer"
-          >
-            公開ページを開く
-          </a>
+          {/* M-2 STOP δ: ready 前は disable + spinner で誘導抑止。
+              ready / timeout 後は通常の <a> として enable する。 */}
+          {shareEnabled ? (
+            <a
+              href={publicURL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-12 items-center justify-center rounded-[10px] bg-brand-teal px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-brand-teal-hover"
+              data-testid="complete-open-viewer"
+            >
+              公開ページを開く
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              aria-label="公開ページを開く（OGP プレビュー準備中）"
+              className="inline-flex h-12 cursor-not-allowed items-center justify-center gap-2 rounded-[10px] bg-brand-teal/60 px-6 text-sm font-bold text-white shadow-sm"
+              data-testid="complete-open-viewer"
+            >
+              <span
+                aria-hidden="true"
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+              />
+              公開ページを開く
+            </button>
+          )}
           <button
             type="button"
             onClick={onBackToEdit}

@@ -567,6 +567,9 @@ export function EditClient({ initial, turnstileSiteKey }: Props) {
     return (
       <CompleteView
         appBaseUrl={appBaseUrl}
+        // M-2 STOP δ (ADR-0007): CompleteView 内で `/api/public/photobooks/{id}/ogp`
+        // を 2 s 間隔で polling し、OGP readiness を判定するため photobookId を渡す。
+        photobookId={publishResult.photobookId}
         publicUrlPath={publishResult.publicUrlPath}
         manageUrlPath={publishResult.manageUrlPath}
         onBackToEdit={() => {
